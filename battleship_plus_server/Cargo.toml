@@ -1,0 +1,7 @@
+[package]
+name = "battleship_plus_server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+battleship_plus_common = { path = "../battleship_plus_common" }

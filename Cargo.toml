@@ -1,9 +1,10 @@
-[package]
-name = "battleship_plus"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-[dependencies]
-prost = "0.11"
-bevy = "0.9"
-bevy_quinnet = "0.2"
+members = [
+    "battleship_plus_server",
+    "battleship_plus_client",
+    "battleship_plus_common",
+]
+
+# Required for wgpu-hal, a dependency of bevy
+resolver = "2"
