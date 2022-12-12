@@ -2,7 +2,7 @@ use std::env;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 
-use codegen::Scope;
+use codegen::{Block, Enum, Impl, Scope, Type};
 use serde_yaml::Value;
 
 fn main() -> Result<()> {
@@ -26,22 +26,56 @@ fn main() -> Result<()> {
         _ => panic!("expected a mapping named OpCodes")
     };
 
-    let mut op_codes = Scope::new();
-    {
-        let op_codes = op_codes
-            .new_enum("OpCodes")
-            .vis("pub")
-            .derive("Debug")
-            .derive("Clone")
-            .derive("Copy");
+    // generate Enum from OpCodes
+    const OP_CODES_ENUM: &'static str = "OpCodes";
+    let mut op_codes_scope = Scope::new();
 
-        op_codes_yaml.iter().for_each(|(key, value)| {
-            let key = key.as_str().unwrap();
-            let value = value.as_i64().unwrap();
-            op_codes.new_variant(format!("{} = {:x}", key, value));
-        });
-    }
+    let mut op_codes = Enum::new(OP_CODES_ENUM);
+    op_codes
+        .vis("pub")
+        .derive("Debug")
+        .derive("Clone")
+        .derive("Copy");
 
+    let mut try_from = Impl::new(Type::new(OP_CODES_ENUM));
+    try_from
+        .impl_trait(Type::new("TryFrom<u8>"))
+        .associate_type("Error", Type::new("&'static str"));
+    let try_from_fn = try_from
+        .new_fn("try_from")
+        .arg("value", Type::new("u8"))
+        .ret(Type::new("std::result::Result<Self, Self::Error>"));
+
+    let mut into = Impl::new(Type::new(OP_CODES_ENUM));
+    into
+        .impl_trait(Type::new("Into<u8>"));
+    let into_fn = into
+        .new_fn("into")
+        .arg_self()
+        .ret(Type::new("u8"));
+
+    let mut try_from_fn_match = Block::new("match value");
+    let mut into_fn_match = Block::new("match self");
+
+    op_codes_yaml.iter().for_each(|(key, value)| {
+        let key = key.as_str().unwrap();
+        let value = value.as_i64().unwrap();
+        op_codes.new_variant(format!("{} = {:x}", key, value));
+
+        try_from_fn_match.line(format!("{} => Ok({}::{}),", value, OP_CODES_ENUM, key));
+        into_fn_match.line(format!("{}::{} => {},", OP_CODES_ENUM, key, value));
+    });
+
+    try_from_fn_match.line("_ => Err(\"Unknown OpCode\"),");
+
+    try_from_fn.push_block(try_from_fn_match);
+    into_fn.push_block(into_fn_match);
+
+    op_codes_scope.push_enum(op_codes.clone());
+    op_codes_scope.push_impl(try_from.clone());
+    op_codes_scope.push_impl(into.clone());
+
+    // write generated code
     let target: PathBuf = env::var_os("OUT_DIR")
         .expect("OUT_DIR environment variable is not set")
         .into();
@@ -51,12 +85,11 @@ fn main() -> Result<()> {
         let mut f = std::fs::File::create(&target)
             .expect(&format!("unable to write file {:?}.", &target));
 
-        f.write(op_codes.to_string().as_bytes())
+        f.write(op_codes_scope.to_string().as_bytes())
             .expect(&format!("unable to write file {:?}.", &target));
 
         f.sync_all().unwrap();
     }
 
-    println!("cargo:rerun-if-changed=build.rs");
     Ok(())
 }
