@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 battleship_plus_common = { path = "../battleship_plus_common" }
-bevy = "0.9"
+bevy = { version = "0.9", features = ["wayland"] }
 bevy_quinnet = "0.2"
 bevy-inspector-egui = "0.14"

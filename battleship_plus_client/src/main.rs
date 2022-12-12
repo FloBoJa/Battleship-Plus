@@ -1,47 +1,66 @@
-use bevy::prelude::*;
-use bevy_inspector_egui::WorldInspectorPlugin;
-
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(2.0, 4.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..Default::default()
-    });
-}
-
-fn spawn_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mesh = meshes.add(
-        shape::Icosphere {
-            radius: 1.0,
-            subdivisions: 4,
-        }
-        .into(),
-    );
-    let material = materials.add(Color::rgb(0.6, 0.8, 0.4).into());
-    commands.spawn(PbrBundle {
-        mesh,
-        material,
-        transform: Transform::from_xyz(0.0, 0.0, 0.0),
-        ..Default::default()
-    });
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
-            ..Default::default()
-        },
-        transform: Transform::from_xyz(0.0, 0.0, 5.0),
-        ..Default::default()
-    });
-}
+use bevy::{
+    diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
+    prelude::*,
+    window::PresentMode
+};
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::rgb(0.2, 0.2, 0.2)))
-        .add_plugins(DefaultPlugins)
-        .add_plugin(WorldInspectorPlugin::new())
-        .add_startup_system(spawn_camera)
-        .add_startup_system(spawn_scene)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            window: WindowDescriptor {
+                title: "Battleship plus".to_string(),
+                width: 1280.,
+                height: 720.,
+                mode: WindowMode::Windowed,
+                resizable: false,
+                decorations: true,
+                present_mode: PresentMode::AutoNoVsync,
+                ..default()
+            },
+            ..default()
+        }))
+        .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        .add_startup_system(fps_counter)
+        .add_startup_system(camera_setup)
+        .add_system(text_update_system)
         .run();
+}
+
+#[derive(Component)]
+struct FpsText;
+
+fn camera_setup(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
+}
+
+fn fps_counter(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        TextBundle::from_sections([
+            TextSection::new(
+                "FPS: ",
+                TextStyle {
+                    font: asset_server.load("fonts/LEMONMILK-Regular.otf"),
+                    font_size: 20.0,
+                    color: Color::WHITE,
+                },
+            ),
+            TextSection::from_style(TextStyle {
+                font: asset_server.load("fonts/LEMONMILK-Regular.otf"),
+                font_size: 20.0,
+                color: Color::GOLD,
+            }),
+        ]),
+        FpsText,
+    ));
+}
+
+fn text_update_system(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text, With<FpsText>>) {
+    for mut text in &mut query {
+        if let Some(fps) = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS) {
+            if let Some(value) = fps.smoothed() {
+                // Update the value of the second section
+                text.sections[1].value = format!("{value:.2}");
+            }
+        }
+    }
 }
