@@ -1,0 +1,3 @@
+[submodule "res/rfc"]
+	path = res/rfc
+	url = git@git.scc.kit.edu:tm-praktika/protocol-engineering-ws2022-2023/rfc.git
