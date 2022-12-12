@@ -18,7 +18,7 @@ fn spawn_scene(
             radius: 1.0,
             subdivisions: 4,
         }
-        .into(),
+            .into(),
     );
     let material = materials.add(Color::rgb(0.6, 0.8, 0.4).into());
     commands.spawn(PbrBundle {
