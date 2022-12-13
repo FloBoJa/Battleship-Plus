@@ -1,8 +1,10 @@
 use bevy::{
     diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
     prelude::*,
-    window::PresentMode
+    window::PresentMode,
 };
+
+mod networking;
 
 fn main() {
     App::new()
@@ -20,6 +22,7 @@ fn main() {
             ..default()
         }))
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        .add_plugin(networking::NetworkingPlugin)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
         .add_system(text_update_system)
