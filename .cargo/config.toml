@@ -1,0 +1,2 @@
+[env]
+RESOURCE_DIR = { value = "res", relative = true }

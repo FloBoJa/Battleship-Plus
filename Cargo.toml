@@ -1,9 +1,7 @@
 [workspace]
 
 members = [
-    "battleship_plus_server",
-    "battleship_plus_client",
-    "battleship_plus_common",
+    "crates/*"
 ]
 
 # Required for wgpu-hal, a dependency of bevy
