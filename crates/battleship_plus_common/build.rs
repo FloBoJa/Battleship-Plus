@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     };
 
     // generate Enum from OpCodes
-    const OP_CODES_ENUM: &'static str = "OpCodes";
+    const OP_CODES_ENUM: &'static str = "OpCode";
     let mut op_codes_scope = Scope::new();
 
     let mut op_codes = Enum::new(OP_CODES_ENUM);
