@@ -60,7 +60,7 @@ fn main() -> Result<()> {
     op_codes_yaml.iter().for_each(|(key, value)| {
         let key = key.as_str().unwrap();
         let value = value.as_i64().unwrap();
-        op_codes.new_variant(format!("{} = {:x}", key, value));
+        op_codes.new_variant(format!("{} = {}", key, value));
 
         try_from_fn_match.line(format!("{} => Ok({}::{}),", value, OP_CODES_ENUM, key));
         into_fn_match.line(format!("{}::{} => {},", OP_CODES_ENUM, key, value));
