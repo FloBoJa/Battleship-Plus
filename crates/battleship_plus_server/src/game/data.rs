@@ -1,16 +1,22 @@
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
 use battleship_plus_common::messages::{BattleshipBalancing, CarrierBalancing, CruiserBalancing, DestroyerBalancing, SubmarineBalancing};
 
+pub type PlayerID = u32;
+pub type ShipID = u32;
+
 #[derive(Debug, Clone)]
 pub struct Game {
-    players: HashMap<u32, Player>,
-    team_a: HashSet<Player>,
-    team_b: HashSet<Player>,
+    players: HashMap<PlayerID, Player>,
+    team_a: HashSet<PlayerID>,
+    team_a_limit: u32,
+    team_b: HashSet<PlayerID>,
+    team_b_limit: u32,
+
     ships: HashMap<u32, Ship>,
     ships_geo_lookup: RTree<ShipRef>,
     board_size: u32,
@@ -18,15 +24,9 @@ pub struct Game {
 
 #[derive(Debug, Clone)]
 pub struct Player {
-    id: u32,
+    id: PlayerID,
     name: String,
     action_points: u32,
-}
-
-impl Hash for Player {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u32(self.id)
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -46,7 +46,7 @@ pub enum Cooldown {
 
 #[derive(Debug, Copy, Clone)]
 pub struct ShipData {
-    id: u32,
+    id: ShipID,
     pos_x: i32,
     pos_y: i32,
     orientation: Orientation,
