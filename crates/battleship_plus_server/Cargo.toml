@@ -10,3 +10,4 @@ quinn = "0.9.3"
 rustls = { version = "0.20.7", features = ["quic"] }
 log = "0.4.17"
 env_logger = "0.10.0"
+rstar = "0.9.3"
