@@ -1,10 +1,6 @@
-use std::borrow::Borrow;
-
 use log::info;
-use prost::Message;
 use tokio::signal;
 
-use crate::config_provider::ConfigProvider;
 use crate::server_advertisement::start_announcement_timer;
 
 mod config_provider;
