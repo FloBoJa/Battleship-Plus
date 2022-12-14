@@ -5,3 +5,9 @@ edition = "2021"
 
 [dependencies]
 battleship_plus_common = { path = "../battleship_plus_common" }
+tokio = { version = "1", features = ["full"] }
+quinn = "0.9.3"
+rustls = { version = "0.20.7", features = ["quic"] }
+prost = "0.11.3"
+log = "0.4.17"
+env_logger = "0.10.0"
