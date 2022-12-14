@@ -1,22 +1,30 @@
 use serde_yaml::Value;
 
-use crate::messages::OpCodes;
+use crate::messages::OpCode;
 
 #[test]
 fn op_code_into_test() {
     let resource_directory = String::from(env!("RESOURCE_DIR"));
     let op_codes_file = resource_directory.clone() + "/rfc/encoding/OpCodes.yaml";
     // load op codes
-    let op_codes_yaml =
-        serde_yaml::from_reader(std::fs::File::open(op_codes_file.as_str())
-            .expect(&format!("unable to open file: {}", op_codes_file.as_str())))
-            .expect(&format!("unable to read op codes from {} file", op_codes_file.as_str()));
+    let op_codes_yaml = serde_yaml::from_reader(
+        std::fs::File::open(op_codes_file.as_str())
+            .expect(&format!("unable to open file: {}", op_codes_file.as_str())),
+    )
+    .expect(&format!(
+        "unable to read op codes from {} file",
+        op_codes_file.as_str()
+    ));
 
     let op_codes = match op_codes_yaml {
-        Value::Mapping(m) => {
-            m["OpCodes"].as_mapping().expect(&format!("unable to fine OpCodes in {}", op_codes_file.as_str())).clone()
-        }
-        _ => panic!("expected a mapping named OpCodes")
+        Value::Mapping(m) => m["OpCodes"]
+            .as_mapping()
+            .expect(&format!(
+                "unable to fine OpCodes in {}",
+                op_codes_file.as_str()
+            ))
+            .clone(),
+        _ => panic!("expected a mapping named OpCodes"),
     };
 
     let mut valid_values = Vec::with_capacity(op_codes.len());
@@ -28,7 +36,7 @@ fn op_code_into_test() {
         valid_values.push(value);
 
         // u8 -> OpCode
-        let op_code = OpCodes::try_from(value);
+        let op_code = OpCode::try_from(value);
         assert!(op_code.is_ok());
         let op_code = op_code.unwrap();
         assert_eq!(key, format!("{:?}", op_code));
@@ -43,7 +51,7 @@ fn op_code_into_test() {
             continue;
         }
 
-        let op_code = OpCodes::try_from(i);
+        let op_code = OpCode::try_from(i);
         assert!(op_code.is_err());
         assert_eq!(op_code.unwrap_err(), "Unknown OpCode")
     }
