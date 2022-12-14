@@ -5,14 +5,25 @@ pub const PROTOCOL_VERSION: u8 = 1;
 
 pub mod messages {
     use std::borrow::BorrowMut;
-    use std::io::{BufRead, Read, Write};
+    use std::fmt::{Display, Formatter};
+    use std::io::{BufRead, Write};
 
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.rs"));
     include!(concat!(env!("OUT_DIR"), "/battleshipplus_op_codes.rs"));
 
+    #[derive(Clone, Debug)]
     pub enum MessageEncodingError {
         IO(String),
         PROTOCOL(String),
+    }
+
+    impl Display for MessageEncodingError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                MessageEncodingError::IO(s) => f.write_str(format!("IO: {}", s).as_str()),
+                MessageEncodingError::PROTOCOL(s) => f.write_str(format!("PROTOCOL: {}", s).as_str()),
+            }
+        }
     }
 
     const MESSAGE_HEADER_SIZE: usize = 4;
@@ -65,7 +76,7 @@ pub mod messages {
                 return Err(MessageEncodingError::PROTOCOL(String::from("message payload is too long")));
             }
 
-            let mut payload = Vec::from(payload);
+            let payload = Vec::from(payload);
 
             Ok(Message {
                 version,
