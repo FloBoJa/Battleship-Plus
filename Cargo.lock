@@ -251,13 +251,14 @@ dependencies = [
 name = "battleship_plus_server"
 version = "0.1.0"
 dependencies = [
- "battleship_plus_common",
- "env_logger 0.10.0",
- "log",
- "prost",
- "quinn",
- "rustls",
- "tokio",
+    "battleship_plus_common",
+    "env_logger 0.10.0",
+    "local-ip-address",
+    "log",
+    "prost",
+    "quinn",
+    "rustls",
+    "tokio",
 ]
 
 [[package]]
@@ -2296,8 +2297,8 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c8469b4a23b962c1396b9b451dda50ef5b283e8dd309d69033475fa9b334324"
 dependencies = [
- "libc",
- "pkg-config",
+    "libc",
+    "pkg-config",
 ]
 
 [[package]]
@@ -2307,13 +2308,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
 
 [[package]]
+name = "local-ip-address"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eab7f092fb08006040e656c2adce6670e6a516bea831a8b2b3d0fb24d4488f5"
+dependencies = [
+    "libc",
+    "neli",
+    "thiserror",
+    "windows-sys 0.42.0",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "435011366fe56583b16cf956f9df0095b405b82d76425bc8981c0e22e60ec4df"
 dependencies = [
- "autocfg",
- "scopeguard",
+    "autocfg",
+    "scopeguard",
 ]
 
 [[package]]
@@ -2533,7 +2546,17 @@ version = "0.4.1+23.1.7779620"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cf2aae958bd232cac5069850591667ad422d263686d75b52a065f9badeee5a3"
 dependencies = [
- "jni-sys",
+    "jni-sys",
+]
+
+[[package]]
+name = "neli"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9053554eb5dcb7e10d9cdab1206965bde870eed5d0d341532ca035e3ba221508"
+dependencies = [
+    "byteorder",
+    "libc",
 ]
 
 [[package]]
@@ -2542,9 +2565,9 @@ version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4916f159ed8e5de0082076562152a76b7a1f64a01fd9d1e0fea002c37624faf"
 dependencies = [
- "bitflags",
- "cc",
- "cfg-if",
+    "bitflags",
+    "cc",
+    "cfg-if",
  "libc",
  "memoffset",
 ]

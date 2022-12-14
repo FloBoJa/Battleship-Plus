@@ -55,8 +55,8 @@ async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
     let mut timer = time::interval(cfg.server_config().announcement_interval);
 
     let server_name = cfg.game_config().server_name.clone();
-    let game_address_v4 = cfg.server_config().game_address_v4;
-    let game_address_v6 = cfg.server_config().game_address_v6;
+    let game_port_v4 = cfg.server_config().game_address_v4.port();
+    let game_port_v6 = cfg.server_config().game_address_v6.port();
     let announce_v4 = cfg.server_config().announcement_address_v4;
     let announce_v6 = cfg.server_config().announcement_address_v6;
 
@@ -66,8 +66,7 @@ async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
 
             if sock_v4.as_ref().is_some() {
                 match dispatch_announcement(sock_v4.as_ref().unwrap().borrow(),
-                                            game_address_v4.ip().to_string().as_str(),
-                                            game_address_v4.port(),
+                                            game_port_v4,
                                             server_name.as_str(),
                                             announce_v4.into(),
                 ).await {
@@ -78,8 +77,7 @@ async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
 
             if sock_v6.as_ref().is_some() {
                 match dispatch_announcement(sock_v6.as_ref().unwrap().borrow(),
-                                            game_address_v6.ip().to_string().as_str(),
-                                            game_address_v6.port(),
+                                            game_port_v6,
                                             server_name.as_str(),
                                             announce_v6.into(),
                 ).await {
@@ -91,11 +89,11 @@ async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
     });
 }
 
-async fn dispatch_announcement(socket: &UdpSocket, address: &str, port: u16, display_name: &str, dst: SocketAddr) -> Result<(), String> {
+async fn dispatch_announcement(socket: &UdpSocket, port: u16, display_name: &str, dst: SocketAddr) -> Result<(), String> {
     let payload = battleship_plus_common::messages::ServerAdvertisement {
-        address: String::from(address),
         port: port as u32,
         display_name: String::from(display_name),
+        ..Default::default()
     };
 
     let msg = match battleship_plus_common::messages::Message::new(
