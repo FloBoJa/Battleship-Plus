@@ -64,6 +64,7 @@ mod default {
                     common_balancing: Some(CommonBalancing {
                         shoot_costs: costs(0, 2),
                         shoot_range: 6,
+                        shoot_damage: 20,
                         movement_costs: costs(0, 1),
                         movement_speed: 1,
                         ability_costs: costs(2, 5),
@@ -77,6 +78,7 @@ mod default {
                     common_balancing: Some(CommonBalancing {
                         shoot_costs: costs(0, 2),
                         shoot_range: 10,
+                        shoot_damage: 33,
                         movement_costs: costs(0, 1),
                         movement_speed: 1,
                         ability_costs: costs(2, 5),
@@ -91,6 +93,7 @@ mod default {
                     common_balancing: Some(CommonBalancing {
                         shoot_costs: costs(0, 2),
                         shoot_range: 8,
+                        shoot_damage: 25,
                         movement_costs: costs(0, 1),
                         movement_speed: 2,
                         ability_costs: costs(2, 5),
@@ -101,8 +104,9 @@ mod default {
                 }),
                 submarine_balancing: Some(SubmarineBalancing {
                     common_balancing: Some(CommonBalancing {
-                        shoot_costs: costs(2, 5),
+                        shoot_costs: costs(1, 5),
                         shoot_range: 16,
+                        shoot_damage: 33,
                         movement_costs: costs(0, 1),
                         movement_speed: 1,
                         ability_costs: costs(2, 8),
@@ -116,6 +120,7 @@ mod default {
                     common_balancing: Some(CommonBalancing {
                         shoot_costs: costs(0, 1),
                         shoot_range: 12,
+                        shoot_damage: 33,
                         movement_costs: costs(0, 2),
                         movement_speed: 1,
                         ability_costs: costs(2, 5),
@@ -123,7 +128,7 @@ mod default {
                         initial_health: 100,
                     }),
                     radius: 16,
-                    damage: 34,
+                    damage: 44,
                 }),
                 ship_set_team_a: default_ship_set(),
                 ship_set_team_b: default_ship_set(),
