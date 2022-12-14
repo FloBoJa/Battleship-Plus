@@ -140,8 +140,8 @@ mod default {
                 game_address_v6: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 30303, 0, 0),
                 enable_announcements_v4: true,
                 enable_announcements_v6: true,
-                announcement_address_v4: SocketAddrV4::new(Ipv4Addr::BROADCAST, 30304),
-                announcement_address_v6: SocketAddrV6::new(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 30304, 0, 0),
+                announcement_address_v4: SocketAddrV4::new(Ipv4Addr::BROADCAST, 30303),
+                announcement_address_v6: SocketAddrV6::new(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1), 30303, 0, 0),
                 announcement_interval: Duration::from_secs(5),
             })
         }
