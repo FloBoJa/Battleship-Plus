@@ -129,6 +129,8 @@ impl Action {
 
                     apply_damage(g, &AABB::from_point(target), ship_balancing.shoot_damage as u32);
 
+                    g.players.get_mut(player_id).unwrap().action_points -= ship_balancing.shoot_costs.unwrap().action_points as u32;
+
                     Ok(())
                 }).await
             }
