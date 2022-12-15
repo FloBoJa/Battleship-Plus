@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
 use std::sync::Arc;
 
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
@@ -11,15 +10,23 @@ pub type ShipID = u32;
 
 #[derive(Debug, Clone)]
 pub struct Game {
-    players: HashMap<PlayerID, Player>,
-    team_a: HashSet<PlayerID>,
-    team_a_limit: u32,
-    team_b: HashSet<PlayerID>,
-    team_b_limit: u32,
+    pub(crate) players: HashMap<PlayerID, Player>,
+    pub(crate) team_a: HashSet<PlayerID>,
+    pub(crate) team_a_limit: u32,
+    pub(crate) team_b: HashSet<PlayerID>,
+    pub(crate) team_b_limit: u32,
 
-    ships: HashMap<u32, Ship>,
-    ships_geo_lookup: RTree<ShipRef>,
-    board_size: u32,
+    pub(crate) ships: HashMap<u32, Ship>,
+    pub(crate) ships_geo_lookup: RTree<ShipRef>,
+    pub(crate) board_size: u32,
+}
+
+impl Game {
+    pub fn can_start(&self) -> bool {
+        self.team_a.len() <= self.team_a_limit as usize
+            && self.team_b.len() <= self.team_b_limit as usize
+            && self.players.iter().all(|(_, p)| p.is_ready)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +34,7 @@ pub struct Player {
     id: PlayerID,
     name: String,
     action_points: u32,
+    is_ready: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
