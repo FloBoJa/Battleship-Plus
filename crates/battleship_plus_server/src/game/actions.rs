@@ -42,18 +42,12 @@ impl Action {
 
         match self {
             Action::TeamSwitch { player_id } => {
-                {
-                    let g = game.read().await;
-                    if !g.players.contains_key(player_id) {
-                        let msg = format!("PlayerID {} is unknown", player_id);
-                        debug!("{}", msg.as_str());
-                        return Err(ActionExecutionError::Illegal(msg));
-                    }
+                let err = check_player_exists(&game, *player_id).await;
+                if err.is_err() {
+                    return err;
                 }
 
-                {
-                    let mut g = game.write().await;
-
+                mutate_game(game.clone(), move |g| {
                     match (g.team_a.remove(&player_id), g.team_b.remove(player_id)) {
                         (true, false) => g.team_b.insert(*player_id),
                         (false, true) => g.team_a.insert(*player_id),
@@ -63,11 +57,24 @@ impl Action {
                             return Err(ActionExecutionError::InconsistentState(msg));
                         }
                     };
+
+                    Ok(())
+                }).await
+            }
+            Action::SetReady { player_id, request } => {
+                let err = check_player_exists(&game, *player_id).await;
+                if err.is_err() {
+                    return err;
                 }
 
-                Ok(())
+                mutate_game(game.clone(), move |g| {
+                    match g.players.get_mut(player_id) {
+                        Some(p) => p.is_ready = request.ready_state,
+                        None => panic!("player should exist")
+                    }
+                    Ok(())
+                }).await
             }
-            // TODO: Action::SetReady { .. } => {}
             // TODO: Action::PlaceShips { .. } => {}
             // TODO: Action::Move { .. } => {}
             // TODO: Action::Rotate { .. } => {}
@@ -82,4 +89,28 @@ impl Action {
 
         // TODO: find a good way to return Action Results
     }
+}
+
+async fn check_player_exists(game: &Arc<RwLock<Game>>, player_id: PlayerID) -> Result<(), ActionExecutionError> {
+    read_game(game.clone(), |g| {
+        if !g.players.contains_key(&player_id) {
+            let msg = format!("PlayerID {} is unknown", player_id);
+            debug!("{}", msg.as_str());
+            return Err(ActionExecutionError::Illegal(msg));
+        } else {
+            Ok(())
+        }
+    }).await
+}
+
+async fn mutate_game<T, F>(game: Arc<RwLock<Game>>, mutation: F) -> T
+    where F: FnOnce(&mut Game) -> T {
+    let mut g = game.write().await;
+    (mutation)(&mut g)
+}
+
+async fn read_game<T, F>(game: Arc<RwLock<Game>>, read: F) -> T
+    where F: FnOnce(&Game) -> T {
+    let mut g = game.read().await;
+    (read)(&g)
 }
