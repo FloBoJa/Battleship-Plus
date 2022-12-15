@@ -8,7 +8,7 @@ use battleship_plus_common::messages::{BattleshipBalancing, CarrierBalancing, Cr
 pub type PlayerID = u32;
 pub type ShipID = u32;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Game {
     pub(crate) players: HashMap<PlayerID, Player>,
     pub(crate) team_a: HashSet<PlayerID>,
@@ -29,12 +29,12 @@ impl Game {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Player {
-    id: PlayerID,
-    name: String,
-    action_points: u32,
-    is_ready: bool,
+    pub(crate) id: PlayerID,
+    pub(crate) name: String,
+    pub(crate) action_points: u32,
+    pub(crate) is_ready: bool,
 }
 
 #[derive(Debug, Copy, Clone)]

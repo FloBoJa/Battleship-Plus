@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use log::{debug, error};
+use log::debug;
 use tokio::sync::RwLock;
 
-use crate::game::actions::Action;
+use crate::game::actions::{Action, ActionExecutionError};
 use crate::game::data::Game;
 
 #[derive(Debug, Copy, Clone)]
@@ -12,13 +12,6 @@ pub enum GameState {
     Preparation,
     InGame,
     End,
-}
-
-#[derive(Debug, Clone)]
-pub enum ActionExecutionError {
-    OutOfState(GameState),
-    Illegal(String),
-    InconsistentState(String),
 }
 
 impl GameState {
@@ -56,50 +49,6 @@ impl GameState {
         }
 
         debug!("execute {:?} action on game", action);
-
-        // TODO: implement actions below
-        // TODO: add tests for all actions
-
-        match action {
-            Action::TeamSwitch { player_id } => {
-                {
-                    let g = game.read().await;
-                    if !g.players.contains_key(&player_id) {
-                        let msg = format!("PlayerID {} is unknown", player_id);
-                        debug!("{}", msg.as_str());
-                        return Err(ActionExecutionError::Illegal(msg));
-                    }
-                }
-
-                {
-                    let mut g = game.write().await;
-
-                    match (g.team_a.remove(&player_id), g.team_b.remove(&player_id)) {
-                        (true, false) => g.team_b.insert(player_id),
-                        (false, true) => g.team_a.insert(player_id),
-                        _ => {
-                            let msg = format!("found illegal team assignment for player {}", player_id);
-                            error!("{}", msg.as_str());
-                            return Err(ActionExecutionError::InconsistentState(msg));
-                        }
-                    };
-                }
-
-                Ok(())
-            }
-            // TODO: Action::SetReady { .. } => {}
-            // TODO: Action::PlaceShips { .. } => {}
-            // TODO: Action::Move { .. } => {}
-            // TODO: Action::Rotate { .. } => {}
-            // TODO: Action::Shoot { .. } => {}
-            // TODO: Action::ScoutPlane { .. } => {}
-            // TODO: Action::PredatorMissile { .. } => {}
-            // TODO: Action::EngineBoost { .. } => {}
-            // TODO: Action::Torpedo { .. } => {}
-            // TODO: Action::MultiMissile { .. } => {}
-            _ => todo!()
-        }
-
-        // TODO: find a good way to return Action Results
+        action.apply_on(game).await
     }
 }
