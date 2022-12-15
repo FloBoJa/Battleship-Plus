@@ -1,4 +1,9 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, ToSocketAddrs},
+    sync::Arc,
+    time::Duration,
+};
 
 use bevy::prelude::*;
 use bytes::Bytes;
@@ -320,7 +325,10 @@ impl Server {
         cert_mode: CertificateRetrievalMode,
     ) -> Result<ServerCertificate, QuinnetError> {
         let server_adr_str = format!("{}:{}", config.local_bind_host, config.port);
-        let server_addr = server_adr_str.parse::<SocketAddr>()?;
+        let server_addr = server_adr_str
+            .to_socket_addrs()?
+            .next()
+            .expect("Could not resolve host address");
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
