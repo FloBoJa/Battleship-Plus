@@ -294,6 +294,74 @@ mod actions_shoot {
     }
 
     #[tokio::test]
+    async fn actions_shoot_costs() {
+        let player = Player {
+            action_points: 5,
+            ..Default::default()
+        };
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    shoot_damage: 10,
+                    shoot_range: 128,
+                    shoot_costs: Some(Costs { cooldown: 0, action_points: 4 }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: Default::default(),
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(
+            Game {
+                board_size: 24,
+                players: HashMap::from([
+                    (player.id, player.clone())
+                ]),
+                team_a: HashSet::from([player.id]),
+                ships: HashMap::from([
+                    (ship.id(), ship.clone()),
+                ]),
+                ships_geo_lookup: RTree::bulk_load(vec![
+                    ShipRef(Arc::from(ship)),
+                ]),
+                ..Default::default()
+            }
+        ));
+
+        // first shot
+        assert!(Action::Shoot {
+            player_id: player.id,
+            request: ShootRequest {
+                ship_number: 0,
+                target: Some(Coordinate { x: 20, y: 20 }),
+            },
+        }.apply_on(game.clone()).await.is_ok());
+
+        // action points reduced
+        {
+            let g = game.read().await;
+            assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
+        }
+
+        // deny second shot
+        assert!(Action::Shoot {
+            player_id: player.id,
+            request: ShootRequest {
+                ship_number: 0,
+                target: Some(Coordinate { x: 20, y: 20 }),
+            },
+        }.apply_on(game.clone()).await.is_err());
+
+        // board untouched
+        {
+            let g = game.read().await;
+            assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
+        }
+    }
+
+    #[tokio::test]
     async fn actions_shoot_unknown_player() {
         let game = Arc::new(RwLock::new(
             Game {
