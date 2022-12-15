@@ -4,7 +4,7 @@ use std::{
         HashMap,
     },
     error::Error,
-    net::SocketAddr,
+    net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 
@@ -424,8 +424,10 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
     info!("Trying to connect to server on: {} ...", server_adr_str);
 
     let server_addr: SocketAddr = server_adr_str
-        .parse()
-        .expect("Failed to parse server address");
+        .to_socket_addrs()
+        .expect("Failed to parse server address")
+        .next()
+        .expect("Failed to resolve server address");
 
     let client_cfg = configure_client(spawn_config.cert_mode, spawn_config.to_sync_client.clone())
         .expect("Failed to configure client");
