@@ -15,25 +15,35 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={}", proto_file_types.as_str());
 
     // build protobuf structs from rfc
-    prost_build::compile_protos(&[proto_file_messages.as_str()], &[specification_directory.as_str()])?;
+    prost_build::compile_protos(
+        &[proto_file_messages.as_str()],
+        &[specification_directory.as_str()],
+    )?;
 
     // build op codes from rfc
-    let op_codes_file = specification_directory.clone() + "/OpCodes.yaml";
+    let op_codes_file = specification_directory + "/OpCodes.yaml";
     println!("cargo:rerun-if-changed={}", op_codes_file.as_str());
-    let op_codes_yaml =
-        serde_yaml::from_reader(std::fs::File::open(op_codes_file.as_str())
-            .expect(&format!("unable to open file: {}", op_codes_file.as_str())))
-            .expect(&format!("unable to read op codes from {} file", op_codes_file.as_str()));
+    let op_codes_yaml = serde_yaml::from_reader(
+        std::fs::File::open(op_codes_file.as_str())
+            .unwrap_or_else(|_| panic!("unable to open file: {}", op_codes_file.as_str())),
+    )
+    .unwrap_or_else(|_| {
+        panic!(
+            "unable to read op codes from {} file",
+            op_codes_file.as_str()
+        )
+    });
 
     let op_codes_yaml = match op_codes_yaml {
-        Value::Mapping(m) => {
-            m["OpCodes"].as_mapping().expect(&format!("unable to fine OpCodes in {}", op_codes_file.as_str())).clone()
-        }
-        _ => panic!("expected a mapping named OpCodes")
+        Value::Mapping(m) => m["OpCodes"]
+            .as_mapping()
+            .unwrap_or_else(|| panic!("unable to fine OpCodes in {}", op_codes_file.as_str()))
+            .clone(),
+        _ => panic!("expected a mapping named OpCodes"),
     };
 
     // generate Enum from OpCodes
-    const OP_CODES_ENUM: &'static str = "OpCode";
+    const OP_CODES_ENUM: &str = "OpCode";
     let mut op_codes_scope = Scope::new();
 
     let mut op_codes = Enum::new(OP_CODES_ENUM);
@@ -53,12 +63,8 @@ fn main() -> Result<()> {
         .ret(Type::new("std::result::Result<Self, Self::Error>"));
 
     let mut into = Impl::new(Type::new(OP_CODES_ENUM));
-    into
-        .impl_trait(Type::new("Into<u8>"));
-    let into_fn = into
-        .new_fn("into")
-        .arg_self()
-        .ret(Type::new("u8"));
+    into.impl_trait(Type::new("Into<u8>"));
+    let into_fn = into.new_fn("into").arg_self().ret(Type::new("u8"));
 
     let mut try_from_fn_match = Block::new("match value");
     let mut into_fn_match = Block::new("match self");
@@ -89,10 +95,11 @@ fn main() -> Result<()> {
 
     {
         let mut f = std::fs::File::create(&target)
-            .expect(&format!("unable to write file {:?}.", &target));
+            .unwrap_or_else(|_| panic!("unable to write file {:?}.", &target));
 
-        f.write(op_codes_scope.to_string().as_bytes())
-            .expect(&format!("unable to write file {:?}.", &target));
+        let _ = f
+            .write(op_codes_scope.to_string().as_bytes())
+            .unwrap_or_else(|_| panic!("unable to write file {:?}.", &target));
 
         f.sync_all().unwrap();
     }
