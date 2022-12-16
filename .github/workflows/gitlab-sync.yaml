@@ -1,6 +1,10 @@
 name: GitLab Sync
 
-on: [ push ]
+on:
+  push:
+    branches:
+      - main
+      - actions
 
 jobs:
   sync-to-gitlab:
@@ -10,7 +14,7 @@ jobs:
         uses: wei/git-sync@v3
         with:
           source_repo: "git@github.com:FloBoJa/Battleship-Plus.git"
-          source_branch: ${{ github.head_ref }}
+          source_branch: "refs/remotes/source/*"
           destination_repo: "git@git.scc.kit.edu:tm-praktika/protocol-engineering-ws2022-2023/groups/implementation-group-a.git"
-          destination_branch: ${{ github.head_ref }}
+          destination_branch: "refs/heads/*"
           ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
