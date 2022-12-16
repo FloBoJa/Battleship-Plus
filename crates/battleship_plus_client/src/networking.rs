@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use bevy_quinnet::client::QuinnetClientPlugin;
 use std::{
     io::ErrorKind::WouldBlock,
-    net::{SocketAddr, UdpSocket},
+    net::{Ipv6Addr, SocketAddr, UdpSocket},
+    str::FromStr,
     time::Duration,
 };
 
@@ -16,7 +17,7 @@ impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(QuinnetClientPlugin {})
             .add_startup_system(set_up_advertisement_listener)
-            .add_system(listen_for_advertisements_v4)
+            .add_system(listen_for_advertisements)
             .add_system(clean_up_servers)
             .add_system(needs_server);
     }
@@ -53,6 +54,7 @@ fn set_up_advertisement_listener(mut commands: Commands) {
 
     let socket_v6 = match UdpSocket::bind("[::]:30303") {
         Ok(socket) => {
+            join_multicast_v6("ff02::1", &socket);
             socket.set_nonblocking(true).unwrap_or_else(|error| {
                 warn!("Could not set UDPv6 port to non-blocking: {error}");
             });
@@ -70,18 +72,44 @@ fn set_up_advertisement_listener(mut commands: Commands) {
     });
 }
 
-fn listen_for_advertisements_v4(
+fn join_multicast_v6(multiaddr: &str, socket: &UdpSocket) {
+    let multicast_address =
+        Ipv6Addr::from_str(multiaddr).expect("Could not parse hard-coded multicast address");
+
+    socket
+        .join_multicast_v6(&multicast_address, 0)
+        .unwrap_or_else(|error| {
+            warn!("Could not join UDPv6 multicast: {error}");
+        });
+
+    socket.set_multicast_loop_v6(true).unwrap_or_else(|error| {
+        warn!("Could not enable UDPv6 multicast loopback: {error}");
+    });
+}
+
+fn listen_for_advertisements(
     advertisement_listener: Res<AnnouncementListener>,
     mut commands: Commands,
     time: Res<Time>,
     mut servers: Query<&mut ServerInformation>,
 ) {
-    if advertisement_listener.socket_v4.is_none() {
-        return;
+    // Listen for IPv4 advertisements.
+    if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
+        listen_for_advertisements_on(&socket, &mut commands, &time, &mut servers);
     }
 
-    let socket = advertisement_listener.socket_v4.as_ref().unwrap();
+    // Listen for IPv6 advertisements.
+    if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
+        listen_for_advertisements_on(&socket, &mut commands, &time, &mut servers);
+    }
+}
 
+fn listen_for_advertisements_on(
+    socket: &UdpSocket,
+    mut commands: &mut Commands,
+    time: &Res<Time>,
+    mut servers: &mut Query<&mut ServerInformation>,
+) {
     let mut buffer = Vec::with_capacity(MAXIMUM_MESSAGE_SIZE);
     buffer.resize(MAXIMUM_MESSAGE_SIZE, 0);
 
