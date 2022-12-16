@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use battleship_plus_common::messages::*;
 
 use crate::game::data::{
-    Cooldown, Game, GetShipID, PlayerID, SelectShipsByIDFunction, Ship, ShipID,
+    Cooldown, Game, GetShipID, PlayerID, SelectShipsByIDFunction, Ship, ShipID, ShipRef,
 };
 use crate::game::states::GameState;
 
@@ -137,20 +137,16 @@ impl Action {
 
                     // action points
                     let ship_balancing = ship.common_balancing();
-                    let player = g.players.get(player_id).unwrap();
-                    if ship_balancing
+                    let point_costs = ship_balancing
                         .movement_costs
                         .as_ref()
                         .unwrap()
-                        .action_points
-                        > player.action_points
-                    {
+                        .action_points;
+                    let player = g.players.get_mut(player_id).unwrap();
+                    if point_costs > player.action_points {
                         return Err(ActionExecutionError::ActionNotPossible(format!(
                             "player {} needs {} action points for {:?} action but has only {}",
-                            player_id,
-                            &ship_balancing.shoot_costs.unwrap().action_points,
-                            self,
-                            player.action_points
+                            player_id, &point_costs, self, player.action_points
                         )));
                     }
 
@@ -162,6 +158,18 @@ impl Action {
                         )));
                     }
                     let new_position = new_position.unwrap();
+
+                    g.ships_geo_lookup
+                        .remove_with_selection_function(SelectShipsByIDFunction(vec![(
+                            ship.id(),
+                            new_position,
+                        )]));
+
+                    let new_ship = ship.clone();
+                    g.ships_geo_lookup.insert(ShipRef(Arc::from(s)));
+                    g.ships.insert(ship_id, s);
+
+                    player.action_points -= point_costs;
 
                     let colliding_ships: Vec<_> = g
                         .ships_geo_lookup

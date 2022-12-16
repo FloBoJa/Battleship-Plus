@@ -329,7 +329,7 @@ mod actions_shoot {
     }
 
     #[tokio::test]
-    async fn actions_shoot_costs() {
+    async fn actions_shoot_action_points() {
         let player = Player {
             action_points: 5,
             ..Default::default()
@@ -441,7 +441,7 @@ mod actions_shoot {
         .await
         .is_ok());
 
-        // action points reduced
+        // check cooldown
         {
             let g = game.read().await;
             assert!(g
@@ -527,5 +527,443 @@ mod actions_shoot {
             ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
             _ => false,
         })
+    }
+}
+
+//noinspection DuplicatedCode
+mod actions_move {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+
+    use rstar::RTree;
+    use tokio::sync::RwLock;
+
+    use battleship_plus_common::messages::*;
+    use battleship_plus_common::types::*;
+
+    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::data::{
+        Cooldown, Game, GetShipID, Orientation, Player, Ship, ShipData, ShipRef,
+    };
+
+    #[tokio::test]
+    async fn actions_move() {
+        let player = Player::default();
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 0,
+                pos_y: 0,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(Game {
+            board_size: 24,
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: HashMap::from([(ship.id(), ship.clone())]),
+            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ..Default::default()
+        }));
+
+        // move ship forward
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_ok());
+
+        // check ship's new position
+        {
+            let g = game.read().await;
+            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2))
+        }
+
+        // move ship backward
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Backward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_ok());
+
+        // check ship's new position
+        {
+            let g = game.read().await;
+            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 0))
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_move_action_points() {
+        let player = Player {
+            action_points: 5,
+            ..Default::default()
+        };
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 3,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 0,
+                pos_y: 0,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(Game {
+            board_size: 24,
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: HashMap::from([(ship.id(), ship.clone())]),
+            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ..Default::default()
+        }));
+
+        // move ship forward
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_ok());
+
+        // check action points
+        {
+            let g = game.read().await;
+            assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
+            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
+        }
+
+        // try to move ship backwards and fail
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Backward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_err());
+
+        // check board untouched
+        {
+            let g = game.read().await;
+            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
+            assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_move_cooldown() {
+        let player = Player::default();
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 2,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 0,
+                pos_y: 0,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(Game {
+            board_size: 24,
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: HashMap::from([(ship.id(), ship.clone())]),
+            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ..Default::default()
+        }));
+
+        // move ship forward
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_ok());
+
+        // check ship's new position and cooldown
+        {
+            let g = game.read().await;
+            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
+            assert!(!g.ships.get(&ship.id()).unwrap().cool_downs().is_empty());
+            assert!(matches!(
+                g.ships
+                    .get(&ship.id())
+                    .unwrap()
+                    .cool_downs()
+                    .first()
+                    .unwrap(),
+                Cooldown::Movement { .. }
+            ));
+        }
+
+        // try to move ship backwards and fail
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Backward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_err());
+
+        // check board untouched
+        {
+            let g = game.read().await;
+            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
+            assert!(!g.ships.get(&ship.id()).unwrap().cool_downs().is_empty());
+            assert_eq!(
+                g.ships
+                    .get(&ship.id())
+                    .unwrap()
+                    .cool_downs()
+                    .first()
+                    .unwrap()
+                    .clone(),
+                Cooldown::Movement {
+                    remaining_rounds: 2
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_move_unknown_player() {
+        let game = Arc::new(RwLock::new(Game {
+            ..Default::default()
+        }));
+
+        let res = Action::Move {
+            player_id: 42,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(game.clone())
+        .await;
+
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(match err {
+            ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
+            _ => false,
+        })
+    }
+
+    #[tokio::test]
+    async fn actions_move_deny_out_of_bounds() {
+        let player = Player::default();
+        let ship1 = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 0,
+                pos_y: 0,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+        let ship2 = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                id: (0, 1),
+                pos_x: 23,
+                pos_y: 23,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(Game {
+            board_size: 24,
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: HashMap::from([(ship1.id(), ship1.clone()), (ship2.id(), ship2.clone())]),
+            ships_geo_lookup: RTree::bulk_load(vec![
+                ShipRef(Arc::from(ship1.clone())),
+                ShipRef(Arc::from(ship2.clone())),
+            ]),
+            ..Default::default()
+        }));
+
+        // move ship1 backwards
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Backward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_err());
+
+        // move ship2 backward
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 1,
+                direction: i32::from(MoveDirection::Backward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn actions_move_destroy_on_collision() {
+        let player = Player::default();
+        let ship1 = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 0,
+                pos_y: 10,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+        let ship2 = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_speed: 2,
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                id: (0, 1),
+                pos_x: 0,
+                pos_y: 11,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(Game {
+            board_size: 24,
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: HashMap::from([(ship1.id(), ship1.clone()), (ship2.id(), ship2.clone())]),
+            ships_geo_lookup: RTree::bulk_load(vec![
+                ShipRef(Arc::from(ship1.clone())),
+                ShipRef(Arc::from(ship2.clone())),
+            ]),
+            ..Default::default()
+        }));
+
+        // move ship1 backwards into ship2
+        assert!(Action::Move {
+            player_id: player.id,
+            request: MoveRequest {
+                ship_number: 0,
+                direction: i32::from(MoveDirection::Backward),
+            },
+        }
+        .apply_on(game.clone())
+        .await
+        .is_ok());
+
+        // check both ships destroyed
+        {
+            let g = game.read().await;
+            assert_eq!(g.ships.len(), 0);
+            assert_eq!(g.ships_geo_lookup.iter().count(), 0);
+        }
     }
 }
