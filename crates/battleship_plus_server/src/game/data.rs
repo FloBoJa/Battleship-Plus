@@ -28,6 +28,10 @@ impl Game {
             && self.team_b.len() <= self.team_b_limit as usize
             && self.players.iter().all(|(_, p)| p.is_ready)
     }
+
+    pub fn board_bounds(&self) -> AABB<[i32; 2]> {
+        AABB::from_corners([0; 2], [self.board_size as i32; 2])
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -231,6 +235,73 @@ impl Ship {
             | Ship::Destroyer { cool_downs, .. } => cool_downs,
         }
     }
+
+    pub fn do_move(
+        &mut self,
+        direction: MoveDirection,
+        world_bounds: AABB<[i32; 2]>,
+    ) -> Result<AABB<[i32; 2]>, ()> {
+        let balancing = self.common_balancing();
+        let orientation = self.orientation();
+        let reverse = match direction {
+            MoveDirection::Forward => 1,
+            MoveDirection::Backward => -1,
+        };
+
+        let (new_x, new_y) = match self {
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => match orientation {
+                Orientation::North => (
+                    data.pos_x,
+                    data.pos_y - reverse * balancing.movement_speed as i32,
+                ),
+                Orientation::South => (
+                    data.pos_x,
+                    data.pos_y + reverse * balancing.movement_speed as i32,
+                ),
+                Orientation::East => (
+                    data.pos_x + reverse * balancing.movement_speed as i32,
+                    data.pos_y,
+                ),
+                Orientation::West => (
+                    data.pos_x - reverse * balancing.movement_speed as i32,
+                    data.pos_y,
+                ),
+            },
+        };
+
+        if world_bounds.contains_envelope(&self.get_envelope(new_x, new_y)) {
+            self.set_position(new_x, new_y);
+            Ok(self.envelope())
+        } else {
+            Err(())
+        }
+    }
+
+    fn set_position(&mut self, x: i32, y: i32) {
+        match self {
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => {
+                data.pos_x = x;
+                data.pos_y = y;
+            }
+        };
+    }
+
+    fn get_envelope(&self, x: i32, y: i32) -> AABB<[i32; 2]> {
+        match self.orientation() {
+            Orientation::North => AABB::from_corners([x, y - (self.len() - 1)], [x, y]),
+            Orientation::South => AABB::from_corners([x, y], [x, y + (self.len() - 1)]),
+            Orientation::East => AABB::from_corners([x, y], [x + (self.len() - 1), y]),
+            Orientation::West => AABB::from_corners([x, y], [x - (self.len() - 1), y]),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -240,13 +311,7 @@ impl RTreeObject for Ship {
     type Envelope = AABB<[i32; 2]>;
     fn envelope(&self) -> Self::Envelope {
         let (x, y) = self.position();
-
-        match self.orientation() {
-            Orientation::North => AABB::from_corners([x, y - (self.len() - 1)], [x, y]),
-            Orientation::South => AABB::from_corners([x, y], [x, y + (self.len() - 1)]),
-            Orientation::East => AABB::from_corners([x, y], [x + (self.len() - 1), y]),
-            Orientation::West => AABB::from_corners([x, y], [x - (self.len() - 1), y]),
-        }
+        self.get_envelope(x, y)
     }
 }
 
