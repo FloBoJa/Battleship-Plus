@@ -46,7 +46,7 @@ pub enum Orientation {
     West,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Cooldown {
     Movement { remaining_rounds: u32 },
     Cannon { remaining_rounds: u32 },
@@ -199,6 +199,16 @@ impl Ship {
             Ship::Cruiser { cool_downs, .. } |
             Ship::Submarine { cool_downs, .. } |
             Ship::Destroyer { cool_downs, .. } => cool_downs.clone()
+        }
+    }
+
+    pub fn cool_downs_mut(&mut self) -> &mut Vec<Cooldown> {
+        match self {
+            Ship::Carrier { cool_downs, .. } |
+            Ship::Battleship { cool_downs, .. } |
+            Ship::Cruiser { cool_downs, .. } |
+            Ship::Submarine { cool_downs, .. } |
+            Ship::Destroyer { cool_downs, .. } => cool_downs
         }
     }
 }
