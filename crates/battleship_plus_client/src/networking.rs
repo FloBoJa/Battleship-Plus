@@ -71,9 +71,10 @@ fn set_up_advertisement_listener(mut commands: Commands) {
 }
 
 fn listen_for_advertisements_v4(
-    mut commands: Commands,
     advertisement_listener: Res<AnnouncementListener>,
+    mut commands: Commands,
     time: Res<Time>,
+    mut servers: Query<&mut ServerInformation>,
 ) {
     if advertisement_listener.socket_v4.is_none() {
         return;
@@ -127,7 +128,7 @@ fn listen_for_advertisements_v4(
                 }
             };
 
-        process_advertisement(advertisement, sender, &mut commands, &time);
+        process_advertisement(advertisement, sender, &mut commands, &time, &mut servers);
     }
 }
 
@@ -136,16 +137,26 @@ fn process_advertisement(
     sender: SocketAddr,
     commands: &mut Commands,
     time: &Res<Time>,
+    servers: &mut Query<&mut ServerInformation>,
 ) {
-    // TODO: Update server if it already exists.
-    // TODO: Request Config.
-    commands.spawn(ServerInformation {
-        ip: sender.ip(),
-        port: advertisement.port,
-        name: advertisement.display_name.clone(),
-        config: default(),
-        last_advertisement_received: time.elapsed(),
-    });
+    // Update server if it already has a ServerInformation.
+    if let Some(mut server) = servers
+        .iter_mut()
+        .filter(|server| server.ip == sender.ip() && server.port == advertisement.port)
+        .next()
+    {
+        server.name = advertisement.display_name;
+        server.last_advertisement_received = time.elapsed();
+    } else {
+        // TODO: Request Config.
+        commands.spawn(ServerInformation {
+            ip: sender.ip(),
+            port: advertisement.port,
+            name: advertisement.display_name,
+            config: default(),
+            last_advertisement_received: time.elapsed(),
+        });
+    }
 }
 
 fn clean_up_servers(
