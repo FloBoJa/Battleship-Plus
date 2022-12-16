@@ -6,7 +6,9 @@ use tokio::sync::RwLock;
 
 use battleship_plus_common::messages::*;
 
-use crate::game::data::{Cooldown, Game, PlayerID, SelectShipsByIDFunction, Ship, ShipID};
+use crate::game::data::{
+    Cooldown, Game, GetShipID, PlayerID, SelectShipsByIDFunction, Ship, ShipID,
+};
 use crate::game::states::GameState;
 
 #[derive(Debug, Clone)]
@@ -66,7 +68,7 @@ pub enum ActionExecutionError {
     OutOfState(GameState),
     Illegal(String),
     InconsistentState(String),
-    ActionNotAllowed(String),
+    ActionNotPossible(String),
 }
 
 impl Action {
@@ -111,7 +113,81 @@ impl Action {
                 .await
             }
             // TODO: Action::PlaceShips { .. } => {}
-            // TODO: Action::Move { .. } => {}
+            Action::Move { player_id, request } => {
+                check_player_exists(&game, *player_id).await?;
+
+                let ship_id = (*player_id, request.ship_number);
+                check_player_operates_ship(&game, ship_id).await?;
+
+                mutate_game(&game, |g| {
+                    let board_bounds = g.board_bounds();
+                    let ship = g.ships.get_mut(&ship_id).unwrap();
+
+                    // move cooldown
+                    if ship
+                        .cool_downs()
+                        .iter()
+                        .any(|cd| matches!(cd, Cooldown::Movement { .. }))
+                    {
+                        return Err(ActionExecutionError::ActionNotPossible(format!(
+                            "the engines of ship {} of player {} is on cooldown",
+                            ship_id.1, player_id
+                        )));
+                    }
+
+                    // action points
+                    let ship_balancing = ship.common_balancing();
+                    let player = g.players.get(player_id).unwrap();
+                    if ship_balancing
+                        .movement_costs
+                        .as_ref()
+                        .unwrap()
+                        .action_points
+                        > player.action_points
+                    {
+                        return Err(ActionExecutionError::ActionNotPossible(format!(
+                            "player {} needs {} action points for {:?} action but has only {}",
+                            player_id,
+                            &ship_balancing.shoot_costs.unwrap().action_points,
+                            self,
+                            player.action_points
+                        )));
+                    }
+
+                    let new_position = ship.do_move(request.direction(), board_bounds);
+                    if new_position.is_err() {
+                        return Err(ActionExecutionError::Illegal(format!(
+                            "player {} tried an invalid move with ship {}",
+                            player_id, ship_id.1,
+                        )));
+                    }
+                    let new_position = new_position.unwrap();
+
+                    let colliding_ships: Vec<_> = g
+                        .ships_geo_lookup
+                        .locate_in_envelope_intersecting(&new_position)
+                        .cloned()
+                        .collect();
+
+                    if colliding_ships.len() > 1 {
+                        // remove colliding ships
+                        g.ships_geo_lookup
+                            .remove_with_selection_function(SelectShipsByIDFunction(
+                                colliding_ships
+                                    .iter()
+                                    .map(|s| (s.0.data().id, s.envelope()))
+                                    .collect(),
+                            ));
+
+                        colliding_ships.iter().for_each(|s| {
+                            g.ships.remove(&s.id());
+                        });
+                    }
+
+                    Ok(())
+                })
+                .await
+            }
             // TODO: Action::Rotate { .. } => {}
             Action::Shoot { player_id, request } => {
                 check_player_exists(&game, *player_id).await?;
@@ -136,7 +212,7 @@ impl Action {
                         .iter()
                         .any(|cd| matches!(cd, Cooldown::Cannon { .. }))
                     {
-                        return Err(ActionExecutionError::ActionNotAllowed(format!(
+                        return Err(ActionExecutionError::ActionNotPossible(format!(
                             "the cannon of ship {} of player {} is on cooldown",
                             ship_id.1, player_id
                         )));
@@ -146,7 +222,7 @@ impl Action {
                     if ship_balancing.shoot_costs.as_ref().unwrap().action_points
                         > player.action_points
                     {
-                        return Err(ActionExecutionError::ActionNotAllowed(format!(
+                        return Err(ActionExecutionError::ActionNotPossible(format!(
                             "player {} needs {} action points for {:?} action but has only {}",
                             player_id,
                             &ship_balancing.shoot_costs.unwrap().action_points,
@@ -157,7 +233,7 @@ impl Action {
 
                     // target in range
                     if ship.distance_2(&target) > ship_balancing.shoot_range as i32 {
-                        return Err(ActionExecutionError::ActionNotAllowed(format!(
+                        return Err(ActionExecutionError::ActionNotPossible(format!(
                             "target is out of range for ship {}",
                             ship_id.0
                         )));
@@ -253,7 +329,10 @@ async fn check_player_operates_ship(
 ) -> Result<(), ActionExecutionError> {
     read_game(game, |g| match g.ships.get(&ship_id) {
         None => {
-            let msg = format!("Player {} does not have the ship {}", ship_id.0, ship_id.1);
+            let msg = format!(
+                "Player {} does not control the ship {}",
+                ship_id.0, ship_id.1
+            );
             debug!("{}", msg.as_str());
             Err(ActionExecutionError::Illegal(msg))
         }
