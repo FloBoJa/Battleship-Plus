@@ -48,7 +48,7 @@ pub mod messages {
             self.op_code
         }
         pub fn payload_length(&self) -> usize {
-            self.payload.len() as usize
+            self.payload.len()
         }
         pub fn payload(&self) -> &Vec<u8> {
             &self.payload
@@ -123,9 +123,8 @@ pub mod messages {
             buf[2] = (len >> 8) as u8;
             buf[3] = len as u8;
 
-            for i in 0..len {
-                buf[MESSAGE_HEADER_SIZE + i] = self.payload[i];
-            }
+            buf[MESSAGE_HEADER_SIZE..(len + MESSAGE_HEADER_SIZE)]
+                .copy_from_slice(&self.payload[..len]);
 
             buf
         }

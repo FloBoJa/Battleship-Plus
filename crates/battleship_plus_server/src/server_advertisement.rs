@@ -98,7 +98,6 @@ pub(crate) async fn dispatch_announcement(
     let payload = battleship_plus_common::messages::ServerAdvertisement {
         port: port as u32,
         display_name: String::from(display_name),
-        ..Default::default()
     };
 
     let msg = match battleship_plus_common::messages::Message::new(
