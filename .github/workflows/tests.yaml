@@ -1,0 +1,101 @@
+name: GitLab Sync
+
+on: [ push, pull_request ]
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: |
+            git.scc.kit.edu ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBKHXS5/sK6wBwu+qYujFQDww/BHGjl/QfvLWhx43eMjSQ/zHyqo7A0k9RT4g3hl0I02ykIhmPSYYdZWEy6Junlg=
+            git.scc.kit.edu ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDFCH2OnzH80prnkfW4rz4N/SWOyuHqxpu6SI1tI5omt/0RnUcLzSth8bBGrHNLMZTXf4IiuZlmPrlps/X6JNnTw67m31zo20b8hCuVGHEweFGpTzFJ9Qcv853nKl73xrE2QimZlbaRqZRxG8XdaY0mzKhvjiBKXc3TSRYktI1CsTH9IFnGUE3E1nk72F0sWTrKKP2fjvAw83MoaEA87BOwAEzjSyvklQzFfJ3lQ1gfAp+5SuQacSHjGh4Yp79nAmU1ba2VlK1aead4tOrvtlRo5j0aHLQDjhbq/1V0MM/UC2ifzOBYFeIc1EYn86BHFQUW0n1APSQHFONPZ+uXf8GZZSaWwfGklQZtVU46CMvvIo8Tv86nr+IiC3OSmEptSe1Z678oG1KKjll4H1pC9X0yg/kOKtE2ebvVkKccQL4ng3DYA18kzc+7qTQ0I4izYo+oHfYIsuLR4c/IwoMrc4iO+EA1Zor4mkcdhWYjT/Jz4iHxssRcY2o2xM3KPR0FyJHfR3zxwI+SVJqx5Vze7+9loREVli6M/QvL53xSYZ/F358YFWHkb282z6wrbYAeSMkiV8XcfYY6JjivSDFd3XoH8YR8hkz6xyx5QXqDebN8VbjW+oR4McQQ58FH6BlxJu0fRG/lnsxVtal3B/TT97vTPNGfgI0dDWbqmO+iM3ydxw==
+            git.scc.kit.edu ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIArtDJdG+9NYcqMZTiGL0jOKR3oJVpdDEwN4lm0FnKP5
+
+      - name: Install latest rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "shared"
+
+      - name: Run cargo check
+        uses: actions-rs/cargo@v1
+        continue-on-error: true  # WARNING: only for this example, remove it!
+        with:
+          command: check
+
+  test:
+    name: Test
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: |
+            git.scc.kit.edu ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBKHXS5/sK6wBwu+qYujFQDww/BHGjl/QfvLWhx43eMjSQ/zHyqo7A0k9RT4g3hl0I02ykIhmPSYYdZWEy6Junlg=
+            git.scc.kit.edu ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDFCH2OnzH80prnkfW4rz4N/SWOyuHqxpu6SI1tI5omt/0RnUcLzSth8bBGrHNLMZTXf4IiuZlmPrlps/X6JNnTw67m31zo20b8hCuVGHEweFGpTzFJ9Qcv853nKl73xrE2QimZlbaRqZRxG8XdaY0mzKhvjiBKXc3TSRYktI1CsTH9IFnGUE3E1nk72F0sWTrKKP2fjvAw83MoaEA87BOwAEzjSyvklQzFfJ3lQ1gfAp+5SuQacSHjGh4Yp79nAmU1ba2VlK1aead4tOrvtlRo5j0aHLQDjhbq/1V0MM/UC2ifzOBYFeIc1EYn86BHFQUW0n1APSQHFONPZ+uXf8GZZSaWwfGklQZtVU46CMvvIo8Tv86nr+IiC3OSmEptSe1Z678oG1KKjll4H1pC9X0yg/kOKtE2ebvVkKccQL4ng3DYA18kzc+7qTQ0I4izYo+oHfYIsuLR4c/IwoMrc4iO+EA1Zor4mkcdhWYjT/Jz4iHxssRcY2o2xM3KPR0FyJHfR3zxwI+SVJqx5Vze7+9loREVli6M/QvL53xSYZ/F358YFWHkb282z6wrbYAeSMkiV8XcfYY6JjivSDFd3XoH8YR8hkz6xyx5QXqDebN8VbjW+oR4McQQ58FH6BlxJu0fRG/lnsxVtal3B/TT97vTPNGfgI0dDWbqmO+iM3ydxw==
+            git.scc.kit.edu ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIArtDJdG+9NYcqMZTiGL0jOKR3oJVpdDEwN4lm0FnKP5
+
+      - name: Install latest rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "shared"
+
+      - name: Run cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  lint:
+    name: Lint
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: |
+            git.scc.kit.edu ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBKHXS5/sK6wBwu+qYujFQDww/BHGjl/QfvLWhx43eMjSQ/zHyqo7A0k9RT4g3hl0I02ykIhmPSYYdZWEy6Junlg=
+            git.scc.kit.edu ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDFCH2OnzH80prnkfW4rz4N/SWOyuHqxpu6SI1tI5omt/0RnUcLzSth8bBGrHNLMZTXf4IiuZlmPrlps/X6JNnTw67m31zo20b8hCuVGHEweFGpTzFJ9Qcv853nKl73xrE2QimZlbaRqZRxG8XdaY0mzKhvjiBKXc3TSRYktI1CsTH9IFnGUE3E1nk72F0sWTrKKP2fjvAw83MoaEA87BOwAEzjSyvklQzFfJ3lQ1gfAp+5SuQacSHjGh4Yp79nAmU1ba2VlK1aead4tOrvtlRo5j0aHLQDjhbq/1V0MM/UC2ifzOBYFeIc1EYn86BHFQUW0n1APSQHFONPZ+uXf8GZZSaWwfGklQZtVU46CMvvIo8Tv86nr+IiC3OSmEptSe1Z678oG1KKjll4H1pC9X0yg/kOKtE2ebvVkKccQL4ng3DYA18kzc+7qTQ0I4izYo+oHfYIsuLR4c/IwoMrc4iO+EA1Zor4mkcdhWYjT/Jz4iHxssRcY2o2xM3KPR0FyJHfR3zxwI+SVJqx5Vze7+9loREVli6M/QvL53xSYZ/F358YFWHkb282z6wrbYAeSMkiV8XcfYY6JjivSDFd3XoH8YR8hkz6xyx5QXqDebN8VbjW+oR4McQQ58FH6BlxJu0fRG/lnsxVtal3B/TT97vTPNGfgI0dDWbqmO+iM3ydxw==
+            git.scc.kit.edu ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIArtDJdG+9NYcqMZTiGL0jOKR3oJVpdDEwN4lm0FnKP5
+
+      - name: Install latest rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "shared"
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
