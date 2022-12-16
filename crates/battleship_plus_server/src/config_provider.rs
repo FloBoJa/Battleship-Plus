@@ -23,7 +23,10 @@ mod default {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use battleship_plus_common::types::{BattleshipBalancing, CarrierBalancing, CommonBalancing, Config, Costs, CruiserBalancing, DestroyerBalancing, ShipType, SubmarineBalancing};
+    use battleship_plus_common::types::{
+        BattleshipBalancing, CarrierBalancing, CommonBalancing, Config, Costs, CruiserBalancing,
+        DestroyerBalancing, ShipType, SubmarineBalancing,
+    };
 
     use crate::config_provider::{ConfigProvider, ServerConfig};
 
@@ -144,7 +147,12 @@ mod default {
                 enable_announcements_v4: true,
                 enable_announcements_v6: true,
                 announcement_address_v4: SocketAddrV4::new(Ipv4Addr::BROADCAST, 30303),
-                announcement_address_v6: SocketAddrV6::new(Ipv6Addr::new(0xff03, 0, 0, 0, 0, 0, 0, 1), 30303, 0, 0),
+                announcement_address_v6: SocketAddrV6::new(
+                    Ipv6Addr::new(0xff03, 0, 0, 0, 0, 0, 0, 1),
+                    30303,
+                    0,
+                    0,
+                ),
                 announcement_interval: Duration::from_secs(5),
             })
         }
