@@ -4,8 +4,8 @@ use tokio::signal;
 use crate::server_advertisement::start_announcement_timer;
 
 mod config_provider;
-mod server_advertisement;
 mod game;
+mod server_advertisement;
 
 #[tokio::main]
 async fn main() {

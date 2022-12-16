@@ -17,35 +17,32 @@ pub enum GameState {
 impl GameState {
     pub fn is_action_valid(&self, action: &Action) -> bool {
         match self {
-            GameState::Lobby => match action {
-                Action::TeamSwitch { .. } |
-                Action::SetReady { .. } => true,
-                _ => false,
+            GameState::Lobby => {
+                matches!(action, Action::TeamSwitch { .. } | Action::SetReady { .. })
             }
-            GameState::Preparation => match action {
-                Action::PlaceShips { .. } => true,
-                _ => false,
-            }
-            GameState::InGame => match action {
-                Action::Move { .. } |
-                Action::Rotate { .. } |
-                Action::Shoot { .. } |
-                Action::ScoutPlane { .. } |
-                Action::PredatorMissile { .. } |
-                Action::EngineBoost { .. } |
-                Action::Torpedo { .. } |
-                Action::MultiMissile { .. } => true,
-                _ => false,
-            }
-            GameState::End => match action {
-                _ => false,
-            }
+            GameState::Preparation => matches!(action, Action::PlaceShips { .. }),
+            GameState::InGame => matches!(
+                action,
+                Action::Move { .. }
+                    | Action::Rotate { .. }
+                    | Action::Shoot { .. }
+                    | Action::ScoutPlane { .. }
+                    | Action::PredatorMissile { .. }
+                    | Action::EngineBoost { .. }
+                    | Action::Torpedo { .. }
+                    | Action::MultiMissile { .. }
+            ),
+            GameState::End => false,
         }
     }
 
-    pub async fn execute_action(&self, action: Action, game: Arc<RwLock<Game>>) -> Result<(), ActionExecutionError> {
+    pub async fn execute_action(
+        &self,
+        action: Action,
+        game: Arc<RwLock<Game>>,
+    ) -> Result<(), ActionExecutionError> {
         if !self.is_action_valid(&action) {
-            return Err(ActionExecutionError::OutOfState(self.clone()));
+            return Err(ActionExecutionError::OutOfState(*self));
         }
 
         debug!("execute {:?} action on game", action);
