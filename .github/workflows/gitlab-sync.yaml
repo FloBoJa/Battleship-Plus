@@ -1,0 +1,13 @@
+name: GitLab Sync
+
+on: [ push ]
+
+jobs:
+  sync-to-gitlab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: net-engine/github-repository-sync-action@v1
+        with:
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          target_repo_url: git@git.scc.kit.edu:tm-praktika/protocol-engineering-ws2022-2023/groups/implementation-group-a.git
