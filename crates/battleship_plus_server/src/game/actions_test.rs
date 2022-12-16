@@ -166,7 +166,7 @@ mod actions_shoot {
     use battleship_plus_common::messages::{CommonBalancing, Coordinate, Costs, DestroyerBalancing, ShootRequest};
 
     use crate::game::actions::{Action, ActionExecutionError};
-    use crate::game::data::{Game, GetShipID, Player, Ship, ShipData, ShipRef};
+    use crate::game::data::{Cooldown, Game, GetShipID, Player, Ship, ShipData, ShipRef};
 
     #[tokio::test]
     async fn actions_shoot() {
@@ -358,6 +358,76 @@ mod actions_shoot {
         {
             let g = game.read().await;
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_shoot_cooldown() {
+        let player = Player {
+            action_points: 5,
+            ..Default::default()
+        };
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    shoot_damage: 10,
+                    shoot_range: 128,
+                    shoot_costs: Some(Costs { cooldown: 2, action_points: 0 }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: Default::default(),
+            cool_downs: Default::default(),
+        };
+
+        let game = Arc::new(RwLock::new(
+            Game {
+                board_size: 24,
+                players: HashMap::from([
+                    (player.id, player.clone())
+                ]),
+                team_a: HashSet::from([player.id]),
+                ships: HashMap::from([
+                    (ship.id(), ship.clone()),
+                ]),
+                ships_geo_lookup: RTree::bulk_load(vec![
+                    ShipRef(Arc::from(ship.clone())),
+                ]),
+                ..Default::default()
+            }
+        ));
+
+        // first shot
+        assert!(Action::Shoot {
+            player_id: player.id,
+            request: ShootRequest {
+                ship_number: 0,
+                target: Some(Coordinate { x: 20, y: 20 }),
+            },
+        }.apply_on(game.clone()).await.is_ok());
+
+        // action points reduced
+        {
+            let g = game.read().await;
+            assert!(g.ships.get(&ship.id()).unwrap().cool_downs()
+                .contains(&Cooldown::Cannon { remaining_rounds: 2 }));
+        }
+
+        // deny second shot
+        assert!(Action::Shoot {
+            player_id: player.id,
+            request: ShootRequest {
+                ship_number: 0,
+                target: Some(Coordinate { x: 20, y: 20 }),
+            },
+        }.apply_on(game.clone()).await.is_err());
+
+        // board untouched
+        {
+            let g = game.read().await;
+            assert!(g.ships.get(&ship.id()).unwrap().cool_downs()
+                .contains(&Cooldown::Cannon { remaining_rounds: 2 }));
         }
     }
 
