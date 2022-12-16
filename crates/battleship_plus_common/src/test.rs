@@ -5,24 +5,23 @@ use crate::messages::OpCode;
 #[test]
 fn op_code_into_test() {
     let resource_directory = String::from(env!("RESOURCE_DIR"));
-    let op_codes_file = resource_directory.clone() + "/rfc/encoding/OpCodes.yaml";
+    let op_codes_file = resource_directory + "/rfc/encoding/OpCodes.yaml";
     // load op codes
     let op_codes_yaml = serde_yaml::from_reader(
         std::fs::File::open(op_codes_file.as_str())
-            .expect(&format!("unable to open file: {}", op_codes_file.as_str())),
+            .unwrap_or_else(|_| panic!("unable to open file: {}", op_codes_file.as_str())),
     )
-    .expect(&format!(
-        "unable to read op codes from {} file",
-        op_codes_file.as_str()
-    ));
+    .unwrap_or_else(|_| {
+        panic!(
+            "unable to read op codes from {} file",
+            op_codes_file.as_str()
+        )
+    });
 
     let op_codes = match op_codes_yaml {
         Value::Mapping(m) => m["OpCodes"]
             .as_mapping()
-            .expect(&format!(
-                "unable to fine OpCodes in {}",
-                op_codes_file.as_str()
-            ))
+            .unwrap_or_else(|| panic!("unable to fine OpCodes in {}", op_codes_file.as_str()))
             .clone(),
         _ => panic!("expected a mapping named OpCodes"),
     };
