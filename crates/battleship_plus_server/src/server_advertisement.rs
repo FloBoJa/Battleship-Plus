@@ -18,8 +18,12 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
 
     let sock_v4;
     if cfg.server_config().enable_announcements_v4 {
-        let s = UdpSocket::bind(SocketAddr::new(IpAddr::from(cfg.server_config().game_address_v4.ip().octets()), 0)).await
-            .expect("unable to create IPv4 announcement socket");
+        let s = UdpSocket::bind(SocketAddr::new(
+            IpAddr::from(cfg.server_config().game_address_v4.ip().octets()),
+            0,
+        ))
+        .await
+        .expect("unable to create IPv4 announcement socket");
         s.set_broadcast(true)
             .expect("unable to enable broadcasting on IPv4 announcement socket");
         sock_v4 = Some(s);
@@ -29,8 +33,12 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
 
     let sock_v6;
     if cfg.server_config().enable_announcements_v6 {
-        let s = UdpSocket::bind(SocketAddr::new(IpAddr::from(cfg.server_config().game_address_v6.ip().octets()), 0)).await
-            .expect("unable to create IPv6 announcement socket");
+        let s = UdpSocket::bind(SocketAddr::new(
+            IpAddr::from(cfg.server_config().game_address_v6.ip().octets()),
+            0,
+        ))
+        .await
+        .expect("unable to create IPv6 announcement socket");
         s.set_broadcast(true)
             .expect("unable to enable broadcasting on IPv6 announcement socket");
         sock_v6 = Some(s);
@@ -51,35 +59,45 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
             timer.tick().await;
 
             if sock_v4.as_ref().is_some() {
-                match dispatch_announcement(sock_v4.as_ref().unwrap().borrow(),
-                                            game_port_v4,
-                                            server_name.as_str(),
-                                            announce_v4.into(),
-                ).await {
+                match dispatch_announcement(
+                    sock_v4.as_ref().unwrap().borrow(),
+                    game_port_v4,
+                    server_name.as_str(),
+                    announce_v4.into(),
+                )
+                .await
+                {
                     Ok(_) => debug!("IPv4 advertisement dispatched"),
-                    Err(e) => warn!("unable to dispatch IPv4 advertisement: {}", e)
+                    Err(e) => warn!("unable to dispatch IPv4 advertisement: {}", e),
                 };
             }
 
             if sock_v6.as_ref().is_some() {
-                match dispatch_announcement(sock_v6.as_ref().unwrap().borrow(),
-                                            game_port_v6,
-                                            server_name.as_str(),
-                                            announce_v6.into(),
-                ).await {
+                match dispatch_announcement(
+                    sock_v6.as_ref().unwrap().borrow(),
+                    game_port_v6,
+                    server_name.as_str(),
+                    announce_v6.into(),
+                )
+                .await
+                {
                     Ok(_) => debug!("IPv6 advertisement dispatched"),
-                    Err(e) => warn!("unable to dispatch IPv6 advertisement: {}", e)
+                    Err(e) => warn!("unable to dispatch IPv6 advertisement: {}", e),
                 };
             }
         }
     });
 }
 
-pub(crate) async fn dispatch_announcement(socket: &UdpSocket, port: u16, display_name: &str, dst: SocketAddr) -> Result<(), String> {
+pub(crate) async fn dispatch_announcement(
+    socket: &UdpSocket,
+    port: u16,
+    display_name: &str,
+    dst: SocketAddr,
+) -> Result<(), String> {
     let payload = battleship_plus_common::messages::ServerAdvertisement {
         port: port as u32,
         display_name: String::from(display_name),
-        ..Default::default()
     };
 
     let msg = match battleship_plus_common::messages::Message::new(
@@ -88,7 +106,7 @@ pub(crate) async fn dispatch_announcement(socket: &UdpSocket, port: u16, display
         payload.encode_to_vec().as_slice(),
     ) {
         Ok(msg) => msg,
-        Err(e) => return Err(format!("unable to encode advertisement message: {}", e))
+        Err(e) => return Err(format!("unable to encode advertisement message: {}", e)),
     };
 
     match socket.send_to(msg.encode().as_slice(), dst).await {
