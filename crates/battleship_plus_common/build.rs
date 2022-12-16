@@ -6,28 +6,44 @@ use codegen::{Block, Enum, Impl, Scope, Type};
 use serde_yaml::Value;
 
 fn main() -> Result<()> {
-    let resource_directory = String::from(env!("RESOURCE_DIR"));
-    let proto_file = resource_directory.clone() + "/rfc/encoding/messages.proto";
+    println!("cargo:rerun-if-changed=build.rs");
+
+    let specification_directory = String::from(env!("RESOURCE_DIR")) + "/rfc/encoding";
+    let proto_file_messages = specification_directory.clone() + "/messages.proto";
+    let proto_file_types = specification_directory.clone() + "/datatypes.proto";
+    println!("cargo:rerun-if-changed={}", proto_file_messages.as_str());
+    println!("cargo:rerun-if-changed={}", proto_file_types.as_str());
 
     // build protobuf structs from rfc
-    prost_build::compile_protos(&[proto_file.as_str()], &[resource_directory.as_str()])?;
+    prost_build::compile_protos(
+        &[proto_file_messages.as_str()],
+        &[specification_directory.as_str()],
+    )?;
 
     // build op codes from rfc
-    let op_codes_file = resource_directory.clone() + "/rfc/encoding/OpCodes.yaml";
-    let op_codes_yaml =
-        serde_yaml::from_reader(std::fs::File::open(op_codes_file.as_str())
-            .expect(&format!("unable to open file: {}", op_codes_file.as_str())))
-            .expect(&format!("unable to read op codes from {} file", op_codes_file.as_str()));
+    let op_codes_file = specification_directory + "/OpCodes.yaml";
+    println!("cargo:rerun-if-changed={}", op_codes_file.as_str());
+    let op_codes_yaml = serde_yaml::from_reader(
+        std::fs::File::open(op_codes_file.as_str())
+            .unwrap_or_else(|_| panic!("unable to open file: {}", op_codes_file.as_str())),
+    )
+    .unwrap_or_else(|_| {
+        panic!(
+            "unable to read op codes from {} file",
+            op_codes_file.as_str()
+        )
+    });
 
     let op_codes_yaml = match op_codes_yaml {
-        Value::Mapping(m) => {
-            m["OpCodes"].as_mapping().expect(&format!("unable to fine OpCodes in {}", op_codes_file.as_str())).clone()
-        }
-        _ => panic!("expected a mapping named OpCodes")
+        Value::Mapping(m) => m["OpCodes"]
+            .as_mapping()
+            .unwrap_or_else(|| panic!("unable to fine OpCodes in {}", op_codes_file.as_str()))
+            .clone(),
+        _ => panic!("expected a mapping named OpCodes"),
     };
 
     // generate Enum from OpCodes
-    const OP_CODES_ENUM: &'static str = "OpCodes";
+    const OP_CODES_ENUM: &str = "OpCode";
     let mut op_codes_scope = Scope::new();
 
     let mut op_codes = Enum::new(OP_CODES_ENUM);
@@ -46,16 +62,16 @@ fn main() -> Result<()> {
         .arg("value", Type::new("u8"))
         .ret(Type::new("std::result::Result<Self, Self::Error>"));
 
-    let mut into = Impl::new(Type::new(OP_CODES_ENUM));
-    into
-        .impl_trait(Type::new("Into<u8>"));
+    // https://rust-lang.github.io/rust-clippy/master/index.html#from_over_into
+    let mut into = Impl::new(Type::new("u8"));
+    into.impl_trait(Type::new(format!("From<{}>", OP_CODES_ENUM)));
     let into_fn = into
-        .new_fn("into")
-        .arg_self()
+        .new_fn("from")
+        .arg("value", Type::new(OP_CODES_ENUM))
         .ret(Type::new("u8"));
 
     let mut try_from_fn_match = Block::new("match value");
-    let mut into_fn_match = Block::new("match self");
+    let mut into_fn_match = Block::new("match value");
 
     op_codes_yaml.iter().for_each(|(key, value)| {
         let key = key.as_str().unwrap();
@@ -83,10 +99,11 @@ fn main() -> Result<()> {
 
     {
         let mut f = std::fs::File::create(&target)
-            .expect(&format!("unable to write file {:?}.", &target));
+            .unwrap_or_else(|_| panic!("unable to write file {:?}.", &target));
 
-        f.write(op_codes_scope.to_string().as_bytes())
-            .expect(&format!("unable to write file {:?}.", &target));
+        let _ = f
+            .write(op_codes_scope.to_string().as_bytes())
+            .unwrap_or_else(|_| panic!("unable to write file {:?}.", &target));
 
         f.sync_all().unwrap();
     }
