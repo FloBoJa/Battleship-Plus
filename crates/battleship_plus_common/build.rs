@@ -6,14 +6,20 @@ use codegen::{Block, Enum, Impl, Scope, Type};
 use serde_yaml::Value;
 
 fn main() -> Result<()> {
+    println!("cargo:rerun-if-changed=build.rs");
+
     let specification_directory = String::from(env!("RESOURCE_DIR")) + "/rfc/encoding";
-    let proto_file = specification_directory.clone() + "/messages.proto";
+    let proto_file_messages = specification_directory.clone() + "/messages.proto";
+    let proto_file_types = specification_directory.clone() + "/datatypes.proto";
+    println!("cargo:rerun-if-changed={}", proto_file_messages.as_str());
+    println!("cargo:rerun-if-changed={}", proto_file_types.as_str());
 
     // build protobuf structs from rfc
-    prost_build::compile_protos(&[proto_file.as_str()], &[specification_directory.as_str()])?;
+    prost_build::compile_protos(&[proto_file_messages.as_str()], &[specification_directory.as_str()])?;
 
     // build op codes from rfc
     let op_codes_file = specification_directory.clone() + "/OpCodes.yaml";
+    println!("cargo:rerun-if-changed={}", op_codes_file.as_str());
     let op_codes_yaml =
         serde_yaml::from_reader(std::fs::File::open(op_codes_file.as_str())
             .expect(&format!("unable to open file: {}", op_codes_file.as_str())))
