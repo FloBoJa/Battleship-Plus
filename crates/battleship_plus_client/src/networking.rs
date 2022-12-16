@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_quinnet::client::QuinnetClientPlugin;
-use battleship_plus_common::messages;
+use battleship_plus_common::types;
 use std::net::Ipv6Addr;
 
 pub struct NetworkingPlugin;
@@ -16,14 +16,14 @@ impl Plugin for NetworkingPlugin {
 
 #[derive(Component, Debug)]
 pub struct ServerInformation {
-  pub ip : std::net::IpAddr, pub port : u32, pub config : messages::Config,
+  pub ip : std::net::IpAddr, pub port : u32, pub config : types::Config,
 }
 
 fn listen_for_announcements(mut commands: Commands) {
   commands.spawn(ServerInformation{
     ip : Ipv6Addr::new (0, 0, 0, 0, 0, 0, 0, 1).into(),
     port : 30305,
-    config : messages::Config{..default()},
+    config : types::Config{..default()},
   });
 }
 
@@ -33,7 +33,7 @@ fn needs_server(servers : Query<&ServerInformation>) {
 }
 
 #[derive(Component, Debug)]
-pub struct LobbyState(messages::LobbyTeamState, messages::LobbyTeamState);
+pub struct LobbyState(types::LobbyTeamState, types::LobbyTeamState);
 
 fn listen_for_lobby_change(mut commands
                            : Commands, lobby_state
@@ -44,6 +44,6 @@ fn listen_for_lobby_change(mut commands
           .expect("!!!!")
           .despawn_recursive();
     }
-  commands.spawn(LobbyState(default(), default()));
+  commands.spawn(LobbyState(..default(), ..default()));
   return;
 }
