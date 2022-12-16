@@ -62,12 +62,16 @@ fn main() -> Result<()> {
         .arg("value", Type::new("u8"))
         .ret(Type::new("std::result::Result<Self, Self::Error>"));
 
-    let mut into = Impl::new(Type::new(OP_CODES_ENUM));
-    into.impl_trait(Type::new("Into<u8>"));
-    let into_fn = into.new_fn("into").arg_self().ret(Type::new("u8"));
+    // https://rust-lang.github.io/rust-clippy/master/index.html#from_over_into
+    let mut into = Impl::new(Type::new("u8"));
+    into.impl_trait(Type::new(format!("From<{}>", OP_CODES_ENUM)));
+    let into_fn = into
+        .new_fn("from")
+        .arg("value", Type::new(OP_CODES_ENUM))
+        .ret(Type::new("u8"));
 
     let mut try_from_fn_match = Block::new("match value");
-    let mut into_fn_match = Block::new("match self");
+    let mut into_fn_match = Block::new("match value");
 
     op_codes_yaml.iter().for_each(|(key, value)| {
         let key = key.as_str().unwrap();
