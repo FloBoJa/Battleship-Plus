@@ -41,6 +41,7 @@ impl Action {
     pub(crate) async fn apply_on(&self, game: Arc<RwLock<Game>>) -> Result<(), ActionExecutionError> {
         // TODO: implement actions below
         // TODO: add tests for all actions
+        // TODO: refactor :3
 
         match self {
             Action::TeamSwitch { player_id } => {
