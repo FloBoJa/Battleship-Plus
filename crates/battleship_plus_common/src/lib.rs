@@ -1,58 +1,143 @@
-pub mod messages {
-    include!(concat!(env!("OUT_DIR"), "/battleshipplus.rs"));
-    include!(concat!(env!("OUT_DIR"), "/battleshipplus_op_codes.rs"));
+#[cfg(test)]
+mod test;
+
+pub const PROTOCOL_VERSION: u8 = 1;
+
+pub mod types {
+    include!(concat!(env!("OUT_DIR"), "/battleshipplus.types.rs"));
 }
 
-#[cfg(test)]
-mod test {
-    use serde_yaml::Value;
+pub mod messages {
+    use std::borrow::BorrowMut;
+    use std::fmt::{Display, Formatter};
+    use std::io::{BufRead, Write};
 
-    use crate::messages::OpCodes;
+    include!(concat!(env!("OUT_DIR"), "/battleshipplus.messages.rs"));
+    include!(concat!(env!("OUT_DIR"), "/battleshipplus_op_codes.rs"));
 
-    #[test]
-    fn op_code_into_test() {
-        let resource_directory = String::from(env!("RESOURCE_DIR"));
-        let op_codes_file = resource_directory.clone() + "/rfc/encoding/OpCodes.yaml";
-        // load op codes
-        let op_codes_yaml =
-            serde_yaml::from_reader(std::fs::File::open(op_codes_file.as_str())
-                .expect(&format!("unable to open file: {}", op_codes_file.as_str())))
-                .expect(&format!("unable to read op codes from {} file", op_codes_file.as_str()));
+    #[derive(Clone, Debug)]
+    pub enum MessageEncodingError {
+        IO(String),
+        PROTOCOL(String),
+    }
 
-        let op_codes = match op_codes_yaml {
-            Value::Mapping(m) => {
-                m["OpCodes"].as_mapping().expect(&format!("unable to fine OpCodes in {}", op_codes_file.as_str())).clone()
+    impl Display for MessageEncodingError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                MessageEncodingError::IO(s) => f.write_str(format!("IO: {}", s).as_str()),
+                MessageEncodingError::PROTOCOL(s) => {
+                    f.write_str(format!("PROTOCOL: {}", s).as_str())
+                }
             }
-            _ => panic!("expected a mapping named OpCodes")
-        };
+        }
+    }
 
-        let mut valid_values = Vec::with_capacity(op_codes.len());
+    const MESSAGE_HEADER_SIZE: usize = 4;
 
-        // match op codes from rfc to generated enum
-        op_codes.iter().for_each(|(key, value)| {
-            let key = key.as_str().unwrap();
-            let value = value.as_i64().unwrap() as u8;
-            valid_values.push(value);
+    pub struct Message {
+        version: u8,
+        op_code: OpCode,
+        payload: Vec<u8>,
+    }
 
-            // u8 -> OpCode
-            let op_code = OpCodes::try_from(value);
-            assert!(op_code.is_ok());
-            let op_code = op_code.unwrap();
-            assert_eq!(key, format!("{:?}", op_code));
+    impl Message {
+        pub fn version(&self) -> u8 {
+            self.version
+        }
+        pub fn op_code(&self) -> OpCode {
+            self.op_code
+        }
+        pub fn payload_length(&self) -> usize {
+            self.payload.len()
+        }
+        pub fn payload(&self) -> &Vec<u8> {
+            &self.payload
+        }
 
-            // OpCode -> u8
-            assert_eq!(value, op_code.into());
-        });
-
-        // assert that try_from fails with an error for an invalid u8
-        for i in u8::MIN..u8::MAX {
-            if valid_values.contains(&i) {
-                continue;
+        pub fn decode(rd: &mut dyn BufRead) -> Result<Message, MessageEncodingError> {
+            let mut buf = [0u8; 4];
+            match rd.read_exact(buf.borrow_mut()) {
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(MessageEncodingError::IO(format!(
+                        "unable to read header from buffer: {}",
+                        &e
+                    )))
+                }
             }
 
-            let op_code = OpCodes::try_from(i);
-            assert!(op_code.is_err());
-            assert_eq!(op_code.unwrap_err(), "Unknown OpCode")
+            let version = buf[0];
+
+            let op_code = match OpCode::try_from(buf[1]) {
+                Ok(op_code) => op_code,
+                Err(e) => return Err(MessageEncodingError::PROTOCOL(String::from(e))),
+            };
+
+            let payload_length = (buf[2] as u16) << 8 | (buf[3] as u16);
+            let mut payload = vec![0u8; payload_length as usize];
+
+            match rd.read_exact(payload.borrow_mut()) {
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(MessageEncodingError::IO(format!(
+                        "unable to read header from buffer: {}",
+                        e
+                    )))
+                }
+            }
+
+            Ok(Message {
+                version,
+                op_code,
+                payload,
+            })
+        }
+
+        pub fn new(
+            version: u8,
+            op_code: OpCode,
+            payload: &[u8],
+        ) -> Result<Message, MessageEncodingError> {
+            if payload.len() > u16::MAX as usize {
+                return Err(MessageEncodingError::PROTOCOL(String::from(
+                    "message payload is too long",
+                )));
+            }
+
+            let payload = Vec::from(payload);
+
+            Ok(Message {
+                version,
+                op_code,
+                payload,
+            })
+        }
+
+        pub fn encode(&self) -> Vec<u8> {
+            let mut buf = vec![0u8; self.payload_length() + MESSAGE_HEADER_SIZE];
+
+            buf[0] = self.version;
+            buf[1] = self.op_code.into();
+
+            let len = self.payload_length();
+            buf[2] = (len >> 8) as u8;
+            buf[3] = len as u8;
+
+            buf[MESSAGE_HEADER_SIZE..(len + MESSAGE_HEADER_SIZE)]
+                .copy_from_slice(&self.payload[..len]);
+
+            buf
+        }
+
+        pub fn write_to(&self, writer: &mut dyn Write) -> Result<(), MessageEncodingError> {
+            let buf = self.encode();
+            match writer.write_all(&buf) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(MessageEncodingError::IO(format!(
+                    "unable to write message: {}",
+                    e
+                ))),
+            }
         }
     }
 }
