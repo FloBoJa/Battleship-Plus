@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use rstar::{AABB, Envelope, PointDistance, RTree, RTreeObject, SelectionFunction};
 
-use battleship_plus_common::messages::{BattleshipBalancing, CarrierBalancing, CommonBalancing, CruiserBalancing, DestroyerBalancing, SubmarineBalancing};
+use battleship_plus_common::types::*;
 
 pub type PlayerID = u32;
 pub type ShipID = (PlayerID, u32);
