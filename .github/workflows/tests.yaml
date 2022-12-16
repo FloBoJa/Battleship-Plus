@@ -31,8 +31,6 @@ jobs:
           override: true
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "shared"
 
       - name: Run cargo check
         uses: actions-rs/cargo@v1
@@ -63,8 +61,6 @@ jobs:
           override: true
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "shared"
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
@@ -94,8 +90,6 @@ jobs:
           override: true
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "shared"
 
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
