@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod test;
 
+pub use prost::Message as ProstMessage;
+
 pub const PROTOCOL_VERSION: u8 = 1;
 
 pub mod types {
@@ -32,7 +34,8 @@ pub mod messages {
         }
     }
 
-    const MESSAGE_HEADER_SIZE: usize = 4;
+    pub const MESSAGE_HEADER_SIZE: usize = 4;
+    pub const MAXIMUM_MESSAGE_SIZE: usize = MESSAGE_HEADER_SIZE + 65_535;
 
     pub struct Message {
         version: u8,
