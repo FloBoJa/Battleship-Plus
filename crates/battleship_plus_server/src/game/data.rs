@@ -30,7 +30,7 @@ impl Game {
     }
 
     pub fn board_bounds(&self) -> AABB<[i32; 2]> {
-        AABB::from_corners([0; 2], [self.board_size as i32; 2])
+        AABB::from_corners([0; 2], [(self.board_size - 1) as i32; 2])
     }
 }
 
@@ -275,6 +275,14 @@ impl Ship {
 
         if world_bounds.contains_envelope(&self.get_envelope(new_x, new_y)) {
             self.set_position(new_x, new_y);
+
+            let cooldown = balancing.movement_costs.unwrap().cooldown;
+            if cooldown > 0 {
+                self.cool_downs_mut().push(Cooldown::Movement {
+                    remaining_rounds: cooldown,
+                });
+            }
+
             Ok(self.envelope())
         } else {
             Err(())
