@@ -3,12 +3,16 @@ mod test;
 
 pub const PROTOCOL_VERSION: u8 = 1;
 
+pub mod types {
+    include!(concat!(env!("OUT_DIR"), "/battleshipplus.types.rs"));
+}
+
 pub mod messages {
     use std::borrow::BorrowMut;
     use std::fmt::{Display, Formatter};
     use std::io::{BufRead, Write};
 
-    include!(concat!(env!("OUT_DIR"), "/battleshipplus.rs"));
+    include!(concat!(env!("OUT_DIR"), "/battleshipplus.messages.rs"));
     include!(concat!(env!("OUT_DIR"), "/battleshipplus_op_codes.rs"));
 
     #[derive(Clone, Debug)]

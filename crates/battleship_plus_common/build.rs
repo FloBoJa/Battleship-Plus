@@ -6,14 +6,14 @@ use codegen::{Block, Enum, Impl, Scope, Type};
 use serde_yaml::Value;
 
 fn main() -> Result<()> {
-    let resource_directory = String::from(env!("RESOURCE_DIR"));
-    let proto_file = resource_directory.clone() + "/rfc/encoding/messages.proto";
+    let specification_directory = String::from(env!("RESOURCE_DIR")) + "/rfc/encoding";
+    let proto_file = specification_directory.clone() + "/messages.proto";
 
     // build protobuf structs from rfc
-    prost_build::compile_protos(&[proto_file.as_str()], &[resource_directory.as_str()])?;
+    prost_build::compile_protos(&[proto_file.as_str()], &[specification_directory.as_str()])?;
 
     // build op codes from rfc
-    let op_codes_file = resource_directory.clone() + "/rfc/encoding/OpCodes.yaml";
+    let op_codes_file = specification_directory.clone() + "/OpCodes.yaml";
     let op_codes_yaml =
         serde_yaml::from_reader(std::fs::File::open(op_codes_file.as_str())
             .expect(&format!("unable to open file: {}", op_codes_file.as_str())))

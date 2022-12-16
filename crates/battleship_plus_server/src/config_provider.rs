@@ -14,7 +14,7 @@ pub struct ServerConfig {
 }
 
 pub trait ConfigProvider {
-    fn game_config(&self) -> Arc<battleship_plus_common::messages::Config>;
+    fn game_config(&self) -> Arc<battleship_plus_common::types::Config>;
     fn server_config(&self) -> Arc<ServerConfig>;
 }
 
@@ -23,34 +23,32 @@ mod default {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use battleship_plus_common::messages::{BattleshipBalancing, CarrierBalancing, CommonBalancing, Config, Costs, CruiserBalancing, DestroyerBalancing, ShipType, SubmarineBalancing, TeamShipSet};
+    use battleship_plus_common::types::{BattleshipBalancing, CarrierBalancing, CommonBalancing, Config, Costs, CruiserBalancing, DestroyerBalancing, ShipType, SubmarineBalancing};
 
     use crate::config_provider::{ConfigProvider, ServerConfig};
 
-    fn costs(cooldown: i32, action_points: i32) -> Option<Costs> {
+    fn costs(cooldown: u32, action_points: u32) -> Option<Costs> {
         Some(Costs {
             cooldown,
             action_points,
         })
     }
 
-    fn default_ship_set() -> Option<TeamShipSet> {
-        Some(TeamShipSet {
-            ships: vec![
-                ShipType::Carrier as i32,
-                ShipType::Battleship as i32,
-                ShipType::Battleship as i32,
-                ShipType::Cruiser as i32,
-                ShipType::Cruiser as i32,
-                ShipType::Cruiser as i32,
-                ShipType::Submarine as i32,
-                ShipType::Submarine as i32,
-                ShipType::Submarine as i32,
-                ShipType::Submarine as i32,
-                ShipType::Destroyer as i32,
-                ShipType::Destroyer as i32,
-            ],
-        })
+    fn default_ship_set() -> Vec<i32> {
+        vec![
+            ShipType::Carrier as i32,
+            ShipType::Battleship as i32,
+            ShipType::Battleship as i32,
+            ShipType::Cruiser as i32,
+            ShipType::Cruiser as i32,
+            ShipType::Cruiser as i32,
+            ShipType::Submarine as i32,
+            ShipType::Submarine as i32,
+            ShipType::Submarine as i32,
+            ShipType::Submarine as i32,
+            ShipType::Destroyer as i32,
+            ShipType::Destroyer as i32,
+        ]
     }
 
     #[derive(Copy, Clone, Debug)]
@@ -71,8 +69,8 @@ mod default {
                         vision_range: 8,
                         initial_health: 300,
                     }),
-                    range: 32,
-                    radius: 8,
+                    scout_plane_range: 32,
+                    scout_plane_radius: 8,
                 }),
                 battleship_balancing: Some(BattleshipBalancing {
                     common_balancing: Some(CommonBalancing {
@@ -85,9 +83,9 @@ mod default {
                         vision_range: 12,
                         initial_health: 200,
                     }),
-                    range: 20,
-                    radius: 6,
-                    damage: 34,
+                    predator_missile_range: 20,
+                    predator_missile_radius: 6,
+                    predator_missile_damage: 34,
                 }),
                 cruiser_balancing: Some(CruiserBalancing {
                     common_balancing: Some(CommonBalancing {
@@ -100,7 +98,7 @@ mod default {
                         vision_range: 10,
                         initial_health: 100,
                     }),
-                    distance: 8,
+                    engine_boost_distance: 8,
                 }),
                 submarine_balancing: Some(SubmarineBalancing {
                     common_balancing: Some(CommonBalancing {
@@ -113,8 +111,8 @@ mod default {
                         vision_range: 32,
                         initial_health: 100,
                     }),
-                    range: 32,
-                    damage: 50,
+                    torpedo_range: 32,
+                    torpedo_damage: 50,
                 }),
                 destroyer_balancing: Some(DestroyerBalancing {
                     common_balancing: Some(CommonBalancing {
@@ -127,8 +125,8 @@ mod default {
                         vision_range: 24,
                         initial_health: 100,
                     }),
-                    radius: 16,
-                    damage: 44,
+                    multi_missile_radius: 16,
+                    multi_missile_damage: 44,
                 }),
                 ship_set_team_a: default_ship_set(),
                 ship_set_team_b: default_ship_set(),
