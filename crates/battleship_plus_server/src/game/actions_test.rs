@@ -163,7 +163,8 @@ mod actions_shoot {
     use rstar::RTree;
     use tokio::sync::RwLock;
 
-    use battleship_plus_common::messages::{CommonBalancing, Coordinate, Costs, DestroyerBalancing, ShootRequest};
+    use battleship_plus_common::messages::*;
+    use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Cooldown, Game, GetShipID, Player, Ship, ShipData, ShipRef};

@@ -4,7 +4,7 @@ use log::{debug, error};
 use rstar::{AABB, Envelope, PointDistance, RTreeObject};
 use tokio::sync::RwLock;
 
-use battleship_plus_common::messages::{EngineBoostRequest, MoveRequest, MultiMissileRequest, PredatorMissileRequest, RotateRequest, ScoutPlaneRequest, SetPlacementRequest, SetReadyStateRequest, ShootRequest, TorpedoRequest};
+use battleship_plus_common::messages::*;
 
 use crate::game::data::{Cooldown, Game, PlayerID, SelectShipsByIDFunction, Ship, ShipID};
 use crate::game::states::GameState;
@@ -26,7 +26,7 @@ pub enum Action {
     PredatorMissile { player_id: PlayerID, request: PredatorMissileRequest },
     EngineBoost { player_id: PlayerID, request: EngineBoostRequest },
     Torpedo { player_id: PlayerID, request: TorpedoRequest },
-    MultiMissile { player_id: PlayerID, request: MultiMissileRequest },
+    MultiMissile { player_id: PlayerID, request: MultiMissileAttackRequest },
 }
 
 #[derive(Debug, Clone)]
@@ -117,14 +117,14 @@ impl Action {
                     }
 
                     // action points
-                    if ship_balancing.shoot_costs.as_ref().unwrap().action_points > player.action_points as i32 {
+                    if ship_balancing.shoot_costs.as_ref().unwrap().action_points > player.action_points {
                         return Err(ActionExecutionError::ActionNotAllowed(format!("player {} needs {} action points for {:?} action but has only {}",
                                                                                   player_id, &ship_balancing.shoot_costs.unwrap().action_points,
                                                                                   self, player.action_points)));
                     }
 
                     // target in range
-                    if ship.distance_2(&target) > ship_balancing.shoot_range {
+                    if ship.distance_2(&target) > ship_balancing.shoot_range as i32 {
                         return Err(ActionExecutionError::ActionNotAllowed(format!("target is out of range for ship {}", ship_id.0)));
                     }
 
