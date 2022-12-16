@@ -1,10 +1,10 @@
 name: GitLab Sync
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-      - actions
 
 jobs:
   sync-to-gitlab:
