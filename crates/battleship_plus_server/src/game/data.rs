@@ -2,7 +2,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use rstar::{AABB, Envelope, PointDistance, RTree, RTreeObject, SelectionFunction};
+use rstar::{Envelope, PointDistance, RTree, RTreeObject, SelectionFunction, AABB};
 
 use battleship_plus_common::types::*;
 
@@ -103,11 +103,31 @@ pub(crate) trait GetShipID {
 
 #[derive(Debug, Clone)]
 pub enum Ship {
-    Carrier { balancing: Arc<CarrierBalancing>, data: ShipData, cool_downs: Vec<Cooldown> },
-    Battleship { balancing: Arc<BattleshipBalancing>, data: ShipData, cool_downs: Vec<Cooldown> },
-    Cruiser { balancing: Arc<CruiserBalancing>, data: ShipData, cool_downs: Vec<Cooldown> },
-    Submarine { balancing: Arc<SubmarineBalancing>, data: ShipData, cool_downs: Vec<Cooldown> },
-    Destroyer { balancing: Arc<DestroyerBalancing>, data: ShipData, cool_downs: Vec<Cooldown> },
+    Carrier {
+        balancing: Arc<CarrierBalancing>,
+        data: ShipData,
+        cool_downs: Vec<Cooldown>,
+    },
+    Battleship {
+        balancing: Arc<BattleshipBalancing>,
+        data: ShipData,
+        cool_downs: Vec<Cooldown>,
+    },
+    Cruiser {
+        balancing: Arc<CruiserBalancing>,
+        data: ShipData,
+        cool_downs: Vec<Cooldown>,
+    },
+    Submarine {
+        balancing: Arc<SubmarineBalancing>,
+        data: ShipData,
+        cool_downs: Vec<Cooldown>,
+    },
+    Destroyer {
+        balancing: Arc<DestroyerBalancing>,
+        data: ShipData,
+        cool_downs: Vec<Cooldown>,
+    },
 }
 
 impl GetShipID for Ship {
@@ -135,22 +155,22 @@ impl Ship {
 
     pub fn data(&self) -> ShipData {
         match self {
-            Ship::Carrier { data, .. } |
-            Ship::Battleship { data, .. } |
-            Ship::Cruiser { data, .. } |
-            Ship::Submarine { data, .. } |
-            Ship::Destroyer { data, .. } => *data
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => *data,
         }
     }
 
     /// Applies damage to a ship. Returns true whether the ship got destroyed
     pub fn apply_damage(&mut self, damage: u32) -> bool {
         match self {
-            Ship::Carrier { data, .. } |
-            Ship::Battleship { data, .. } |
-            Ship::Cruiser { data, .. } |
-            Ship::Submarine { data, .. } |
-            Ship::Destroyer { data, .. } => {
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => {
                 if damage >= data.health {
                     data.health = 0;
                     return true;
@@ -164,21 +184,21 @@ impl Ship {
 
     pub fn position(&self) -> (i32, i32) {
         match self {
-            Ship::Carrier { data, .. } |
-            Ship::Battleship { data, .. } |
-            Ship::Cruiser { data, .. } |
-            Ship::Submarine { data, .. } |
-            Ship::Destroyer { data, .. } => (data.pos_x, data.pos_y)
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => (data.pos_x, data.pos_y),
         }
     }
 
     pub fn orientation(&self) -> Orientation {
         match self {
-            Ship::Carrier { data, .. } |
-            Ship::Battleship { data, .. } |
-            Ship::Cruiser { data, .. } |
-            Ship::Submarine { data, .. } |
-            Ship::Destroyer { data, .. } => data.orientation
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => data.orientation,
         }
     }
 
@@ -189,26 +209,26 @@ impl Ship {
             Ship::Cruiser { balancing, .. } => balancing.common_balancing.clone().unwrap(),
             Ship::Submarine { balancing, .. } => balancing.common_balancing.clone().unwrap(),
             Ship::Destroyer { balancing, .. } => balancing.common_balancing.clone().unwrap(),
-        }.clone()
+        }
     }
 
     pub fn cool_downs(&self) -> Vec<Cooldown> {
         match self {
-            Ship::Carrier { cool_downs, .. } |
-            Ship::Battleship { cool_downs, .. } |
-            Ship::Cruiser { cool_downs, .. } |
-            Ship::Submarine { cool_downs, .. } |
-            Ship::Destroyer { cool_downs, .. } => cool_downs.clone()
+            Ship::Carrier { cool_downs, .. }
+            | Ship::Battleship { cool_downs, .. }
+            | Ship::Cruiser { cool_downs, .. }
+            | Ship::Submarine { cool_downs, .. }
+            | Ship::Destroyer { cool_downs, .. } => cool_downs.clone(),
         }
     }
 
     pub fn cool_downs_mut(&mut self) -> &mut Vec<Cooldown> {
         match self {
-            Ship::Carrier { cool_downs, .. } |
-            Ship::Battleship { cool_downs, .. } |
-            Ship::Cruiser { cool_downs, .. } |
-            Ship::Submarine { cool_downs, .. } |
-            Ship::Destroyer { cool_downs, .. } => cool_downs
+            Ship::Carrier { cool_downs, .. }
+            | Ship::Battleship { cool_downs, .. }
+            | Ship::Cruiser { cool_downs, .. }
+            | Ship::Submarine { cool_downs, .. }
+            | Ship::Destroyer { cool_downs, .. } => cool_downs,
         }
     }
 }
