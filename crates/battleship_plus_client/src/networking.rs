@@ -95,23 +95,22 @@ fn listen_for_advertisements(
 ) {
     // Listen for IPv4 advertisements.
     if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
-        listen_for_advertisements_on(&socket, &mut commands, &time, &mut servers);
+        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers);
     }
 
     // Listen for IPv6 advertisements.
     if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
-        listen_for_advertisements_on(&socket, &mut commands, &time, &mut servers);
+        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers);
     }
 }
 
 fn listen_for_advertisements_on(
     socket: &UdpSocket,
-    mut commands: &mut Commands,
+    commands: &mut Commands,
     time: &Res<Time>,
-    mut servers: &mut Query<&mut ServerInformation>,
+    servers: &mut Query<&mut ServerInformation>,
 ) {
-    let mut buffer = Vec::with_capacity(MAXIMUM_MESSAGE_SIZE);
-    buffer.resize(MAXIMUM_MESSAGE_SIZE, 0);
+    let mut buffer = vec![0; MAXIMUM_MESSAGE_SIZE];
 
     loop {
         let (_message_length, sender) = match socket.recv_from(buffer.as_mut_slice()) {
@@ -129,7 +128,7 @@ fn listen_for_advertisements_on(
             }
         };
 
-        let message = match messages::Message::decode(&mut buffer.as_mut_slice().as_ref()) {
+        let message = match messages::Message::decode(&mut buffer.as_slice()) {
             Ok(value) => value,
             Err(error) => {
                 debug!("Could not decode supposed advertisement: {error}");
@@ -156,7 +155,7 @@ fn listen_for_advertisements_on(
                 }
             };
 
-        process_advertisement(advertisement, sender, &mut commands, &time, &mut servers);
+        process_advertisement(advertisement, sender, commands, time, servers);
     }
 }
 
@@ -170,8 +169,7 @@ fn process_advertisement(
     // Update server if it already has a ServerInformation.
     if let Some(mut server) = servers
         .iter_mut()
-        .filter(|server| server.ip == sender.ip() && server.port == advertisement.port)
-        .next()
+        .find(|server| server.ip == sender.ip() && server.port == advertisement.port)
     {
         server.name = advertisement.display_name;
         server.last_advertisement_received = time.elapsed();
