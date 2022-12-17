@@ -10,7 +10,7 @@ pub mod shared;
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, thread::sleep, time::Duration};
+    use std::{fs, io::ErrorKind, thread::sleep, time::Duration};
 
     use crate::{
         client::{
@@ -181,8 +181,11 @@ mod tests {
 
         let port = 6001; // TODO Use port 0 and retrieve the port used by the server.
 
-        fs::remove_file(DEFAULT_KNOWN_HOSTS_FILE)
-            .expect("Failed to remove default known hosts file");
+        match fs::remove_file(DEFAULT_KNOWN_HOSTS_FILE) {
+            Ok(_) => (),
+            Err(error) if error.kind() == ErrorKind::NotFound => (),
+            Err(_) => panic!("Failed to remove default known hosts file"),
+        }
 
         let mut client_app = App::new();
         client_app
