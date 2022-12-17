@@ -85,7 +85,7 @@ impl ShipManager {
             return Err(ActionValidationError::OutOfMap);
         }
 
-        let ship = match self.ships.get_mut(&ship_id) {
+        let ship = match self.ships.get_mut(ship_id) {
             Some(ship) => ship,
             None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
         };
@@ -95,10 +95,8 @@ impl ShipManager {
             Cooldown::Cannon { remaining_rounds } => Some(*remaining_rounds),
             _ => None,
         });
-        if remaining_rounds.is_some() {
-            return Err(ActionValidationError::Cooldown {
-                remaining_rounds: remaining_rounds.unwrap(),
-            });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
         }
 
         // check action points of player
@@ -165,10 +163,8 @@ impl ShipManager {
                     Cooldown::Movement { remaining_rounds } => Some(*remaining_rounds),
                     _ => None,
                 });
-                if remaining_rounds.is_some() {
-                    return Err(ActionValidationError::Cooldown {
-                        remaining_rounds: remaining_rounds.unwrap(),
-                    });
+                if let Some(remaining_rounds) = remaining_rounds {
+                    return Err(ActionValidationError::Cooldown { remaining_rounds });
                 }
 
                 // check action points of player
@@ -180,21 +176,21 @@ impl ShipManager {
                 }
 
                 //let old_envelope = ship.envelope();
-                let new_position = ship.do_move(direction, bounds);
-                if new_position.is_err() {
-                    return Err(new_position.unwrap_err());
-                }
+                match ship.do_move(direction, bounds) {
+                    Err(e) => Err(e),
+                    Ok(new_position) => {
+                        // enforce costs
+                        let new_position = new_position;
+                        player.action_points -= costs.action_points;
+                        if costs.cooldown > 0 {
+                            ship.cool_downs_mut().push(Cooldown::Movement {
+                                remaining_rounds: costs.cooldown,
+                            });
+                        }
 
-                // enforce costs
-                let new_position = new_position.unwrap();
-                player.action_points -= costs.action_points;
-                if costs.cooldown > 0 {
-                    ship.cool_downs_mut().push(Cooldown::Movement {
-                        remaining_rounds: costs.cooldown,
-                    });
+                        Ok(new_position)
+                    }
                 }
-
-                Ok(new_position)
             },
         )
     }
