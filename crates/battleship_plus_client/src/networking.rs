@@ -39,19 +39,6 @@ struct AnnouncementListener {
 }
 
 fn set_up_advertisement_listener(mut commands: Commands) {
-    let socket_v4 = match UdpSocket::bind("0.0.0.0:30303") {
-        Ok(socket) => {
-            socket.set_nonblocking(true).unwrap_or_else(|error| {
-                warn!("Could not set UDPv4 port to non-blocking: {error}");
-            });
-            Some(socket)
-        }
-        Err(error) => {
-            warn!("Cannot listen for UDPv4 server advertisements: {error}");
-            None
-        }
-    };
-
     let socket_v6 = match UdpSocket::bind("[::]:30303") {
         Ok(socket) => {
             join_multicast_v6("ff02::1", &socket);
@@ -62,6 +49,28 @@ fn set_up_advertisement_listener(mut commands: Commands) {
         }
         Err(error) => {
             warn!("Cannot listen for UDPv6 server advertisements: {error}");
+            None
+        }
+    };
+
+    let socket_v4 = match UdpSocket::bind("0.0.0.0:30303") {
+        Ok(socket) => {
+            socket.set_nonblocking(true).unwrap_or_else(|error| {
+                warn!("Could not set UDPv4 port to non-blocking: {error}");
+            });
+            Some(socket)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            // This is OS-specific. Some OSs necessitate both UDPv4 and UDPv6
+            // to be bound, some do not allow it.
+            info!(
+                "Not able to bind UDPv4 advertisement listening socket, \
+                 probably because UDPv6 advertisement listening blocks it."
+            );
+            None
+        }
+        Err(error) => {
+            warn!("Cannot listen for UDPv4 server advertisements: {error}");
             None
         }
     };
@@ -93,13 +102,13 @@ fn listen_for_advertisements(
     time: Res<Time>,
     mut servers: Query<&mut ServerInformation>,
 ) {
-    // Listen for IPv4 advertisements.
-    if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
+    // Listen for IPv6 advertisements.
+    if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
         listen_for_advertisements_on(socket, &mut commands, &time, &mut servers);
     }
 
-    // Listen for IPv6 advertisements.
-    if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
+    // Listen for IPv4 advertisements
+    if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
         listen_for_advertisements_on(socket, &mut commands, &time, &mut servers);
     }
 }
