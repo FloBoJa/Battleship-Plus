@@ -571,13 +571,8 @@ fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
+#[derive(Default)]
 pub struct QuinnetClientPlugin {}
-
-impl Default for QuinnetClientPlugin {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl Plugin for QuinnetClientPlugin {
     fn build(&self, app: &mut App) {

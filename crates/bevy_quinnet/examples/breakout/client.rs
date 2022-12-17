@@ -185,6 +185,10 @@ pub(crate) fn spawn_bricks(
     }
 }
 
+type BallQuery<'a> = (&'a mut Transform, &'a mut Velocity, &'a mut Sprite);
+
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_server_messages(
     mut commands: Commands,
     mut client: ResMut<Client>,
@@ -192,7 +196,7 @@ pub(crate) fn handle_server_messages(
     mut entity_mapping: ResMut<NetworkMapping>,
     mut game_state: ResMut<State<GameState>>,
     mut paddles: Query<&mut Transform, With<Paddle>>,
-    mut balls: Query<(&mut Transform, &mut Velocity, &mut Sprite), (With<Ball>, Without<Paddle>)>,
+    mut balls: Query<BallQuery, (With<Ball>, Without<Paddle>)>,
     mut bricks: ResMut<BricksMapping>,
     mut scoreboard: ResMut<Scoreboard>,
     mut collision_events: EventWriter<CollisionEvent>,
@@ -383,6 +387,7 @@ pub(crate) fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetSer
         });
 }
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn handle_menu_buttons(
     mut interaction_query: Query<
         (&Interaction, &mut BackgroundColor, &MenuItem),
