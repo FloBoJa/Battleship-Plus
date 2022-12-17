@@ -63,7 +63,7 @@ impl CertificateFingerprint {
     }
 
     pub fn to_base64(&self) -> String {
-        base64::encode(&self.0)
+        base64::encode(self.0)
     }
 }
 

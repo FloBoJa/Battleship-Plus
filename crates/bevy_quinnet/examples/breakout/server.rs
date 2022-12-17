@@ -248,7 +248,7 @@ pub(crate) fn apply_velocity(mut query: Query<(&mut Transform, &Velocity), With<
 fn start_game(commands: &mut Commands, server: &mut ResMut<Server>, players: &ResMut<Players>) {
     let endpoint = server.endpoint_mut();
     // Assign ids
-    for client_id in players.map.keys().into_iter() {
+    for client_id in players.map.keys() {
         endpoint
             .send_message(
                 *client_id,
@@ -264,7 +264,7 @@ fn start_game(commands: &mut Commands, server: &mut ResMut<Server>, players: &Re
         .iter()
         .zip(players.map.keys().into_iter())
     {
-        let paddle = spawn_paddle(commands, *client_id, &position);
+        let paddle = spawn_paddle(commands, *client_id, position);
         endpoint
             .send_group_message(
                 players.map.keys().into_iter(),

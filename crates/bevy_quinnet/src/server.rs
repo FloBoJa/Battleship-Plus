@@ -371,7 +371,7 @@ impl Server {
             payloads_receiver: from_clients_receiver,
             close_sender: endpoint_close_sender,
             internal_receiver: from_async_server,
-            internal_sender: to_async_server.clone(),
+            internal_sender: to_async_server,
         });
 
         Ok(server_cert)
@@ -479,7 +479,7 @@ async fn handle_client_connection(
     // Signal the sync server of this new connection
     to_sync_server
         .send(InternalAsyncMessage::ClientConnected(ClientConnection {
-            client_id: client_id,
+            client_id,
             sender: to_client_sender,
             close_sender: client_close_sender.clone(),
         }))
@@ -513,13 +513,8 @@ async fn client_sender_task(
     close_sender: tokio::sync::broadcast::Sender<()>,
     to_sync_server: mpsc::Sender<InternalAsyncMessage>,
 ) {
-    let send_stream = connection.open_uni().await.expect(
-        format!(
-            "Failed to open unidirectional send stream for client: {}",
-            client_id
-        )
-        .as_str(),
-    );
+    let send_stream = connection.open_uni().await.unwrap_or_else(|_| panic!("Failed to open unidirectional send stream for client: {}",
+            client_id));
 
     let mut framed_send_stream = FramedWrite::new(send_stream, LengthDelimitedCodec::new());
 
@@ -534,7 +529,7 @@ async fn client_sender_task(
                 if let Err(err) = framed_send_stream.send(msg_bytes.clone()).await {
                     error!("Error while sending to client {}: {}", client_id, err);
                     error!("Client {} seems disconnected, closing resources", client_id);
-                    if let Err(_) = close_sender.send(()) {
+                    if close_sender.send(()).is_err() {
                         error!("Failed to close all client streams & resources for client {}", client_id)
                     }
                     to_sync_server.send(
@@ -569,7 +564,7 @@ async fn client_receiver_task(
                     while let Some(Ok(msg_bytes)) = frame_recv.next().await {
                         from_client_sender
                             .send(ClientPayload {
-                                client_id: client_id,
+                                client_id,
                                 msg: msg_bytes.into(),
                             })
                             .await
@@ -612,7 +607,7 @@ fn update_sync_server(
                         .internal_sender
                         .send(InternalSyncMessage::ClientConnectedAck(id))
                         .unwrap();
-                    connection_events.send(ConnectionEvent { id: id });
+                    connection_events.send(ConnectionEvent { id });
                 }
                 InternalAsyncMessage::ClientLostConnection(client_id) => {
                     endpoint.clients.remove(&client_id);

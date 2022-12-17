@@ -220,17 +220,15 @@ impl Connection {
 
     /// Disconnect from the server on this connection. This does not send any message to the server, and simply closes all the connection's tasks locally.
     fn disconnect(&mut self) -> Result<(), QuinnetError> {
-        if self.is_connected() {
-            if let Err(_) = self.close_sender.send(()) {
-                return Err(QuinnetError::ChannelClosed);
-            }
+        if self.is_connected() && self.close_sender.send(()).is_err() {
+            return Err(QuinnetError::ChannelClosed);
         }
         self.state = ConnectionState::Disconnected;
         Ok(())
     }
 
     pub fn is_connected(&self) -> bool {
-        return self.state == ConnectionState::Connected;
+        self.state == ConnectionState::Connected
     }
 }
 
@@ -470,7 +468,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                             if let Err(err) = frame_send.send(msg_bytes).await {
                                 error!("Error while sending, {}", err); // TODO Clean: error handling
                                 error!("Client seems disconnected, closing resources");
-                                if let Err(_) = close_sender_clone.send(()) {
+                                if close_sender_clone.send(()).is_err() {
                                     error!("Failed to close all client streams & resources")
                                 }
                                 spawn_config.to_sync_client.send(

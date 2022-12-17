@@ -52,7 +52,7 @@ fn read_certs_from_files(
     assert_eq!(keys.len(), 1);
     let priv_key = rustls::PrivateKey(keys.remove(0));
 
-    assert!(cert_chain.len() >= 1);
+    assert!(!cert_chain.is_empty());
     let fingerprint = CertificateFingerprint::from(&cert_chain[0]);
 
     Ok(ServerCertificate {
@@ -82,7 +82,7 @@ fn generate_self_signed_certificate(
     let cert = rcgen::generate_simple_self_signed(vec![server_host.into()])?;
     let cert_der = cert.serialize_der()?;
     let priv_key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let rustls_cert = rustls::Certificate(cert_der.clone());
+    let rustls_cert = rustls::Certificate(cert_der);
     let fingerprint = CertificateFingerprint::from(&rustls_cert);
     let cert_chain = vec![rustls_cert];
 
