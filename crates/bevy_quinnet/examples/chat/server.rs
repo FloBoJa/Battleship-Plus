@@ -66,10 +66,7 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
                 );
                 endpoint.try_send_group_message(
                     users.names.keys().into_iter(),
-                    ServerMessage::ChatMessage {
-                        client_id,
-                        message,
-                    },
+                    ServerMessage::ChatMessage { client_id, message },
                 );
             }
         }
@@ -96,9 +93,7 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
         endpoint
             .send_group_message(
                 users.names.keys().into_iter(),
-                ServerMessage::ClientDisconnected {
-                    client_id,
-                },
+                ServerMessage::ClientDisconnected { client_id },
             )
             .unwrap();
         info!("{} disconnected", username);

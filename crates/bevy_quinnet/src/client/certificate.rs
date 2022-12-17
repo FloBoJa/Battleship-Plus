@@ -275,13 +275,14 @@ impl TofuServerVerification {
         match action {
             CertVerifierAction::AbortConnection => {
                 match self.to_sync_client.try_send(
-                    InternalAsyncMessage::CertificateConnectionAbort {
-                        status,
-                        cert_info,
-                    },
+                    InternalAsyncMessage::CertificateConnectionAbort { status, cert_info },
                 ) {
-                    Ok(_) => Err(rustls::Error::InvalidCertificateData("CertVerifierAction requested to abort the connection".to_string())),
-                    Err(_) => Err(rustls::Error::General("Failed to signal CertificateConnectionAbort".to_string())),
+                    Ok(_) => Err(rustls::Error::InvalidCertificateData(
+                        "CertVerifierAction requested to abort the connection".to_string(),
+                    )),
+                    Err(_) => Err(rustls::Error::General(
+                        "Failed to signal CertificateConnectionAbort".to_string(),
+                    )),
                 }
             }
             CertVerifierAction::TrustOnce => Ok(rustls::client::ServerCertVerified::assertion()),
@@ -304,7 +305,9 @@ impl TofuServerVerification {
                     .try_send(InternalAsyncMessage::CertificateTrustUpdate(cert_info))
                 {
                     Ok(_) => Ok(rustls::client::ServerCertVerified::assertion()),
-                    Err(_) => Err(rustls::Error::General("Failed to signal new trusted certificate entry".to_string())),
+                    Err(_) => Err(rustls::Error::General(
+                        "Failed to signal new trusted certificate entry".to_string(),
+                    )),
                 }
             }
         }
@@ -340,7 +343,9 @@ impl rustls::client::ServerCertVerifier for TofuServerVerification {
         }
         match status {
             Some(status) => self.apply_verifier_behaviour_for_status(status, cert_info),
-            None => Err(rustls::Error::InvalidCertificateData("Internal error, no CertVerificationStatus".to_string())),
+            None => Err(rustls::Error::InvalidCertificateData(
+                "Internal error, no CertVerificationStatus".to_string(),
+            )),
         }
     }
 }
