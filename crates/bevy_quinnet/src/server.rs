@@ -389,10 +389,7 @@ impl Server {
 
     /// Returns true if the server is currently listening for messages and connections.
     pub fn is_listening(&self) -> bool {
-        match &self.endpoint {
-            Some(_) => true,
-            None => false,
-        }
+        self.endpoint.is_some()
     }
 }
 
@@ -513,8 +510,12 @@ async fn client_sender_task(
     close_sender: tokio::sync::broadcast::Sender<()>,
     to_sync_server: mpsc::Sender<InternalAsyncMessage>,
 ) {
-    let send_stream = connection.open_uni().await.unwrap_or_else(|_| panic!("Failed to open unidirectional send stream for client: {}",
-            client_id));
+    let send_stream = connection.open_uni().await.unwrap_or_else(|_| {
+        panic!(
+            "Failed to open unidirectional send stream for client: {}",
+            client_id
+        )
+    });
 
     let mut framed_send_stream = FramedWrite::new(send_stream, LengthDelimitedCodec::new());
 
@@ -618,13 +619,8 @@ fn update_sync_server(
     }
 }
 
+#[derive(Default)]
 pub struct QuinnetServerPlugin {}
-
-impl Default for QuinnetServerPlugin {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl Plugin for QuinnetServerPlugin {
     fn build(&self, app: &mut App) {

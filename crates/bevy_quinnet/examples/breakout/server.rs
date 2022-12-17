@@ -169,6 +169,7 @@ pub(crate) fn update_paddles(
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn check_for_collisions(
     mut commands: Commands,
     server: ResMut<Server>,
