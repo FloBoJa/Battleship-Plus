@@ -128,7 +128,7 @@ impl Action {
 
                 mutate_game(&game, |g| {
                     let board_bounds = g.board_bounds();
-                    let player = g.players.get_mut(&player_id).unwrap();
+                    let player = g.players.get_mut(player_id).unwrap();
 
                     let trajectory = match g.ships.move_ship(
                         player,
@@ -166,7 +166,7 @@ impl Action {
                 .await
                 {
                     Ok(_) => {
-                        // TODO: find a way to propergate this result to the caller
+                        // TODO: find a way to propagate this result to the caller
                         Ok(())
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
