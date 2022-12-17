@@ -181,14 +181,15 @@ mod actions_shoot {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use rstar::RTree;
     use tokio::sync::RwLock;
 
     use battleship_plus_common::messages::*;
     use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError};
-    use crate::game::data::{Cooldown, Game, GetShipID, Player, Ship, ShipData, ShipRef};
+    use crate::game::data::{Game, Player};
+    use crate::game::ship::{Cooldown, GetShipID, Ship, ShipData};
+    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_shoot() {
@@ -218,7 +219,6 @@ mod actions_shoot {
             }),
             data: ShipData {
                 id: (2, 2),
-                player_id: 2,
                 health: 10,
                 pos_x: 5,
                 pos_y: 5,
@@ -235,7 +235,6 @@ mod actions_shoot {
             }),
             data: ShipData {
                 id: (2, 3),
-                player_id: 2,
                 health: 11,
                 pos_x: 10,
                 pos_y: 10,
@@ -248,15 +247,10 @@ mod actions_shoot {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([
-                (ship_src.id(), ship_src.clone()),
-                (ship_target1.id(), ship_target1.clone()),
-                (ship_target2.id(), ship_target2.clone()),
-            ]),
-            ships_geo_lookup: RTree::bulk_load(vec![
-                ShipRef(Arc::from(ship_src)),
-                ShipRef(Arc::from(ship_target1.clone())),
-                ShipRef(Arc::from(ship_target2.clone())),
+            ships: ShipManager::new_with_ships(vec![
+                ship_src.clone(),
+                ship_target1.clone(),
+                ship_target2.clone(),
             ]),
             ..Default::default()
         }));
@@ -279,9 +273,12 @@ mod actions_shoot {
         // check ship_target1 destroyed and ship_target2 untouched
         {
             let g = game.read().await;
-            assert!(!g.ships.contains_key(&ship_target1.id()));
-            assert!(g.ships.contains_key(&ship_target2.id()));
-            assert_eq!(g.ships.get(&ship_target2.id()).unwrap().data().health, 11);
+            assert!(g.ships.get_by_id(&ship_target1.id()).is_none());
+            assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
+            assert_eq!(
+                g.ships.get_by_id(&ship_target2.id()).unwrap().data().health,
+                11
+            );
         }
 
         // shoot ship_target2
@@ -302,9 +299,12 @@ mod actions_shoot {
         // check ship_target1 destroyed and ship_target2 health reduced
         {
             let g = game.read().await;
-            assert!(!g.ships.contains_key(&ship_target1.id()));
-            assert!(g.ships.contains_key(&ship_target2.id()));
-            assert_eq!(g.ships.get(&ship_target2.id()).unwrap().data().health, 1);
+            assert!(g.ships.get_by_id(&ship_target1.id()).is_none());
+            assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
+            assert_eq!(
+                g.ships.get_by_id(&ship_target2.id()).unwrap().data().health,
+                1
+            );
         }
 
         // missed shot
@@ -322,9 +322,12 @@ mod actions_shoot {
         // board untouched
         {
             let g = game.read().await;
-            assert!(!g.ships.contains_key(&ship_target1.id()));
-            assert!(g.ships.contains_key(&ship_target2.id()));
-            assert_eq!(g.ships.get(&ship_target2.id()).unwrap().data().health, 1);
+            assert!(g.ships.get_by_id(&ship_target1.id()).is_none());
+            assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
+            assert_eq!(
+                g.ships.get_by_id(&ship_target2.id()).unwrap().data().health,
+                1
+            );
         }
     }
 
@@ -355,8 +358,7 @@ mod actions_shoot {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship.id(), ship.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship))]),
+            ships: ShipManager::new_with_ships(vec![ship]),
             ..Default::default()
         }));
 
@@ -424,8 +426,7 @@ mod actions_shoot {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship.id(), ship.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
 
@@ -446,7 +447,7 @@ mod actions_shoot {
             let g = game.read().await;
             assert!(g
                 .ships
-                .get(&ship.id())
+                .get_by_id(&ship.id())
                 .unwrap()
                 .cool_downs()
                 .contains(&Cooldown::Cannon {
@@ -471,7 +472,7 @@ mod actions_shoot {
             let g = game.read().await;
             assert!(g
                 .ships
-                .get(&ship.id())
+                .get_by_id(&ship.id())
                 .unwrap()
                 .cool_downs()
                 .contains(&Cooldown::Cannon {
@@ -535,16 +536,15 @@ mod actions_move {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use rstar::RTree;
     use tokio::sync::RwLock;
 
     use battleship_plus_common::messages::*;
     use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError};
-    use crate::game::data::{
-        Cooldown, Game, GetShipID, Orientation, Player, Ship, ShipData, ShipRef,
-    };
+    use crate::game::data::{Game, Player};
+    use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
+    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_move() {
@@ -552,7 +552,6 @@ mod actions_move {
         let ship = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -574,8 +573,7 @@ mod actions_move {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship.id(), ship.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
 
@@ -594,7 +592,7 @@ mod actions_move {
         // check ship's new position
         {
             let g = game.read().await;
-            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2))
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1))
         }
 
         // move ship backward
@@ -612,7 +610,7 @@ mod actions_move {
         // check ship's new position
         {
             let g = game.read().await;
-            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 0))
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0))
         }
     }
 
@@ -647,8 +645,7 @@ mod actions_move {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship.id(), ship.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
 
@@ -668,7 +665,7 @@ mod actions_move {
         {
             let g = game.read().await;
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
-            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
         }
 
         // try to move ship backwards and fail
@@ -686,7 +683,7 @@ mod actions_move {
         // check board untouched
         {
             let g = game.read().await;
-            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
         }
     }
@@ -719,8 +716,7 @@ mod actions_move {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship.id(), ship.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![ShipRef(Arc::from(ship.clone()))]),
+            ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
 
@@ -739,11 +735,16 @@ mod actions_move {
         // check ship's new position and cooldown
         {
             let g = game.read().await;
-            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
-            assert!(!g.ships.get(&ship.id()).unwrap().cool_downs().is_empty());
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
+            assert!(!g
+                .ships
+                .get_by_id(&ship.id())
+                .unwrap()
+                .cool_downs()
+                .is_empty());
             assert!(matches!(
                 g.ships
-                    .get(&ship.id())
+                    .get_by_id(&ship.id())
                     .unwrap()
                     .cool_downs()
                     .first()
@@ -767,11 +768,16 @@ mod actions_move {
         // check board untouched
         {
             let g = game.read().await;
-            assert_eq!(g.ships.get(&ship.id()).unwrap().position(), (0, 2));
-            assert!(!g.ships.get(&ship.id()).unwrap().cool_downs().is_empty());
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
+            assert!(!g
+                .ships
+                .get_by_id(&ship.id())
+                .unwrap()
+                .cool_downs()
+                .is_empty());
             assert_eq!(
                 g.ships
-                    .get(&ship.id())
+                    .get_by_id(&ship.id())
                     .unwrap()
                     .cool_downs()
                     .first()
@@ -857,11 +863,7 @@ mod actions_move {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship1.id(), ship1.clone()), (ship2.id(), ship2.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![
-                ShipRef(Arc::from(ship1.clone())),
-                ShipRef(Arc::from(ship2.clone())),
-            ]),
+            ships: ShipManager::new_with_ships(vec![ship1, ship2]),
             ..Default::default()
         }));
 
@@ -939,11 +941,7 @@ mod actions_move {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
-            ships: HashMap::from([(ship1.id(), ship1.clone()), (ship2.id(), ship2.clone())]),
-            ships_geo_lookup: RTree::bulk_load(vec![
-                ShipRef(Arc::from(ship1.clone())),
-                ShipRef(Arc::from(ship2.clone())),
-            ]),
+            ships: ShipManager::new_with_ships(vec![ship1.clone(), ship2.clone()]),
             ..Default::default()
         }));
 
@@ -962,8 +960,8 @@ mod actions_move {
         // check both ships destroyed
         {
             let g = game.read().await;
-            assert_eq!(g.ships.len(), 0);
-            assert_eq!(g.ships_geo_lookup.iter().count(), 0);
+            assert!(g.ships.get_by_id(&ship1.id()).is_none());
+            assert!(g.ships.get_by_id(&ship2.id()).is_none());
         }
     }
 }
