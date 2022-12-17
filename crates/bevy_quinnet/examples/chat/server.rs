@@ -23,20 +23,15 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
     while let Ok(Some((message, client_id))) = endpoint.receive_message::<ClientMessage>() {
         match message {
             ClientMessage::Join { name } => {
-                if users.names.contains_key(&client_id) {
-                    warn!(
-                        "Received a Join from an already connected client: {}",
-                        client_id
-                    )
-                } else {
+                if let std::collections::hash_map::Entry::Vacant(e) = users.names.entry(client_id) {
                     info!("{} connected", name);
-                    users.names.insert(client_id, name.clone());
+                    e.insert(name.clone());
                     // Initialize this client with existing state
                     endpoint
                         .send_message(
                             client_id,
                             ServerMessage::InitClient {
-                                client_id: client_id,
+                                client_id,
                                 usernames: users.names.clone(),
                             },
                         )
@@ -46,11 +41,16 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
                         .send_group_message(
                             users.names.keys().into_iter(),
                             ServerMessage::ClientConnected {
-                                client_id: client_id,
+                                client_id,
                                 username: name,
                             },
                         )
                         .unwrap();
+                } else {
+                    warn!(
+                        "Received a Join from an already connected client: {}",
+                        client_id
+                    )
                 }
             }
             ClientMessage::Disconnect {} => {
@@ -67,8 +67,8 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
                 endpoint.try_send_group_message(
                     users.names.keys().into_iter(),
                     ServerMessage::ChatMessage {
-                        client_id: client_id,
-                        message: message,
+                        client_id,
+                        message,
                     },
                 );
             }
@@ -97,7 +97,7 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
             .send_group_message(
                 users.names.keys().into_iter(),
                 ServerMessage::ClientDisconnected {
-                    client_id: client_id,
+                    client_id,
                 },
             )
             .unwrap();

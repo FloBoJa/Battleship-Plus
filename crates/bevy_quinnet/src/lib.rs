@@ -427,7 +427,7 @@ mod tests {
 
             let client = client_app.world.resource::<Client>();
             assert!(
-                client.connection().is_connected() == false,
+                !client.connection().is_connected(),
                 "The default connection should not be connected to the server"
             );
         }
