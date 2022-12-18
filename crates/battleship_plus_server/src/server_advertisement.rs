@@ -93,7 +93,7 @@ pub(crate) async fn dispatch_announcement(
     display_name: &str,
     dst: SocketAddr,
 ) -> Result<(), String> {
-    let message =
+    let inner_message =
         battleship_plus_common::messages::packet_payload::ProtocolMessage::ServerAdvertisement(
             battleship_plus_common::messages::ServerAdvertisement {
                 port: port as u32,
@@ -101,7 +101,8 @@ pub(crate) async fn dispatch_announcement(
             },
         );
 
-    let msg = match battleship_plus_common::messages::Message::new(PROTOCOL_VERSION, message) {
+    let msg = match battleship_plus_common::messages::Message::new(PROTOCOL_VERSION, inner_message)
+    {
         Ok(msg) => msg,
         Err(e) => return Err(format!("unable to encode advertisement message: {}", e)),
     };
