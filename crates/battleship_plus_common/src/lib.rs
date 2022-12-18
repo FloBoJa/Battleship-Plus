@@ -4,6 +4,7 @@ pub mod types {
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.types.rs"));
 }
 
+#[allow(clippy::large_enum_variant)]
 pub mod messages {
     use std::borrow::BorrowMut;
     use std::fmt::{Display, Formatter};
