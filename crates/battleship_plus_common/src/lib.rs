@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod test;
-
 pub const PROTOCOL_VERSION: u8 = 1;
 
 pub mod types {
