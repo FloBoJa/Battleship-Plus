@@ -31,6 +31,7 @@ pub mod messages {
     }
 
     const MESSAGE_HEADER_SIZE: usize = 3;
+    pub const MAXIMUM_MESSAGE_SIZE: usize = MESSAGE_HEADER_SIZE + u16::MAX as usize;
 
     pub struct Message {
         version: u8,

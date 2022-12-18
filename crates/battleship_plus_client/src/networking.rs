@@ -1,6 +1,6 @@
 use battleship_plus_common::{
     messages::{self, MAXIMUM_MESSAGE_SIZE},
-    types, ProstMessage, PROTOCOL_VERSION,
+    types, PROTOCOL_VERSION,
 };
 use bevy::prelude::*;
 use bevy_quinnet::client::{
@@ -149,8 +149,8 @@ fn listen_for_advertisements_on(
             }
         };
 
-        match message.op_code() {
-            messages::OpCode::ServerAdvertisement => (),
+        let advertisement = match message.inner_message() {
+            messages::packet_payload::ProtocolMessage::ServerAdvertisement(value) => value,
             _ => {
                 debug!(
                     "Received non-advertisement Battleship Plus message on the advertisement port."
@@ -159,21 +159,12 @@ fn listen_for_advertisements_on(
             }
         };
 
-        let advertisement =
-            match messages::ServerAdvertisement::decode(message.payload().as_slice()) {
-                Ok(value) => value,
-                Err(error) => {
-                    warn!("Malformed advertisement: {error}");
-                    continue;
-                }
-            };
-
         process_advertisement(advertisement, sender, commands, time, servers, client);
     }
 }
 
 fn process_advertisement(
-    advertisement: messages::ServerAdvertisement,
+    advertisement: &messages::ServerAdvertisement,
     sender: SocketAddr,
     commands: &mut Commands,
     time: &Res<Time>,
@@ -184,7 +175,7 @@ fn process_advertisement(
     if let Some(mut server) = servers.iter_mut().find(|server| {
         server.address.ip() == sender.ip() && server.address.port() == advertisement.port as u16
     }) {
-        server.name = advertisement.display_name;
+        server.name = advertisement.display_name.clone();
         server.last_advertisement_received = time.elapsed();
     } else {
         let server_address = SocketAddr::new(sender.ip(), advertisement.port as u16);
@@ -192,7 +183,7 @@ fn process_advertisement(
 
         commands.spawn(ServerInformation {
             address: server_address,
-            name: advertisement.display_name,
+            name: advertisement.display_name.clone(),
             config: None,
             last_advertisement_received: time.elapsed(),
         });
@@ -219,12 +210,11 @@ fn request_config(server_address: SocketAddr, client: &mut ResMut<Client>) {
         CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
     client.open_connection(connection_configuration, certificate_mode);
 
-    let prost_message = messages::ServerConfigRequest {};
-    let prost_message_bytes = prost_message.encode_to_vec();
     let message = messages::Message::new(
         PROTOCOL_VERSION,
-        messages::OpCode::ServerConfigRequest,
-        prost_message_bytes.as_slice(),
+        messages::packet_payload::ProtocolMessage::ServerConfigRequest(
+            messages::ServerConfigRequest {},
+        ),
     )
     .expect("Request should be constructed properly");
 
