@@ -1,9 +1,12 @@
 use battleship_plus_common::{
     messages::{self, MAXIMUM_MESSAGE_SIZE},
-    types, ProstMessage,
+    types, ProstMessage, PROTOCOL_VERSION,
 };
 use bevy::prelude::*;
-use bevy_quinnet::client::QuinnetClientPlugin;
+use bevy_quinnet::client::{
+    certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
+    Client, ConnectionConfiguration, QuinnetClientPlugin,
+};
 use std::{
     io::ErrorKind::WouldBlock,
     net::{Ipv6Addr, SocketAddr, UdpSocket},
@@ -15,7 +18,7 @@ pub struct NetworkingPlugin;
 
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugin(QuinnetClientPlugin {})
+        app.add_plugin(QuinnetClientPlugin::default())
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_advertisements)
             .add_system(clean_up_servers)
@@ -25,15 +28,14 @@ impl Plugin for NetworkingPlugin {
 
 #[derive(Component, Debug)]
 pub struct ServerInformation {
-    pub ip: std::net::IpAddr,
-    pub port: u32,
+    pub address: SocketAddr,
     pub name: String,
-    pub config: types::Config,
+    pub config: Option<types::Config>,
     pub last_advertisement_received: Duration,
 }
 
 #[derive(Resource)]
-struct AnnouncementListener {
+struct AdvertisementListener {
     pub socket_v4: Option<UdpSocket>,
     pub socket_v6: Option<UdpSocket>,
 }
@@ -75,7 +77,7 @@ fn set_up_advertisement_listener(mut commands: Commands) {
         }
     };
 
-    commands.insert_resource(AnnouncementListener {
+    commands.insert_resource(AdvertisementListener {
         socket_v4,
         socket_v6,
     });
@@ -97,19 +99,20 @@ fn join_multicast_v6(multiaddr: &str, socket: &UdpSocket) {
 }
 
 fn listen_for_advertisements(
-    advertisement_listener: Res<AnnouncementListener>,
+    advertisement_listener: Res<AdvertisementListener>,
     mut commands: Commands,
     time: Res<Time>,
     mut servers: Query<&mut ServerInformation>,
+    mut client: ResMut<Client>,
 ) {
     // Listen for IPv6 advertisements.
     if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
-        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers);
+        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers, &mut client);
     }
 
     // Listen for IPv4 advertisements
     if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
-        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers);
+        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers, &mut client);
     }
 }
 
@@ -118,6 +121,7 @@ fn listen_for_advertisements_on(
     commands: &mut Commands,
     time: &Res<Time>,
     servers: &mut Query<&mut ServerInformation>,
+    client: &mut ResMut<Client>,
 ) {
     let mut buffer = vec![0; MAXIMUM_MESSAGE_SIZE];
 
@@ -164,7 +168,7 @@ fn listen_for_advertisements_on(
                 }
             };
 
-        process_advertisement(advertisement, sender, commands, time, servers);
+        process_advertisement(advertisement, sender, commands, time, servers, client);
     }
 }
 
@@ -174,23 +178,78 @@ fn process_advertisement(
     commands: &mut Commands,
     time: &Res<Time>,
     servers: &mut Query<&mut ServerInformation>,
+    client: &mut ResMut<Client>,
 ) {
     // Update server if it already has a ServerInformation.
-    if let Some(mut server) = servers
-        .iter_mut()
-        .find(|server| server.ip == sender.ip() && server.port == advertisement.port)
-    {
+    if let Some(mut server) = servers.iter_mut().find(|server| {
+        server.address.ip() == sender.ip() && server.address.port() == advertisement.port as u16
+    }) {
         server.name = advertisement.display_name;
         server.last_advertisement_received = time.elapsed();
     } else {
-        // TODO: Request Config.
+        let server_address = SocketAddr::new(sender.ip(), advertisement.port as u16);
+        request_config(server_address, client);
+
         commands.spawn(ServerInformation {
-            ip: sender.ip(),
-            port: advertisement.port,
+            address: server_address,
             name: advertisement.display_name,
-            config: default(),
+            config: None,
             last_advertisement_received: time.elapsed(),
         });
+    }
+}
+
+fn request_config(server_address: SocketAddr, client: &mut ResMut<Client>) {
+    // Bind to UDPv4 if the server communicates on it.
+    let local_address = if server_address.is_ipv4() {
+        "0.0.0.0"
+    } else {
+        "[::]"
+    }
+    .to_string();
+
+    let connection_configuration = ConnectionConfiguration::new(
+        server_address.ip().to_string(),
+        server_address.port(),
+        local_address,
+        0,
+    );
+
+    let certificate_mode =
+        CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
+    client.open_connection(connection_configuration, certificate_mode);
+
+    let prost_message = messages::ServerConfigRequest {};
+    let prost_message_bytes = prost_message.encode_to_vec();
+    let message = messages::Message::new(
+        PROTOCOL_VERSION,
+        messages::OpCode::ServerConfigRequest,
+        prost_message_bytes.as_slice(),
+    )
+    .expect("Request should be constructed properly");
+
+    if let Err(error) = client.connection().send_payload(message.encode()) {
+        warn!("Failed to send server configuration request to {server_address}: {error}");
+    }
+}
+
+// TODO: listen_for_config
+
+struct ConfigReceivedEvent {
+    config: types::Config,
+    sender: SocketAddr,
+}
+
+fn process_config(
+    mut event: EventReader<ConfigReceivedEvent>,
+    mut servers: Query<&mut ServerInformation>,
+) {
+    for ConfigReceivedEvent { config, sender } in event.iter() {
+        let mut server = match servers.iter_mut().find(|server| &server.address == sender) {
+            Some(server) => server,
+            None => continue,
+        };
+        server.config = Some(config.to_owned());
     }
 }
 
