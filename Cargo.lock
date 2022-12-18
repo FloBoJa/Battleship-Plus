@@ -254,7 +254,6 @@ dependencies = [
  "battleship_plus_common",
  "env_logger 0.10.0",
  "log",
- "prost",
  "quinn",
  "rustls",
  "tokio",

@@ -2,11 +2,9 @@ use std::borrow::Borrow;
 use std::net::{IpAddr, SocketAddr};
 
 use log::{debug, warn};
-use prost::Message;
 use tokio::net::UdpSocket;
 use tokio::time;
 
-use battleship_plus_common::messages::OpCode;
 use battleship_plus_common::PROTOCOL_VERSION;
 
 use crate::config_provider::ConfigProvider;
@@ -95,16 +93,16 @@ pub(crate) async fn dispatch_announcement(
     display_name: &str,
     dst: SocketAddr,
 ) -> Result<(), String> {
-    let payload = battleship_plus_common::messages::ServerAdvertisement {
-        port: port as u32,
-        display_name: String::from(display_name),
-    };
+    let inner_message =
+        battleship_plus_common::messages::packet_payload::ProtocolMessage::ServerAdvertisement(
+            battleship_plus_common::messages::ServerAdvertisement {
+                port: port as u32,
+                display_name: String::from(display_name),
+            },
+        );
 
-    let msg = match battleship_plus_common::messages::Message::new(
-        PROTOCOL_VERSION,
-        OpCode::ServerAdvertisement,
-        payload.encode_to_vec().as_slice(),
-    ) {
+    let msg = match battleship_plus_common::messages::Message::new(PROTOCOL_VERSION, inner_message)
+    {
         Ok(msg) => msg,
         Err(e) => return Err(format!("unable to encode advertisement message: {}", e)),
     };
