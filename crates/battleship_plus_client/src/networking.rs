@@ -3,9 +3,12 @@ use battleship_plus_common::{
     types, PROTOCOL_VERSION,
 };
 use bevy::prelude::*;
-use bevy_quinnet::client::{
-    certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
-    Client, ConnectionConfiguration, QuinnetClientPlugin,
+use bevy_quinnet::{
+    client::{
+        certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
+        Client, ConnectionConfiguration, ConnectionId, QuinnetClientPlugin,
+    },
+    shared::QuinnetError,
 };
 use std::{
     io::ErrorKind::WouldBlock,
@@ -19,9 +22,12 @@ pub struct NetworkingPlugin;
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(QuinnetClientPlugin::default())
+            .add_event::<(messages::ServerConfigResponse, SocketAddr)>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_advertisements)
             .add_system(clean_up_servers)
+            .add_system(listen_for_server_configurations)
+            .add_system(process_server_configurations)
             .add_system(needs_server);
     }
 }
@@ -179,7 +185,7 @@ fn process_advertisement(
         server.last_advertisement_received = time.elapsed();
     } else {
         let server_address = SocketAddr::new(sender.ip(), advertisement.port as u16);
-        request_config(server_address, client);
+        request_config(server_address, commands, client);
 
         commands.spawn(ServerInformation {
             address: server_address,
@@ -190,7 +196,17 @@ fn process_advertisement(
     }
 }
 
-fn request_config(server_address: SocketAddr, client: &mut ResMut<Client>) {
+#[derive(Component)]
+struct ConnectionRecord {
+    connection_id: ConnectionId,
+    server_address: SocketAddr,
+}
+
+fn request_config(
+    server_address: SocketAddr,
+    commands: &mut Commands,
+    client: &mut ResMut<Client>,
+) {
     // Bind to UDPv4 if the server communicates on it.
     let local_address = if server_address.is_ipv4() {
         "0.0.0.0"
@@ -208,7 +224,12 @@ fn request_config(server_address: SocketAddr, client: &mut ResMut<Client>) {
 
     let certificate_mode =
         CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
-    client.open_connection(connection_configuration, certificate_mode);
+    let connection_id = client.open_connection(connection_configuration, certificate_mode);
+
+    commands.spawn(ConnectionRecord {
+        connection_id,
+        server_address,
+    });
 
     let message = messages::Message::new(
         PROTOCOL_VERSION,
@@ -223,23 +244,69 @@ fn request_config(server_address: SocketAddr, client: &mut ResMut<Client>) {
     }
 }
 
-// TODO: listen_for_config
+fn listen_for_server_configurations(
+    mut event: EventWriter<(messages::ServerConfigResponse, SocketAddr)>,
+    mut client: ResMut<Client>,
+    connection_records: Query<&ConnectionRecord>,
+) {
+    for (connection_id, connection) in client.connections_mut() {
+        if !connection.is_connected() {
+            continue;
+        }
 
-struct ConfigReceivedEvent {
-    config: types::Config,
-    sender: SocketAddr,
+        let payload = match connection.receive_payload() {
+            Ok(Some(value)) => value.to_vec(),
+            Ok(None) => continue,
+            Err(QuinnetError::ChannelClosed) => continue,
+            Err(error) => {
+                warn!("Unexpected error occurred while receiving packet: {error}");
+                continue;
+            }
+        };
+
+        let message = match messages::Message::decode(&mut payload.as_slice()) {
+            Ok(value) => value,
+            Err(error) => {
+                debug!("Could not decode incoming message: {error}");
+                continue;
+            }
+        };
+
+        let sender = match connection_records
+            .iter()
+            .find(|record| &record.connection_id == connection_id)
+        {
+            Some(record) => record.server_address,
+            None => {
+                warn!("Received data over unknown connection");
+                continue;
+            }
+        };
+        match message.inner_message() {
+            messages::packet_payload::ProtocolMessage::ServerConfigResponse(message) => {
+                event.send((message.to_owned(), sender));
+            }
+            other => {
+                warn!("Received unimplemented message type {:?}", other);
+            }
+        }
+    }
 }
 
-fn process_config(
-    mut event: EventReader<ConfigReceivedEvent>,
+fn process_server_configurations(
+    mut event: EventReader<(messages::ServerConfigResponse, SocketAddr)>,
     mut servers: Query<&mut ServerInformation>,
 ) {
-    for ConfigReceivedEvent { config, sender } in event.iter() {
+    for (response, sender) in event.iter() {
         let mut server = match servers.iter_mut().find(|server| &server.address == sender) {
             Some(server) => server,
             None => continue,
         };
-        server.config = Some(config.to_owned());
+        if response.config.is_none() {
+            debug!("Received empty ServerConfigResponse from {sender}");
+            continue;
+        }
+        server.config = response.config.to_owned();
     }
 }
 
