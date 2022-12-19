@@ -13,6 +13,7 @@ use bytes::Bytes;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
 use quinn::{ClientConfig, Endpoint};
+use rustls::KeyLogFile;
 use serde::Deserialize;
 use tokio::{
     runtime::{self},
@@ -389,19 +390,25 @@ fn configure_client(
 ) -> Result<ClientConfig, Box<dyn Error>> {
     match cert_mode {
         CertificateVerificationMode::SkipVerification => {
-            let crypto = rustls::ClientConfig::builder()
+            let mut crypto = rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(SkipServerVerification::new())
                 .with_no_client_auth();
+            if cfg!(debug_assertions) {
+                crypto.key_log = Arc::new(KeyLogFile::new());
+            }
 
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
         CertificateVerificationMode::SignedByCertificateAuthority => {
+            if cfg!(debug_assertions) && std::env::var("SSLKEYLOGFILE").is_ok() {
+                warn!("Logging keys is currently not supported for CertificateVerificationMode::SignedByCertificateAuthority");
+            }
             Ok(ClientConfig::with_native_roots())
         }
         CertificateVerificationMode::TrustOnFirstUse(config) => {
             let (store, store_file) = load_known_hosts_store_from_config(config.known_hosts)?;
-            let crypto = rustls::ClientConfig::builder()
+            let mut crypto = rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(TofuServerVerification::new(
                     store,
@@ -410,6 +417,10 @@ fn configure_client(
                     store_file,
                 ))
                 .with_no_client_auth();
+            if cfg!(debug_assertions) {
+                crypto.key_log = Arc::new(KeyLogFile::new());
+            }
+
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
     }
