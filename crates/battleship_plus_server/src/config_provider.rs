@@ -142,8 +142,8 @@ mod default {
 
         fn server_config(&self) -> Arc<ServerConfig> {
             Arc::from(ServerConfig {
-                game_address_v4: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 30303),
-                game_address_v6: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 30303, 0, 0),
+                game_address_v4: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 30305),
+                game_address_v6: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 30305, 0, 0),
                 enable_announcements_v4: true,
                 enable_announcements_v6: true,
                 announcement_address_v4: SocketAddrV4::new(Ipv4Addr::BROADCAST, 30303),

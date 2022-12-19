@@ -8,6 +8,9 @@ use bevy_quinnet::{
         certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
         Client, ConnectionConfiguration, ConnectionId, QuinnetClientPlugin,
     },
+    server::{
+        certificate::CertificateRetrievalMode, QuinnetServerPlugin, Server, ServerConfigurationData,
+    },
     shared::QuinnetError,
 };
 use std::{
@@ -27,9 +30,27 @@ impl Plugin for NetworkingPlugin {
             .add_system(listen_for_advertisements)
             .add_system(clean_up_servers)
             .add_system(listen_for_server_configurations)
-            .add_system(process_server_configurations)
-            .add_system(needs_server);
+            .add_system(process_server_configurations);
+
+        if cfg!(feature = "fake_server") {
+            app.add_plugin(QuinnetServerPlugin::default())
+                .add_startup_system(start_server)
+                .add_system(fake_server);
+        }
     }
+}
+
+fn start_server(mut server: ResMut<Server>) {
+    info!("Removing bevy_quinnet's known_hosts file to allow unstable certificate.");
+    let _ = std::fs::remove_file(bevy_quinnet::client::DEFAULT_KNOWN_HOSTS_FILE);
+    let _ = server.start_endpoint(
+        ServerConfigurationData::new("[::]".to_string(), 30305, "[::]".to_string()),
+        CertificateRetrievalMode::GenerateSelfSigned,
+    );
+}
+
+fn fake_server(mut server: ResMut<Server>) {
+    let _res = server.endpoint_mut().try_receive_payload();
 }
 
 #[derive(Component, Debug)]
@@ -321,10 +342,4 @@ fn clean_up_servers(
             time.elapsed() - server.last_advertisement_received > std::time::Duration::from_secs(10)
         })
         .for_each(|(entity, _)| commands.entity(entity).despawn_recursive());
-}
-
-fn needs_server(servers: Query<&ServerInformation>) {
-    for server in servers.iter() {
-        println!("{:?}", server);
-    }
 }

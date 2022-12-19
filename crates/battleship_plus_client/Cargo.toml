@@ -11,3 +11,4 @@ bevy-inspector-egui = "0.14"
 
 [features]
 wayland = ["bevy/wayland"]
+fake_server = []
