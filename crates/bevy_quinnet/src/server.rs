@@ -334,13 +334,10 @@ impl Server {
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
-        let mut server_crypto = rustls::ServerConfig::builder()
+        let server_crypto = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())?;
-        if cfg!(debug_assertions) {
-            server_crypto.key_log = Arc::from(rustls::KeyLogFile::new());
-        }
         let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
