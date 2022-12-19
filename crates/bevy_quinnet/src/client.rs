@@ -26,7 +26,7 @@ use tokio::{
     },
     task::JoinSet,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, BytesCodec};
+use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
 
 use crate::shared::{
     AsyncRuntime, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,

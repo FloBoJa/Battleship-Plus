@@ -19,7 +19,7 @@ use tokio::{
     },
     task::JoinSet,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, BytesCodec};
+use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
 
 use crate::{
     server::certificate::retrieve_certificate,
@@ -340,7 +340,6 @@ impl Server {
             .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())?;
         if cfg!(debug_assertions) {
             server_crypto.key_log = Arc::from(rustls::KeyLogFile::new());
-            println!("KeyLogFile opened!");
         }
         let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
         Arc::get_mut(&mut server_config.transport)
@@ -522,8 +521,7 @@ async fn client_sender_task(
         )
     });
 
-    let mut framed_send_stream =
-        FramedWrite::new(send_stream, BytesCodec::new());
+    let mut framed_send_stream = FramedWrite::new(send_stream, BytesCodec::new());
 
     tokio::select! {
         _ = close_receiver.recv() => {
