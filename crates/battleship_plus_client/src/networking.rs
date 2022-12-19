@@ -114,11 +114,13 @@ fn join_multicast_v6(multiaddr: &str, socket: &UdpSocket) {
     let multicast_address =
         Ipv6Addr::from_str(multiaddr).expect("Could not parse hard-coded multicast address");
 
-    socket
-        .join_multicast_v6(&multicast_address, 0)
-        .unwrap_or_else(|error| {
-            warn!("Could not join UDPv6 multicast: {error}");
-        });
+    for interface in pnet_datalink::interfaces() {
+        socket
+            .join_multicast_v6(&multicast_address, interface.index)
+            .unwrap_or_else(|error| {
+                warn!("Could not join UDPv6 multicast on interface {interface} : {error}");
+            });
+    }
 
     socket.set_multicast_loop_v6(true).unwrap_or_else(|error| {
         warn!("Could not enable UDPv6 multicast loopback: {error}");
