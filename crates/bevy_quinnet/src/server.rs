@@ -19,7 +19,7 @@ use tokio::{
     },
     task::JoinSet,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite, BytesCodec};
 
 use crate::{
     server::certificate::retrieve_certificate,
@@ -334,10 +334,15 @@ impl Server {
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
-        let mut server_config = ServerConfig::with_single_cert(
-            server_cert.cert_chain.clone(),
-            server_cert.priv_key.clone(),
-        )?;
+        let mut server_crypto = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())?;
+        if cfg!(debug_assertions) {
+            server_crypto.key_log = Arc::from(rustls::KeyLogFile::new());
+            println!("KeyLogFile opened!");
+        }
+        let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
             .keep_alive_interval(Some(Duration::from_secs(DEFAULT_KEEP_ALIVE_INTERVAL_S)));
@@ -517,7 +522,8 @@ async fn client_sender_task(
         )
     });
 
-    let mut framed_send_stream = FramedWrite::new(send_stream, LengthDelimitedCodec::new());
+    let mut framed_send_stream =
+        FramedWrite::new(send_stream, BytesCodec::new());
 
     tokio::select! {
         _ = close_receiver.recv() => {
@@ -557,7 +563,7 @@ async fn client_receiver_task(
         _ = async {
             // For each new stream opened by the client
             while let Ok(recv) = connection.accept_uni().await {
-                let mut frame_recv = FramedRead::new(recv, LengthDelimitedCodec::new());
+                let mut frame_recv = FramedRead::new(recv, BytesCodec::new());
 
                 // Spawn a task to receive data on this stream.
                 let from_client_sender = from_clients_sender.clone();
