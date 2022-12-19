@@ -19,7 +19,7 @@ use tokio::{
     },
     task::JoinSet,
 };
-use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 use crate::{
     server::certificate::retrieve_certificate,
@@ -518,7 +518,7 @@ async fn client_sender_task(
         )
     });
 
-    let mut framed_send_stream = FramedWrite::new(send_stream, BytesCodec::new());
+    let mut framed_send_stream = FramedWrite::new(send_stream, LengthDelimitedCodec::new());
 
     tokio::select! {
         _ = close_receiver.recv() => {
@@ -558,7 +558,7 @@ async fn client_receiver_task(
         _ = async {
             // For each new stream opened by the client
             while let Ok(recv) = connection.accept_uni().await {
-                let mut frame_recv = FramedRead::new(recv, BytesCodec::new());
+                let mut frame_recv = FramedRead::new(recv, LengthDelimitedCodec::new());
 
                 // Spawn a task to receive data on this stream.
                 let from_client_sender = from_clients_sender.clone();

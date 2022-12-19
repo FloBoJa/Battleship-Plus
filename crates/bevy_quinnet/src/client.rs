@@ -27,7 +27,7 @@ use tokio::{
     },
     task::JoinSet,
 };
-use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 use crate::shared::{
     AsyncRuntime, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
@@ -466,7 +466,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                 .open_uni()
                 .await
                 .expect("Failed to open send stream");
-            let mut frame_send = FramedWrite::new(send, BytesCodec::new());
+            let mut frame_send = FramedWrite::new(send, LengthDelimitedCodec::new());
 
             let close_sender_clone = spawn_config.close_sender.clone();
             let _network_sends = tokio::spawn(async move {
@@ -503,7 +503,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                     }
                     _ = async {
                         while let Ok(recv)= connection.accept_uni().await {
-                            let mut frame_recv = FramedRead::new(recv, BytesCodec::new());
+                            let mut frame_recv = FramedRead::new(recv, LengthDelimitedCodec::new());
                             let from_server_sender = spawn_config.from_server_sender.clone();
 
                             uni_receivers.spawn(async move {
