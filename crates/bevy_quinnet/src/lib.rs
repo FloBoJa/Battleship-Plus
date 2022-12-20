@@ -144,7 +144,7 @@ mod tests {
                     .last_connected_client_id
                     .expect("A client should have connected")
             );
-            assert_eq!(client_message.protocol_message, Some(sent_client_message));
+            assert_eq!(client_message, Some(sent_client_message));
         }
 
         let sent_server_message =
@@ -168,7 +168,7 @@ mod tests {
                 .receive_payload()
                 .expect("Failed to receive server message")
                 .expect("There should be a server message");
-            assert_eq!(server_message.protocol_message, Some(sent_server_message));
+            assert_eq!(server_message, Some(sent_server_message));
         }
     }
 
