@@ -161,7 +161,7 @@ fn listen_for_advertisements_on(
 ) {
     let mut socket = UdpFramed::new(
         socket,
-        BattleshipPlusCodec::<messages::ServerAdvertisement>::new_with(PROTOCOL_VERSION),
+        BattleshipPlusCodec::<messages::ServerAdvertisement>::new(PROTOCOL_VERSION),
     );
 
     loop {

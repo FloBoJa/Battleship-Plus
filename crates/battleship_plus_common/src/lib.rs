@@ -47,8 +47,8 @@ pub mod codec {
         decoding_target: PhantomData<T>,
     }
 
-    impl BattleshipPlusCodec<messages::PacketPayload> {
-        pub fn new() -> BattleshipPlusCodec<messages::PacketPayload> {
+    impl Default for BattleshipPlusCodec<messages::PacketPayload> {
+        fn default() -> BattleshipPlusCodec<messages::PacketPayload> {
             BattleshipPlusCodec {
                 version: crate::PROTOCOL_VERSION,
                 length: None,
@@ -58,7 +58,7 @@ pub mod codec {
     }
 
     impl<T: prost::Message> BattleshipPlusCodec<T> {
-        pub fn new_with(version: u8) -> BattleshipPlusCodec<T> {
+        pub fn new(version: u8) -> BattleshipPlusCodec<T> {
             BattleshipPlusCodec {
                 version,
                 length: None,
@@ -89,7 +89,7 @@ pub mod codec {
             buffer.put_u16(length);
             payload
                 .encode(buffer)
-                .or_else(|error| Err(CodecError::IO(error.to_string())))
+                .map_err(|error| CodecError::IO(error.to_string()))
         }
     }
 
