@@ -1,7 +1,4 @@
-use battleship_plus_common::{
-    messages::{self, MAXIMUM_MESSAGE_SIZE},
-    types, PROTOCOL_VERSION,
-};
+use battleship_plus_common::{codec::BattleshipPlusCodec, messages, types, PROTOCOL_VERSION};
 use bevy::prelude::*;
 use bevy_quinnet::{
     client::{
@@ -11,14 +8,16 @@ use bevy_quinnet::{
     server::{
         certificate::CertificateRetrievalMode, QuinnetServerPlugin, Server, ServerConfigurationData,
     },
-    shared::QuinnetError,
+    shared::{AsyncRuntime, QuinnetError},
 };
+use futures::stream::StreamExt;
 use std::{
-    io::ErrorKind::WouldBlock,
-    net::{Ipv6Addr, SocketAddr, UdpSocket},
+    net::{Ipv6Addr, SocketAddr},
     str::FromStr,
     time::Duration,
 };
+use tokio::net::UdpSocket;
+use tokio_util::udp::UdpFramed;
 
 pub struct NetworkingPlugin;
 
@@ -67,13 +66,10 @@ struct AdvertisementListener {
     pub socket_v6: Option<UdpSocket>,
 }
 
-fn set_up_advertisement_listener(mut commands: Commands) {
-    let socket_v6 = match UdpSocket::bind("[::]:30303") {
+fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRuntime>) {
+    let socket_v6 = match runtime.block_on(UdpSocket::bind("[::]:30303")) {
         Ok(socket) => {
             join_multicast_v6("ff02::1", &socket);
-            socket.set_nonblocking(true).unwrap_or_else(|error| {
-                warn!("Could not set UDPv6 port to non-blocking: {error}");
-            });
             Some(socket)
         }
         Err(error) => {
@@ -82,13 +78,8 @@ fn set_up_advertisement_listener(mut commands: Commands) {
         }
     };
 
-    let socket_v4 = match UdpSocket::bind("0.0.0.0:30303") {
-        Ok(socket) => {
-            socket.set_nonblocking(true).unwrap_or_else(|error| {
-                warn!("Could not set UDPv4 port to non-blocking: {error}");
-            });
-            Some(socket)
-        }
+    let socket_v4 = match runtime.block_on(UdpSocket::bind("0.0.0.0:30303")) {
+        Ok(socket) => Some(socket),
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
             // This is OS-specific. Some OSs necessitate both UDPv4 and UDPv6
             // to be bound, some do not allow it.
@@ -133,15 +124,30 @@ fn listen_for_advertisements(
     time: Res<Time>,
     mut servers: Query<&mut ServerInformation>,
     mut client: ResMut<Client>,
+    runtime: Res<AsyncRuntime>,
 ) {
     // Listen for IPv6 advertisements.
     if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
-        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers, &mut client);
+        listen_for_advertisements_on(
+            socket,
+            &mut commands,
+            &time,
+            &mut servers,
+            &mut client,
+            &runtime,
+        );
     }
 
     // Listen for IPv4 advertisements
     if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
-        listen_for_advertisements_on(socket, &mut commands, &time, &mut servers, &mut client);
+        listen_for_advertisements_on(
+            socket,
+            &mut commands,
+            &time,
+            &mut servers,
+            &mut client,
+            &runtime,
+        );
     }
 }
 
@@ -151,49 +157,34 @@ fn listen_for_advertisements_on(
     time: &Res<Time>,
     servers: &mut Query<&mut ServerInformation>,
     client: &mut ResMut<Client>,
+    runtime: &Res<AsyncRuntime>,
 ) {
-    let mut buffer = vec![0; MAXIMUM_MESSAGE_SIZE];
+    let mut socket = UdpFramed::new(
+        socket,
+        BattleshipPlusCodec::<messages::ServerAdvertisement>::new_with(PROTOCOL_VERSION),
+    );
 
     loop {
-        let (_message_length, sender) = match socket.recv_from(buffer.as_mut_slice()) {
-            Ok(value) => value,
+        let item = runtime.block_on(socket.next());
+        if item.is_none() {
+            break;
+        }
+
+        let result = item.expect("There should be a value here");
+
+        match result {
+            Ok((advertisement, sender)) => {
+                process_advertisement(advertisement, sender, commands, time, servers, client)
+            }
             Err(error) => {
-                if error.kind() != WouldBlock {
-                    warn!(
-                        "Could not receive on advertisement listening socket: {:?}",
-                        error
-                    );
-                }
-                // It does not make sense to continue trying (either due to lack of incoming traffic
-                // or due to an error), maybe it works in the next call.
-                return;
+                error!("Could not receive advertisement: {error}");
             }
-        };
-
-        let message = match messages::Message::decode(&mut buffer.as_slice()) {
-            Ok(value) => value,
-            Err(error) => {
-                debug!("Could not decode supposed advertisement: {error}");
-                continue;
-            }
-        };
-
-        let advertisement = match message.inner_message() {
-            messages::packet_payload::ProtocolMessage::ServerAdvertisement(value) => value,
-            _ => {
-                debug!(
-                    "Received non-advertisement Battleship Plus message on the advertisement port."
-                );
-                continue;
-            }
-        };
-
-        process_advertisement(advertisement, sender, commands, time, servers, client);
+        }
     }
 }
 
 fn process_advertisement(
-    advertisement: &messages::ServerAdvertisement,
+    advertisement: messages::ServerAdvertisement,
     sender: SocketAddr,
     commands: &mut Commands,
     time: &Res<Time>,
@@ -254,15 +245,11 @@ fn request_config(
         server_address,
     });
 
-    let message = messages::Message::new(
-        PROTOCOL_VERSION,
-        messages::packet_payload::ProtocolMessage::ServerConfigRequest(
-            messages::ServerConfigRequest {},
-        ),
-    )
-    .expect("Request should be constructed properly");
+    let message = messages::packet_payload::ProtocolMessage::ServerConfigRequest(
+        messages::ServerConfigRequest {},
+    );
 
-    if let Err(error) = client.connection().send_payload(message.encode()) {
+    if let Err(error) = client.connection().send_message(message) {
         warn!("Failed to send server configuration request to {server_address}: {error}");
     }
 }
@@ -278,7 +265,7 @@ fn listen_for_server_configurations(
         }
 
         let payload = match connection.receive_payload() {
-            Ok(Some(value)) => value.to_vec(),
+            Ok(Some(value)) => value,
             Ok(None) => continue,
             Err(QuinnetError::ChannelClosed) => continue,
             Err(error) => {
@@ -287,10 +274,10 @@ fn listen_for_server_configurations(
             }
         };
 
-        let message = match messages::Message::decode(&mut payload.as_slice()) {
-            Ok(value) => value,
-            Err(error) => {
-                debug!("Could not decode incoming message: {error}");
+        let message = match payload.protocol_message {
+            Some(value) => value,
+            None => {
+                warn!("Received empty PacketPayload");
                 continue;
             }
         };
@@ -305,7 +292,8 @@ fn listen_for_server_configurations(
                 continue;
             }
         };
-        match message.inner_message() {
+
+        match message {
             messages::packet_payload::ProtocolMessage::ServerConfigResponse(message) => {
                 event.send((message.to_owned(), sender));
             }

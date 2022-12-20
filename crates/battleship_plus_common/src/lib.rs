@@ -6,139 +6,143 @@ pub mod types {
 
 #[allow(clippy::large_enum_variant)]
 pub mod messages {
-    use prost::Message as ProstMessage;
-    use std::borrow::BorrowMut;
-    use std::fmt::{Display, Formatter};
-    use std::io::{BufRead, Write};
-
+    pub use crate::messages::packet_payload::ProtocolMessage;
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.messages.rs"));
+}
+
+pub mod codec {
+    use crate::messages;
+    use bytes::{Buf, BufMut, BytesMut};
+    pub use prost::Message as ProstMessage;
+    use std::fmt::{Display, Formatter};
+    use std::marker::PhantomData;
+    use tokio_util::codec::{Decoder, Encoder};
 
     #[derive(Clone, Debug)]
-    pub enum MessageEncodingError {
+    pub enum CodecError {
         IO(String),
         PROTOCOL(String),
     }
 
-    impl Display for MessageEncodingError {
+    impl Display for CodecError {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
-                MessageEncodingError::IO(s) => f.write_str(format!("IO: {}", s).as_str()),
-                MessageEncodingError::PROTOCOL(s) => {
-                    f.write_str(format!("PROTOCOL: {}", s).as_str())
-                }
+                CodecError::IO(s) => f.write_str(format!("IO: {}", s).as_str()),
+                CodecError::PROTOCOL(s) => f.write_str(format!("PROTOCOL: {}", s).as_str()),
             }
         }
     }
 
-    const MESSAGE_HEADER_SIZE: usize = 3;
-    pub const MAXIMUM_MESSAGE_SIZE: usize = MESSAGE_HEADER_SIZE + u16::MAX as usize;
+    impl From<std::io::Error> for CodecError {
+        fn from(io_error: std::io::Error) -> CodecError {
+            CodecError::IO(io_error.to_string())
+        }
+    }
 
-    pub struct Message {
+    const HEADER_SIZE: usize = 3;
+
+    pub struct BattleshipPlusCodec<T: prost::Message> {
         version: u8,
-        payload: PacketPayload,
+        length: Option<usize>,
+        decoding_target: PhantomData<T>,
     }
 
-    impl Message {
-        pub fn version(&self) -> u8 {
-            self.version
+    impl BattleshipPlusCodec<messages::PacketPayload> {
+        pub fn new() -> BattleshipPlusCodec<messages::PacketPayload> {
+            BattleshipPlusCodec {
+                version: crate::PROTOCOL_VERSION,
+                length: None,
+                decoding_target: PhantomData,
+            }
         }
-        pub fn payload_length(&self) -> usize {
-            self.payload.encoded_len()
+    }
+
+    impl<T: prost::Message> BattleshipPlusCodec<T> {
+        pub fn new_with(version: u8) -> BattleshipPlusCodec<T> {
+            BattleshipPlusCodec {
+                version,
+                length: None,
+                decoding_target: PhantomData,
+            }
         }
-        pub fn inner_message(&self) -> &packet_payload::ProtocolMessage {
-            if let Some(inner_message) = &self.payload.protocol_message {
-                inner_message
+    }
+
+    impl<T: prost::Message> Encoder<messages::ProtocolMessage> for BattleshipPlusCodec<T> {
+        type Error = CodecError;
+
+        fn encode(
+            &mut self,
+            message: messages::ProtocolMessage,
+            buffer: &mut BytesMut,
+        ) -> Result<(), Self::Error> {
+            let payload = messages::PacketPayload {
+                protocol_message: Some(message),
+            };
+
+            let length = payload.encoded_len();
+            if length > u16::MAX as usize {
+                return Err(CodecError::PROTOCOL(String::from("message is too long")));
+            }
+            let length = length as u16;
+
+            buffer.put_u8(self.version);
+            buffer.put_u16(length);
+            payload
+                .encode(buffer)
+                .or_else(|error| Err(CodecError::IO(error.to_string())))
+        }
+    }
+
+    impl<T: prost::Message + Default> Decoder for BattleshipPlusCodec<T> {
+        // Item is PacketPayloads instead of ProtocolMessage here since erroring in a Decoder due to
+        // `payload.protocol_message == None` would immediately close the connection.
+        // This behaviour would not be appropriate since the error is recoverable.
+        type Item = T;
+        type Error = CodecError;
+
+        fn decode(&mut self, buffer: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+            // Try to read the header if it has not been read yet.
+            if self.length.is_none() {
+                if buffer.len() < HEADER_SIZE {
+                    buffer.reserve(HEADER_SIZE - buffer.len());
+                    return Ok(None);
+                }
+
+                let version = buffer.get_u8();
+                let length = buffer.get_u16() as usize;
+                self.length = Some(length);
+
+                if version != self.version {
+                    return Err(CodecError::PROTOCOL(format!(
+                        "unsupported protocol version {}, supported version is {}",
+                        version, self.version
+                    )));
+                }
+
+                // Reserve enough memory for this message and the next header.
+                if length + HEADER_SIZE > buffer.capacity() {
+                    buffer.reserve(length + HEADER_SIZE - buffer.len());
+                }
+            }
+
+            // Try to read the message if the header has successfully been read.
+            if let Some(length) = self.length {
+                if buffer.len() < length {
+                    return Ok(None);
+                }
+
+                // Reset length for next message.
+                self.length = None;
+
+                // Decode the message.
+                match Self::Item::decode(buffer.split_to(length)) {
+                    Ok(payload) => Ok(Some(payload)),
+                    Err(error) => Err(CodecError::PROTOCOL(format!(
+                        "malformed message, expecting PacketPayload: {error}"
+                    ))),
+                }
             } else {
-                panic!("PacketPayloads without inner messages are not constructible");
-            }
-        }
-
-        pub fn decode(rd: &mut dyn BufRead) -> Result<Message, MessageEncodingError> {
-            let mut buf = [0u8; MESSAGE_HEADER_SIZE];
-            match rd.read_exact(buf.borrow_mut()) {
-                Ok(_) => {}
-                Err(e) => {
-                    return Err(MessageEncodingError::IO(format!(
-                        "unable to read header from buffer: {}",
-                        &e
-                    )))
-                }
-            }
-
-            let version = buf[0];
-
-            let payload_length = (buf[1] as u16) << 8 | (buf[2] as u16);
-            let mut payload = vec![0u8; payload_length as usize];
-
-            match rd.read_exact(payload.borrow_mut()) {
-                Ok(_) => {}
-                Err(e) => {
-                    return Err(MessageEncodingError::IO(format!(
-                        "unable to read header from buffer: {}",
-                        e
-                    )))
-                }
-            }
-
-            let payload = match PacketPayload::decode(payload.as_slice()) {
-                Ok(value) => value,
-                Err(e) => {
-                    return Err(MessageEncodingError::PROTOCOL(format!(
-                        "malformed message, expecting PacketPayload: {}",
-                        e
-                    )))
-                }
-            };
-
-            if payload.protocol_message.is_none() {
-                return Err(MessageEncodingError::PROTOCOL(
-                    "no message inside PacketPayload".to_string(),
-                ));
-            };
-
-            Ok(Message { version, payload })
-        }
-
-        pub fn new(
-            version: u8,
-            protocol_message: packet_payload::ProtocolMessage,
-        ) -> Result<Message, MessageEncodingError> {
-            let payload = PacketPayload {
-                protocol_message: Some(protocol_message),
-            };
-
-            if payload.encoded_len() > u16::MAX as usize {
-                return Err(MessageEncodingError::PROTOCOL(String::from(
-                    "message is too long",
-                )));
-            }
-
-            Ok(Message { version, payload })
-        }
-
-        pub fn encode(&self) -> Vec<u8> {
-            let mut buf = vec![0u8; self.payload_length() + MESSAGE_HEADER_SIZE];
-
-            buf[0] = self.version;
-
-            let len = self.payload_length();
-            buf[1] = (len >> 8) as u8;
-            buf[2] = len as u8;
-
-            buf[MESSAGE_HEADER_SIZE..(len + MESSAGE_HEADER_SIZE)]
-                .copy_from_slice(&self.payload.encode_to_vec());
-
-            buf
-        }
-
-        pub fn write_to(&self, writer: &mut dyn Write) -> Result<(), MessageEncodingError> {
-            let buf = self.encode();
-            match writer.write_all(&buf) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(MessageEncodingError::IO(format!(
-                    "unable to write message: {}",
-                    e
-                ))),
+                Ok(None)
             }
         }
     }

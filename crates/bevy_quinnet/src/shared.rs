@@ -12,7 +12,7 @@ pub const DEFAULT_KEEP_ALIVE_INTERVAL_S: u64 = 4;
 pub type ClientId = u64;
 
 #[derive(Resource, Deref, DerefMut)]
-pub(crate) struct AsyncRuntime(pub(crate) Runtime);
+pub struct AsyncRuntime(pub Runtime);
 
 /// Enum with possibles errors that can occur in Bevy Quinnet
 #[derive(thiserror::Error, Debug)]

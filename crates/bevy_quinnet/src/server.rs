@@ -5,8 +5,11 @@ use std::{
     time::Duration,
 };
 
+use battleship_plus_common::{
+    codec::BattleshipPlusCodec,
+    messages::{PacketPayload, ProtocolMessage},
+};
 use bevy::prelude::*;
-use bytes::Bytes;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
@@ -14,12 +17,12 @@ use serde::Deserialize;
 use tokio::{
     runtime,
     sync::{
-        broadcast::{self},
+        broadcast,
         mpsc::{self, error::TryRecvError},
     },
     task::JoinSet,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::{
     server::certificate::retrieve_certificate,
@@ -88,9 +91,9 @@ impl ServerConfigurationData {
 #[derive(Debug)]
 pub struct ClientPayload {
     /// Id of the client sending the message
-    client_id: ClientId,
+    pub client_id: ClientId,
     /// Content of the message as bytes
-    msg: Bytes,
+    pub msg: PacketPayload,
 }
 
 #[derive(Debug)]
@@ -107,7 +110,7 @@ pub(crate) enum InternalSyncMessage {
 #[derive(Debug)]
 pub(crate) struct ClientConnection {
     client_id: ClientId,
-    sender: mpsc::Sender<Bytes>,
+    sender: mpsc::Sender<ProtocolMessage>,
     close_sender: broadcast::Sender<()>,
 }
 
@@ -121,66 +124,46 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub fn receive_message<T: serde::de::DeserializeOwned>(
-        &mut self,
-    ) -> Result<Option<(T, ClientId)>, QuinnetError> {
-        match self.receive_payload()? {
-            Some(client_msg) => match bincode::deserialize(&client_msg.msg) {
-                Ok(msg) => Ok(Some((msg, client_msg.client_id))),
-                Err(_) => Err(QuinnetError::Deserialization),
-            },
-            None => Ok(None),
-        }
-    }
-
-    pub fn try_receive_message<T: serde::de::DeserializeOwned>(&mut self) -> Option<(T, ClientId)> {
-        match self.receive_message() {
-            Ok(message) => message,
-            Err(err) => {
-                error!("try_receive_message: {}", err);
-                None
-            }
-        }
-    }
-
-    pub fn send_message<T: serde::Serialize>(
-        &mut self,
+    pub fn send_message(
+        &self,
         client_id: ClientId,
-        message: T,
+        message: ProtocolMessage,
     ) -> Result<(), QuinnetError> {
-        match bincode::serialize(&message) {
-            Ok(payload) => Ok(self.send_payload(client_id, payload)?),
-            Err(_) => Err(QuinnetError::Serialization),
+        if let Some(client) = self.clients.get(&client_id) {
+            match client.sender.try_send(message) {
+                Ok(_) => Ok(()),
+                Err(err) => match err {
+                    mpsc::error::TrySendError::Full(_) => Err(QuinnetError::FullQueue),
+                    mpsc::error::TrySendError::Closed(_) => Err(QuinnetError::ChannelClosed),
+                },
+            }
+        } else {
+            Err(QuinnetError::UnknownClient(client_id))
         }
     }
 
-    pub fn try_send_message<T: serde::Serialize>(&mut self, client_id: ClientId, message: T) {
+    pub fn try_send_message(&self, client_id: ClientId, message: ProtocolMessage) {
         match self.send_message(client_id, message) {
             Ok(_) => {}
             Err(err) => error!("try_send_message: {}", err),
         }
     }
 
-    pub fn send_group_message<'a, I: Iterator<Item = &'a ClientId>, T: serde::Serialize>(
+    pub fn send_group_message<'a, I: Iterator<Item = &'a ClientId>>(
         &self,
         client_ids: I,
-        message: T,
+        message: ProtocolMessage,
     ) -> Result<(), QuinnetError> {
-        match bincode::serialize(&message) {
-            Ok(payload) => {
-                for id in client_ids {
-                    self.send_payload(*id, payload.clone())?;
-                }
-                Ok(())
-            }
-            Err(_) => Err(QuinnetError::Serialization),
+        for id in client_ids {
+            self.send_message(*id, message.clone())?;
         }
+        Ok(())
     }
 
-    pub fn try_send_group_message<'a, I: Iterator<Item = &'a ClientId>, T: serde::Serialize>(
+    pub fn try_send_group_message<'a, I: Iterator<Item = &'a ClientId>>(
         &self,
         client_ids: I,
-        message: T,
+        message: ProtocolMessage,
     ) {
         match self.send_group_message(client_ids, message) {
             Ok(_) => {}
@@ -188,26 +171,9 @@ impl Endpoint {
         }
     }
 
-    pub fn broadcast_message<T: serde::Serialize>(&self, message: T) -> Result<(), QuinnetError> {
-        match bincode::serialize(&message) {
-            Ok(payload) => Ok(self.broadcast_payload(payload)?),
-            Err(_) => Err(QuinnetError::Serialization),
-        }
-    }
-
-    pub fn try_broadcast_message<T: serde::Serialize>(&self, message: T) {
-        match self.broadcast_message(message) {
-            Ok(_) => {}
-            Err(err) => error!("try_broadcast_message: {}", err),
-        }
-    }
-
-    pub fn broadcast_payload<T: Into<Bytes> + Clone>(
-        &self,
-        payload: T,
-    ) -> Result<(), QuinnetError> {
+    pub fn broadcast_message(&self, message: ProtocolMessage) -> Result<(), QuinnetError> {
         for (_, client_connection) in self.clients.iter() {
-            match client_connection.sender.try_send(payload.clone().into()) {
+            match client_connection.sender.try_send(message.clone().into()) {
                 Ok(_) => {}
                 Err(err) => match err {
                     mpsc::error::TrySendError::Full(_) => return Err(QuinnetError::FullQueue),
@@ -220,35 +186,10 @@ impl Endpoint {
         Ok(())
     }
 
-    pub fn try_broadcast_payload<T: Into<Bytes> + Clone>(&self, payload: T) {
-        match self.broadcast_payload(payload) {
+    pub fn try_broadcast_message(&self, message: ProtocolMessage) {
+        match self.broadcast_message(message) {
             Ok(_) => {}
             Err(err) => error!("try_broadcast_payload: {}", err),
-        }
-    }
-
-    pub fn send_payload<T: Into<Bytes>>(
-        &self,
-        client_id: ClientId,
-        payload: T,
-    ) -> Result<(), QuinnetError> {
-        if let Some(client) = self.clients.get(&client_id) {
-            match client.sender.try_send(payload.into()) {
-                Ok(_) => Ok(()),
-                Err(err) => match err {
-                    mpsc::error::TrySendError::Full(_) => Err(QuinnetError::FullQueue),
-                    mpsc::error::TrySendError::Closed(_) => Err(QuinnetError::ChannelClosed),
-                },
-            }
-        } else {
-            Err(QuinnetError::UnknownClient(client_id))
-        }
-    }
-
-    pub fn try_send_payload<T: Into<Bytes>>(&self, client_id: ClientId, payload: T) {
-        match self.send_payload(client_id, payload) {
-            Ok(_) => {}
-            Err(err) => error!("try_send_payload: {}", err),
         }
     }
 
@@ -334,11 +275,10 @@ impl Server {
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
-        let server_crypto = rustls::ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())?;
-        let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+        let mut server_config = ServerConfig::with_single_cert(
+            server_cert.cert_chain.clone(),
+            server_cert.priv_key.clone(),
+        )?;
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
             .keep_alive_interval(Some(Duration::from_secs(DEFAULT_KEEP_ALIVE_INTERVAL_S)));
@@ -457,7 +397,8 @@ async fn handle_client_connection(
         broadcast::channel(DEFAULT_KILL_MESSAGE_QUEUE_SIZE);
 
     // Create an ordered reliable send channel for this client
-    let (to_client_sender, to_client_receiver) = mpsc::channel::<Bytes>(DEFAULT_MESSAGE_QUEUE_SIZE);
+    let (to_client_sender, to_client_receiver) =
+        mpsc::channel::<ProtocolMessage>(DEFAULT_MESSAGE_QUEUE_SIZE);
 
     let to_sync_server_clone = to_sync_server.clone();
     let close_sender_clone = client_close_sender.clone();
@@ -506,7 +447,7 @@ async fn handle_client_connection(
 async fn client_sender_task(
     client_id: ClientId,
     connection: quinn::Connection,
-    mut to_client_receiver: tokio::sync::mpsc::Receiver<Bytes>,
+    mut to_client_receiver: tokio::sync::mpsc::Receiver<ProtocolMessage>,
     mut close_receiver: tokio::sync::broadcast::Receiver<()>,
     close_sender: tokio::sync::broadcast::Sender<()>,
     to_sync_server: mpsc::Sender<InternalAsyncMessage>,
@@ -518,17 +459,17 @@ async fn client_sender_task(
         )
     });
 
-    let mut framed_send_stream = FramedWrite::new(send_stream, LengthDelimitedCodec::new());
+    let mut framed_send_stream = FramedWrite::new(send_stream, BattleshipPlusCodec::new());
 
     tokio::select! {
         _ = close_receiver.recv() => {
             trace!("Unidirectional send stream forced to disconnected for client: {}", client_id)
         }
         _ = async {
-            while let Some(msg_bytes) = to_client_receiver.recv().await {
+            while let Some(message) = to_client_receiver.recv().await {
                 // TODO Perf: Batch frames for a send_all
                 // TODO Clean: Error handling
-                if let Err(err) = framed_send_stream.send(msg_bytes.clone()).await {
+                if let Err(err) = framed_send_stream.send(message.clone()).await {
                     error!("Error while sending to client {}: {}", client_id, err);
                     error!("Client {} seems disconnected, closing resources", client_id);
                     if close_sender.send(()).is_err() {
@@ -558,7 +499,7 @@ async fn client_receiver_task(
         _ = async {
             // For each new stream opened by the client
             while let Ok(recv) = connection.accept_uni().await {
-                let mut frame_recv = FramedRead::new(recv, LengthDelimitedCodec::new());
+                let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::new());
 
                 // Spawn a task to receive data on this stream.
                 let from_client_sender = from_clients_sender.clone();
