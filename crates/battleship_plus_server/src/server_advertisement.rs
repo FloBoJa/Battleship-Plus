@@ -106,7 +106,7 @@ pub(crate) async fn dispatch_announcement(
 
     let mut socket = UdpFramed::new(
         socket,
-        BattleshipPlusCodec::<messages::ServerAdvertisement>::new_with(PROTOCOL_VERSION),
+        BattleshipPlusCodec::<messages::ServerAdvertisement>::new(PROTOCOL_VERSION),
     );
 
     match socket.send((message, dst)).await {

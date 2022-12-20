@@ -173,7 +173,7 @@ impl Endpoint {
 
     pub fn broadcast_message(&self, message: ProtocolMessage) -> Result<(), QuinnetError> {
         for (_, client_connection) in self.clients.iter() {
-            match client_connection.sender.try_send(message.clone().into()) {
+            match client_connection.sender.try_send(message.clone()) {
                 Ok(_) => {}
                 Err(err) => match err {
                     mpsc::error::TrySendError::Full(_) => return Err(QuinnetError::FullQueue),
@@ -459,7 +459,7 @@ async fn client_sender_task(
         )
     });
 
-    let mut framed_send_stream = FramedWrite::new(send_stream, BattleshipPlusCodec::new());
+    let mut framed_send_stream = FramedWrite::new(send_stream, BattleshipPlusCodec::default());
 
     tokio::select! {
         _ = close_receiver.recv() => {
@@ -499,7 +499,7 @@ async fn client_receiver_task(
         _ = async {
             // For each new stream opened by the client
             while let Ok(recv) = connection.accept_uni().await {
-                let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::new());
+                let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::default());
 
                 // Spawn a task to receive data on this stream.
                 let from_client_sender = from_clients_sender.clone();
@@ -508,7 +508,7 @@ async fn client_receiver_task(
                         from_client_sender
                             .send(ClientPayload {
                                 client_id,
-                                msg: msg_bytes.into(),
+                                msg: msg_bytes,
                             })
                             .await
                             .unwrap();// TODO Fix: error event
