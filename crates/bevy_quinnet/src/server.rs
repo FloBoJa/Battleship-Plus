@@ -5,10 +5,7 @@ use std::{
     time::Duration,
 };
 
-use battleship_plus_common::{
-    codec::BattleshipPlusCodec,
-    messages::{PacketPayload, ProtocolMessage},
-};
+use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
@@ -93,7 +90,7 @@ pub struct ClientPayload {
     /// Id of the client sending the message
     pub client_id: ClientId,
     /// Content of the message as bytes
-    pub msg: PacketPayload,
+    pub msg: Option<ProtocolMessage>,
 }
 
 #[derive(Debug)]

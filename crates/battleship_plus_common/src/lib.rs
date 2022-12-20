@@ -15,7 +15,6 @@ pub mod codec {
     use bytes::{Buf, BufMut, BytesMut};
     pub use prost::Message as ProstMessage;
     use std::fmt::{Display, Formatter};
-    use std::marker::PhantomData;
     use tokio_util::codec::{Decoder, Encoder};
 
     #[derive(Clone, Debug)]
@@ -41,33 +40,21 @@ pub mod codec {
 
     const HEADER_SIZE: usize = 3;
 
-    pub struct BattleshipPlusCodec<T: prost::Message> {
+    pub struct BattleshipPlusCodec {
         version: u8,
         length: Option<usize>,
-        decoding_target: PhantomData<T>,
     }
 
-    impl Default for BattleshipPlusCodec<messages::PacketPayload> {
-        fn default() -> BattleshipPlusCodec<messages::PacketPayload> {
+    impl Default for BattleshipPlusCodec {
+        fn default() -> BattleshipPlusCodec {
             BattleshipPlusCodec {
                 version: crate::PROTOCOL_VERSION,
                 length: None,
-                decoding_target: PhantomData,
             }
         }
     }
 
-    impl<T: prost::Message> BattleshipPlusCodec<T> {
-        pub fn new(version: u8) -> BattleshipPlusCodec<T> {
-            BattleshipPlusCodec {
-                version,
-                length: None,
-                decoding_target: PhantomData,
-            }
-        }
-    }
-
-    impl<T: prost::Message> Encoder<messages::ProtocolMessage> for BattleshipPlusCodec<T> {
+    impl Encoder<messages::ProtocolMessage> for BattleshipPlusCodec {
         type Error = CodecError;
 
         fn encode(
@@ -93,11 +80,11 @@ pub mod codec {
         }
     }
 
-    impl<T: prost::Message + Default> Decoder for BattleshipPlusCodec<T> {
-        // Item is PacketPayloads instead of ProtocolMessage here since erroring in a Decoder due to
+    impl Decoder for BattleshipPlusCodec {
+        // Item is Option<ProtocolMessage> instead of ProtocolMessage here since erroring in a Decoder due to
         // `payload.protocol_message == None` would immediately close the connection.
         // This behaviour would not be appropriate since the error is recoverable.
-        type Item = T;
+        type Item = Option<messages::ProtocolMessage>;
         type Error = CodecError;
 
         fn decode(&mut self, buffer: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -135,8 +122,8 @@ pub mod codec {
                 self.length = None;
 
                 // Decode the message.
-                match Self::Item::decode(buffer.split_to(length)) {
-                    Ok(payload) => Ok(Some(payload)),
+                match messages::PacketPayload::decode(buffer.split_to(length)) {
+                    Ok(payload) => Ok(Some(payload.protocol_message)),
                     Err(error) => Err(CodecError::PROTOCOL(format!(
                         "malformed message, expecting PacketPayload: {error}"
                     ))),
@@ -145,5 +132,83 @@ pub mod codec {
                 Ok(None)
             }
         }
+    }
+
+    #[test]
+    fn encode() {
+        let expected_message = messages::ProtocolMessage::JoinRequest(messages::JoinRequest {
+            username: "Example P. Name Sr.".to_string(),
+        });
+
+        let mut codec = BattleshipPlusCodec::default();
+        let mut buffer = BytesMut::new();
+        codec
+            .encode(expected_message.clone(), &mut buffer)
+            .expect("Encoding does not fail");
+
+        let expected_payload = messages::PacketPayload {
+            protocol_message: Some(expected_message.clone()),
+        };
+
+        assert_eq!(buffer.get_u8(), crate::PROTOCOL_VERSION);
+        assert_eq!(buffer.get_u16() as usize, expected_payload.encoded_len());
+        assert_eq!(buffer.len(), expected_payload.encoded_len());
+
+        let decoded_payload = match messages::PacketPayload::decode(buffer) {
+            Err(error) => panic!("Prost decoding failed: {error}"),
+            Ok(value) => value,
+        };
+        let decoded_message = decoded_payload
+            .protocol_message
+            .expect("The message is not empty");
+
+        assert_eq!(expected_message, decoded_message);
+    }
+
+    #[test]
+    fn decode() {
+        let expected_message = messages::ProtocolMessage::JoinRequest(messages::JoinRequest {
+            username: "Example P. Name Sr.".to_string(),
+        });
+        let expected_payload = messages::PacketPayload {
+            protocol_message: Some(expected_message.clone()),
+        };
+
+        let mut buffer = BytesMut::new();
+        buffer.put_u8(crate::PROTOCOL_VERSION);
+        buffer.put_u16(expected_payload.encoded_len() as u16);
+        expected_payload
+            .encode(&mut buffer)
+            .expect("Prost encoding does not fail");
+
+        let mut codec = BattleshipPlusCodec::default();
+        let decoded_message = codec
+            .decode(&mut buffer)
+            .expect("No error occurs during decoding")
+            .expect("An entire message is in the buffer")
+            .expect("The message could not be empty");
+
+        assert_eq!(expected_message, decoded_message);
+    }
+
+    #[test]
+    fn encode_then_decode() {
+        let expected_message = messages::ProtocolMessage::JoinRequest(messages::JoinRequest {
+            username: "Example P. Name Sr.".to_string(),
+        });
+
+        let mut codec = BattleshipPlusCodec::default();
+        let mut buffer = BytesMut::new();
+        codec
+            .encode(expected_message.clone(), &mut buffer)
+            .expect("Encoding does not fail");
+
+        let decoded_message = codec
+            .decode(&mut buffer)
+            .expect("No error occurs during decoding")
+            .expect("An entire message is in the buffer")
+            .expect("The message could not be empty");
+
+        assert_eq!(expected_message, decoded_message);
     }
 }

@@ -12,7 +12,6 @@ use crate::config_provider::ConfigProvider;
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
     messages::{self, packet_payload::ProtocolMessage},
-    PROTOCOL_VERSION,
 };
 
 pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
@@ -104,10 +103,7 @@ pub(crate) async fn dispatch_announcement(
         display_name: String::from(display_name),
     });
 
-    let mut socket = UdpFramed::new(
-        socket,
-        BattleshipPlusCodec::<messages::ServerAdvertisement>::new(PROTOCOL_VERSION),
-    );
+    let mut socket = UdpFramed::new(socket, BattleshipPlusCodec::default());
 
     match socket.send((message, dst)).await {
         Ok(_) => Ok(()),

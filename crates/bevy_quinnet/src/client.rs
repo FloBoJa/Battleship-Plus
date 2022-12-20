@@ -8,10 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use battleship_plus_common::{
-    codec::BattleshipPlusCodec,
-    messages::{PacketPayload, ProtocolMessage},
-};
+use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
@@ -131,7 +128,7 @@ pub(crate) struct ConnectionSpawnConfig {
     close_sender: tokio::sync::broadcast::Sender<()>,
     close_receiver: tokio::sync::broadcast::Receiver<()>,
     to_server_receiver: mpsc::Receiver<ProtocolMessage>,
-    from_server_sender: mpsc::Sender<PacketPayload>,
+    from_server_sender: mpsc::Sender<Option<ProtocolMessage>>,
 }
 
 #[derive(Debug)]
@@ -139,7 +136,7 @@ pub struct Connection {
     state: ConnectionState,
     // TODO Perf: multiple channels
     sender: mpsc::Sender<ProtocolMessage>,
-    receiver: mpsc::Receiver<PacketPayload>,
+    receiver: mpsc::Receiver<Option<ProtocolMessage>>,
     close_sender: broadcast::Sender<()>,
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
 }
@@ -163,7 +160,7 @@ impl Connection {
         }
     }
 
-    pub fn receive_payload(&mut self) -> Result<Option<PacketPayload>, QuinnetError> {
+    pub fn receive_payload(&mut self) -> Result<Option<Option<ProtocolMessage>>, QuinnetError> {
         match self.receiver.try_recv() {
             Ok(msg_payload) => Ok(Some(msg_payload)),
             Err(err) => match err {
@@ -174,7 +171,7 @@ impl Connection {
     }
 
     /// Same as [Connection::receive_payload] but will log the error instead of returning it
-    pub fn try_receive_payload(&mut self) -> Option<PacketPayload> {
+    pub fn try_receive_payload(&mut self) -> Option<Option<ProtocolMessage>> {
         match self.receive_payload() {
             Ok(payload) => payload,
             Err(err) => {
@@ -264,7 +261,7 @@ impl Client {
         cert_mode: CertificateVerificationMode,
     ) -> ConnectionId {
         let (from_server_sender, from_server_receiver) =
-            mpsc::channel::<PacketPayload>(DEFAULT_MESSAGE_QUEUE_SIZE);
+            mpsc::channel::<Option<ProtocolMessage>>(DEFAULT_MESSAGE_QUEUE_SIZE);
         let (to_server_sender, to_server_receiver) =
             mpsc::channel::<ProtocolMessage>(DEFAULT_MESSAGE_QUEUE_SIZE);
 

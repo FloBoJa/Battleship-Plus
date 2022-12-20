@@ -1,4 +1,4 @@
-use battleship_plus_common::{codec::BattleshipPlusCodec, messages, types, PROTOCOL_VERSION};
+use battleship_plus_common::{codec::BattleshipPlusCodec, messages, types};
 use bevy::prelude::*;
 use bevy_quinnet::{
     client::{
@@ -159,10 +159,7 @@ fn listen_for_advertisements_on(
     client: &mut ResMut<Client>,
     runtime: &Res<AsyncRuntime>,
 ) {
-    let mut socket = UdpFramed::new(
-        socket,
-        BattleshipPlusCodec::<messages::ServerAdvertisement>::new(PROTOCOL_VERSION),
-    );
+    let mut socket = UdpFramed::new(socket, BattleshipPlusCodec::default());
 
     loop {
         let item = runtime.block_on(socket.next());
@@ -173,12 +170,14 @@ fn listen_for_advertisements_on(
         let result = item.expect("There should be a value here");
 
         match result {
-            Ok((advertisement, sender)) => {
+            Ok((Some(messages::ProtocolMessage::ServerAdvertisement(advertisement)), sender)) => {
                 process_advertisement(advertisement, sender, commands, time, servers, client)
             }
-            Err(error) => {
-                error!("Could not receive advertisement: {error}");
+            Ok((None, sender)) => debug!("Received empty advertisement payload from {sender}"),
+            Ok((Some(other), sender)) => {
+                debug!("Expected advertisement, received something else from {sender}: {other:?}")
             }
+            Err(error) => error!("Could not receive advertisement: {error}"),
         }
     }
 }
@@ -264,20 +263,16 @@ fn listen_for_server_configurations(
             continue;
         }
 
-        let payload = match connection.receive_payload() {
-            Ok(Some(value)) => value,
+        let message = match connection.receive_payload() {
+            Ok(Some(Some(value))) => value,
+            Ok(Some(None)) => {
+                warn!("Received empty PacketPayload");
+                continue;
+            }
             Ok(None) => continue,
             Err(QuinnetError::ChannelClosed) => continue,
             Err(error) => {
                 warn!("Unexpected error occurred while receiving packet: {error}");
-                continue;
-            }
-        };
-
-        let message = match payload.protocol_message {
-            Some(value) => value,
-            None => {
-                warn!("Received empty PacketPayload");
                 continue;
             }
         };
