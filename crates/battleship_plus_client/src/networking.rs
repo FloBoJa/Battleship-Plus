@@ -263,7 +263,7 @@ fn listen_for_server_configurations(
             continue;
         }
 
-        let message = match connection.receive_payload() {
+        let message = match connection.receive_message() {
             Ok(Some(Some(value))) => value,
             Ok(Some(None)) => {
                 warn!("Received empty PacketPayload");

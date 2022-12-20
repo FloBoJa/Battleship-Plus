@@ -160,9 +160,9 @@ impl Connection {
         }
     }
 
-    pub fn receive_payload(&mut self) -> Result<Option<Option<ProtocolMessage>>, QuinnetError> {
+    pub fn receive_message(&mut self) -> Result<Option<Option<ProtocolMessage>>, QuinnetError> {
         match self.receiver.try_recv() {
-            Ok(msg_payload) => Ok(Some(msg_payload)),
+            Ok(msg) => Ok(Some(msg)),
             Err(err) => match err {
                 TryRecvError::Empty => Ok(None),
                 TryRecvError::Disconnected => Err(QuinnetError::ChannelClosed),
@@ -170,12 +170,12 @@ impl Connection {
         }
     }
 
-    /// Same as [Connection::receive_payload] but will log the error instead of returning it
-    pub fn try_receive_payload(&mut self) -> Option<Option<ProtocolMessage>> {
-        match self.receive_payload() {
-            Ok(payload) => payload,
+    /// Same as [Connection::receive_message] but will log the error instead of returning it
+    pub fn try_receive_message(&mut self) -> Option<Option<ProtocolMessage>> {
+        match self.receive_message() {
+            Ok(msg) => msg,
             Err(err) => {
-                error!("try_receive_payload: {}", err);
+                error!("try_receive_message: {}", err);
                 None
             }
         }
