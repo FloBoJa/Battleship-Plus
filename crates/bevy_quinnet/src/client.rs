@@ -8,15 +8,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use battleship_plus_common::{
+    codec::BattleshipPlusCodec,
+    messages::{PacketPayload, ProtocolMessage},
+};
 use bevy::prelude::*;
-use bytes::Bytes;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
 use quinn::{ClientConfig, Endpoint};
 use rustls::KeyLogFile;
 use serde::Deserialize;
 use tokio::{
-    runtime::{self},
+    runtime,
     sync::{
         broadcast,
         mpsc::{
@@ -27,7 +30,7 @@ use tokio::{
     },
     task::JoinSet,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::shared::{
     AsyncRuntime, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
@@ -127,61 +130,23 @@ pub(crate) struct ConnectionSpawnConfig {
     to_sync_client: mpsc::Sender<InternalAsyncMessage>,
     close_sender: tokio::sync::broadcast::Sender<()>,
     close_receiver: tokio::sync::broadcast::Receiver<()>,
-    to_server_receiver: mpsc::Receiver<Bytes>,
-    from_server_sender: mpsc::Sender<Bytes>,
+    to_server_receiver: mpsc::Receiver<ProtocolMessage>,
+    from_server_sender: mpsc::Sender<PacketPayload>,
 }
 
 #[derive(Debug)]
 pub struct Connection {
     state: ConnectionState,
     // TODO Perf: multiple channels
-    sender: mpsc::Sender<Bytes>,
-    receiver: mpsc::Receiver<Bytes>,
+    sender: mpsc::Sender<ProtocolMessage>,
+    receiver: mpsc::Receiver<PacketPayload>,
     close_sender: broadcast::Sender<()>,
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
 }
 
 impl Connection {
-    pub fn receive_message<T: serde::de::DeserializeOwned>(
-        &mut self,
-    ) -> Result<Option<T>, QuinnetError> {
-        match self.receive_payload()? {
-            Some(payload) => match bincode::deserialize(&payload) {
-                Ok(msg) => Ok(Some(msg)),
-                Err(_) => Err(QuinnetError::Deserialization),
-            },
-            None => Ok(None),
-        }
-    }
-
-    /// Same as [Connection::receive_message] but will log the error instead of returning it
-    pub fn try_receive_message<T: serde::de::DeserializeOwned>(&mut self) -> Option<T> {
-        match self.receive_message() {
-            Ok(message) => message,
-            Err(err) => {
-                error!("try_receive_message: {}", err);
-                None
-            }
-        }
-    }
-
-    pub fn send_message<T: serde::Serialize>(&self, message: T) -> Result<(), QuinnetError> {
-        match bincode::serialize(&message) {
-            Ok(payload) => self.send_payload(payload),
-            Err(_) => Err(QuinnetError::Serialization),
-        }
-    }
-
-    /// Same as [Connection::send_message] but will log the error instead of returning it
-    pub fn try_send_message<T: serde::Serialize>(&self, message: T) {
-        match self.send_message(message) {
-            Ok(_) => {}
-            Err(err) => error!("try_send_message: {}", err),
-        }
-    }
-
-    pub fn send_payload<T: Into<Bytes>>(&self, payload: T) -> Result<(), QuinnetError> {
-        match self.sender.try_send(payload.into()) {
+    pub fn send_message(&self, message: ProtocolMessage) -> Result<(), QuinnetError> {
+        match self.sender.try_send(message) {
             Ok(_) => Ok(()),
             Err(err) => match err {
                 TrySendError::Full(_) => Err(QuinnetError::FullQueue),
@@ -190,15 +155,15 @@ impl Connection {
         }
     }
 
-    /// Same as [Connection::send_payload] but will log the error instead of returning it
-    pub fn try_send_payload<T: Into<Bytes>>(&self, payload: T) {
-        match self.send_payload(payload) {
+    /// Same as [Connection::send_message] but will log the error instead of returning it
+    pub fn try_send_message(&self, message: ProtocolMessage) {
+        match self.send_message(message) {
             Ok(_) => {}
-            Err(err) => error!("try_send_payload: {}", err),
+            Err(err) => error!("try_send_message: {}", err),
         }
     }
 
-    pub fn receive_payload(&mut self) -> Result<Option<Bytes>, QuinnetError> {
+    pub fn receive_payload(&mut self) -> Result<Option<PacketPayload>, QuinnetError> {
         match self.receiver.try_recv() {
             Ok(msg_payload) => Ok(Some(msg_payload)),
             Err(err) => match err {
@@ -209,7 +174,7 @@ impl Connection {
     }
 
     /// Same as [Connection::receive_payload] but will log the error instead of returning it
-    pub fn try_receive_payload(&mut self) -> Option<Bytes> {
+    pub fn try_receive_payload(&mut self) -> Option<PacketPayload> {
         match self.receive_payload() {
             Ok(payload) => payload,
             Err(err) => {
@@ -299,9 +264,9 @@ impl Client {
         cert_mode: CertificateVerificationMode,
     ) -> ConnectionId {
         let (from_server_sender, from_server_receiver) =
-            mpsc::channel::<Bytes>(DEFAULT_MESSAGE_QUEUE_SIZE);
+            mpsc::channel::<PacketPayload>(DEFAULT_MESSAGE_QUEUE_SIZE);
         let (to_server_sender, to_server_receiver) =
-            mpsc::channel::<Bytes>(DEFAULT_MESSAGE_QUEUE_SIZE);
+            mpsc::channel::<ProtocolMessage>(DEFAULT_MESSAGE_QUEUE_SIZE);
 
         let (to_sync_client, from_async_client) =
             mpsc::channel::<InternalAsyncMessage>(DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE);
@@ -466,7 +431,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                 .open_uni()
                 .await
                 .expect("Failed to open send stream");
-            let mut frame_send = FramedWrite::new(send, LengthDelimitedCodec::new());
+            let mut frame_send = FramedWrite::new(send, BattleshipPlusCodec::new());
 
             let close_sender_clone = spawn_config.close_sender.clone();
             let _network_sends = tokio::spawn(async move {
@@ -503,7 +468,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                     }
                     _ = async {
                         while let Ok(recv)= connection.accept_uni().await {
-                            let mut frame_recv = FramedRead::new(recv, LengthDelimitedCodec::new());
+                            let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::new());
                             let from_server_sender = spawn_config.from_server_sender.clone();
 
                             uni_receivers.spawn(async move {

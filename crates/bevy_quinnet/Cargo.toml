@@ -28,18 +28,5 @@ bytes = "1.2.1"
 base64 = "0.13.1"
 thiserror = "1.0.37"
 
-[dev-dependencies]
-bevy = { version = "0.9.0", default-features = false, features = ["bevy_asset", "bevy_audio", "vorbis", "bevy_winit", "render"] }
-rand = "0.8.5"
-
-[[example]]
-name = "breakout"
-path = "examples/breakout/breakout.rs"
-
-[[example]]
-name = "chat-server"
-path = "examples/chat/server.rs"
-
-[[example]]
-name = "chat-client"
-path = "examples/chat/client.rs"
+# For a custom codec
+battleship_plus_common = { path = "../battleship_plus_common" }

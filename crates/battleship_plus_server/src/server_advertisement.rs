@@ -1,13 +1,19 @@
 use std::borrow::Borrow;
 use std::net::{IpAddr, SocketAddr};
 
+use futures::sink::SinkExt;
 use log::{debug, warn};
 use tokio::net::UdpSocket;
 use tokio::time;
-
-use battleship_plus_common::PROTOCOL_VERSION;
+use tokio_util::udp::UdpFramed;
 
 use crate::config_provider::ConfigProvider;
+
+use battleship_plus_common::{
+    codec::BattleshipPlusCodec,
+    messages::{self, packet_payload::ProtocolMessage},
+    PROTOCOL_VERSION,
+};
 
 pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
     if !cfg.server_config().enable_announcements_v4 && cfg.server_config().enable_announcements_v6 {
@@ -93,21 +99,17 @@ pub(crate) async fn dispatch_announcement(
     display_name: &str,
     dst: SocketAddr,
 ) -> Result<(), String> {
-    let inner_message =
-        battleship_plus_common::messages::packet_payload::ProtocolMessage::ServerAdvertisement(
-            battleship_plus_common::messages::ServerAdvertisement {
-                port: port as u32,
-                display_name: String::from(display_name),
-            },
-        );
+    let message = ProtocolMessage::ServerAdvertisement(messages::ServerAdvertisement {
+        port: port as u32,
+        display_name: String::from(display_name),
+    });
 
-    let msg = match battleship_plus_common::messages::Message::new(PROTOCOL_VERSION, inner_message)
-    {
-        Ok(msg) => msg,
-        Err(e) => return Err(format!("unable to encode advertisement message: {}", e)),
-    };
+    let mut socket = UdpFramed::new(
+        socket,
+        BattleshipPlusCodec::<messages::ServerAdvertisement>::new_with(PROTOCOL_VERSION),
+    );
 
-    match socket.send_to(msg.encode().as_slice(), dst).await {
+    match socket.send((message, dst)).await {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("unable to send advertisement message: {}", e)),
     }
