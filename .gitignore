@@ -11,4 +11,7 @@ target/
 /.idea/
 
 # Logged TLS keys
-res/tls.keylog
+**/tls.keylog
+
+# bevy_quinnet known_hosts
+**/quinnet/known_hosts
