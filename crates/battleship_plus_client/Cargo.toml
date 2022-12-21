@@ -10,8 +10,9 @@ bevy_quinnet = { path = "../bevy_quinnet" }
 bevy-inspector-egui = "0.14"
 pnet_datalink = "0.31"
 tokio-util = { version = "0.7", default_features = false, features = ["net"] }
-tokio = {version = "1", default_features = false, features = ["net"] }
+tokio = { version = "1", default_features = false, features = ["net"] }
 futures = { version = "0.3", default_features = false, features = ["std"] }
+bytes = "1.3"
 
 [features]
 wayland = ["bevy/wayland"]
