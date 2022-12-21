@@ -165,7 +165,7 @@ mod tests {
             let mut client = client_app.world.resource_mut::<Client>();
             let server_message = client
                 .connection_mut()
-                .receive_payload()
+                .receive_message()
                 .expect("Failed to receive server message")
                 .expect("There should be a server message");
             assert_eq!(server_message, Some(sent_server_message));
