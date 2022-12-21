@@ -28,7 +28,6 @@ function bs_plus_protocol.dissector(buffer, pinfo, tree)
         -- Minimum message length
         if buffer(1, 2):uint() + 3 > buffer:len() then break end
     
-        pinfo.cols.protocol = bs_plus_protocol.name;
         subtree = tree:add(bs_plus_protocol, buffer())
         version = buffer(0, 1):uint()
         length = buffer(1, 2):uint()
@@ -36,6 +35,7 @@ function bs_plus_protocol.dissector(buffer, pinfo, tree)
         subtree:add(length_type, buffer(1, 2))
         pinfo.private["pb_msg_type"] = "message,battleshipplus.messages.PacketPayload"
         pcall(Dissector.call, protobuf_dissector, buffer(3, length):tvb(), pinfo, subtree) 
+        pinfo.cols.protocol = bs_plus_protocol.name;
         message_size = 3 + length
         total_length = total_length + message_size
         if message_size == buffer:len() then
