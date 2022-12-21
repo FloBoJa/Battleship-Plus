@@ -1,5 +1,6 @@
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages, types};
 use bevy::prelude::*;
+use bevy::utils::synccell::SyncCell;
 use bevy_quinnet::{
     client::{
         certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
@@ -14,6 +15,7 @@ use futures::stream::StreamExt;
 use std::{
     net::{Ipv6Addr, SocketAddr},
     str::FromStr,
+    sync::mpsc,
     time::Duration,
 };
 use tokio::net::UdpSocket;
@@ -26,7 +28,7 @@ impl Plugin for NetworkingPlugin {
         app.add_plugin(QuinnetClientPlugin::default())
             .add_event::<(messages::ServerConfigResponse, SocketAddr)>()
             .add_startup_system(set_up_advertisement_listener)
-            .add_system(listen_for_advertisements)
+            .add_system(receive_advertisements)
             .add_system(clean_up_servers)
             .add_system(listen_for_server_configurations)
             .add_system(process_server_configurations);
@@ -60,10 +62,19 @@ pub struct ServerInformation {
     pub last_advertisement_received: Duration,
 }
 
-#[derive(Resource)]
-struct AdvertisementListener {
-    pub socket_v4: Option<UdpSocket>,
-    pub socket_v6: Option<UdpSocket>,
+#[derive(Component)]
+struct AdvertisementReceiver(SyncCell<mpsc::Receiver<(messages::ServerAdvertisement, SocketAddr)>>);
+
+impl AdvertisementReceiver {
+    fn new(
+        receiver: mpsc::Receiver<(messages::ServerAdvertisement, SocketAddr)>,
+    ) -> AdvertisementReceiver {
+        AdvertisementReceiver(SyncCell::new(receiver))
+    }
+
+    fn get(&mut self) -> &mut mpsc::Receiver<(messages::ServerAdvertisement, SocketAddr)> {
+        self.0.get()
+    }
 }
 
 fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRuntime>) {
@@ -77,6 +88,12 @@ fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRunti
             None
         }
     };
+    let (sender_v6, receiver_v6) =
+        mpsc::sync_channel::<(messages::ServerAdvertisement, SocketAddr)>(10);
+    if let Some(socket) = socket_v6 {
+        commands.spawn(AdvertisementReceiver::new(receiver_v6));
+        runtime.spawn(listen_for_advertisements(socket, sender_v6));
+    }
 
     let socket_v4 = match runtime.block_on(UdpSocket::bind("0.0.0.0:30303")) {
         Ok(socket) => Some(socket),
@@ -94,11 +111,12 @@ fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRunti
             None
         }
     };
-
-    commands.insert_resource(AdvertisementListener {
-        socket_v4,
-        socket_v6,
-    });
+    let (sender_v4, receiver_v4) =
+        mpsc::sync_channel::<(messages::ServerAdvertisement, SocketAddr)>(10);
+    if let Some(socket) = socket_v4 {
+        commands.spawn(AdvertisementReceiver::new(receiver_v4));
+        runtime.spawn(listen_for_advertisements(socket, sender_v4));
+    }
 }
 
 fn join_multicast_v6(multiaddr: &str, socket: &UdpSocket) {
@@ -118,66 +136,60 @@ fn join_multicast_v6(multiaddr: &str, socket: &UdpSocket) {
     });
 }
 
-fn listen_for_advertisements(
-    advertisement_listener: Res<AdvertisementListener>,
+async fn listen_for_advertisements(
+    socket: UdpSocket,
+    channel_sender: mpsc::SyncSender<(messages::ServerAdvertisement, SocketAddr)>,
+) {
+    let mut socket = UdpFramed::new(socket, BattleshipPlusCodec::default());
+    while let Some(result) = socket.next().await {
+        let (advertisement, sender) = match result {
+            Ok((Some(messages::ProtocolMessage::ServerAdvertisement(advertisement)), sender)) => {
+                (advertisement, sender)
+            }
+            Ok((Some(_), sender)) => {
+                debug!("Received non-advertisement message from {sender} over UDP");
+                continue;
+            }
+            Ok((None, sender)) => {
+                debug!("Received empty advertisement packet from {sender}");
+                continue;
+            }
+            Err(error) => {
+                error!("Could not receive advertisement: {error}\n\
+                       TODO: Do not stop listening for advertisements upon receiving an illegal message, just discard the UDP packet.");
+                continue;
+            }
+        };
+
+        channel_sender
+            .send((advertisement, sender))
+            .expect("Internal advertisement channel should be open");
+    }
+}
+
+fn receive_advertisements(
+    mut receivers: Query<&mut AdvertisementReceiver>,
     mut commands: Commands,
     time: Res<Time>,
     mut servers: Query<&mut ServerInformation>,
     mut client: ResMut<Client>,
-    runtime: Res<AsyncRuntime>,
 ) {
-    // Listen for IPv6 advertisements.
-    if let Some(socket) = advertisement_listener.socket_v6.as_ref() {
-        listen_for_advertisements_on(
-            socket,
-            &mut commands,
-            &time,
-            &mut servers,
-            &mut client,
-            &runtime,
-        );
-    }
-
-    // Listen for IPv4 advertisements
-    if let Some(socket) = advertisement_listener.socket_v4.as_ref() {
-        listen_for_advertisements_on(
-            socket,
-            &mut commands,
-            &time,
-            &mut servers,
-            &mut client,
-            &runtime,
-        );
-    }
-}
-
-fn listen_for_advertisements_on(
-    socket: &UdpSocket,
-    commands: &mut Commands,
-    time: &Res<Time>,
-    servers: &mut Query<&mut ServerInformation>,
-    client: &mut ResMut<Client>,
-    runtime: &Res<AsyncRuntime>,
-) {
-    let mut socket = UdpFramed::new(socket, BattleshipPlusCodec::default());
-
-    loop {
-        let item = runtime.block_on(socket.next());
-        if item.is_none() {
-            break;
-        }
-
-        let result = item.expect("There should be a value here");
-
-        match result {
-            Ok((Some(messages::ProtocolMessage::ServerAdvertisement(advertisement)), sender)) => {
-                process_advertisement(advertisement, sender, commands, time, servers, client)
-            }
-            Ok((None, sender)) => debug!("Received empty advertisement payload from {sender}"),
-            Ok((Some(other), sender)) => {
-                debug!("Expected advertisement, received something else from {sender}: {other:?}")
-            }
-            Err(error) => error!("Could not receive advertisement: {error}"),
+    for mut receiver in receivers.iter_mut() {
+        loop {
+            match receiver.get().recv_timeout(Duration::from_millis(1)) {
+                Ok((advertisement, sender)) => process_advertisement(
+                    advertisement,
+                    sender,
+                    &mut commands,
+                    &time,
+                    &mut servers,
+                    &mut client,
+                ),
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("Internal advertisement channel closed")
+                }
+            };
         }
     }
 }
