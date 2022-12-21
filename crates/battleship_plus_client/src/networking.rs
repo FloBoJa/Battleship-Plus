@@ -11,7 +11,7 @@ use bevy_quinnet::{
     },
     shared::{AsyncRuntime, QuinnetError},
 };
-use futures::stream::StreamExt;
+use bytes::BytesMut;
 use std::{
     net::{Ipv6Addr, SocketAddr},
     str::FromStr,
@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 use tokio::net::UdpSocket;
-use tokio_util::udp::UdpFramed;
+use tokio_util::codec::Decoder;
 
 pub struct NetworkingPlugin;
 
@@ -136,34 +136,68 @@ fn join_multicast_v6(multiaddr: &str, socket: &UdpSocket) {
     });
 }
 
+const MAX_UDP_SIZE: usize = 64 * 1024;
+
 async fn listen_for_advertisements(
     socket: UdpSocket,
     channel_sender: mpsc::SyncSender<(messages::ServerAdvertisement, SocketAddr)>,
 ) {
-    let mut socket = UdpFramed::new(socket, BattleshipPlusCodec::default());
-    while let Some(result) = socket.next().await {
-        let (advertisement, sender) = match result {
-            Ok((Some(messages::ProtocolMessage::ServerAdvertisement(advertisement)), sender)) => {
-                (advertisement, sender)
-            }
-            Ok((Some(_), sender)) => {
-                debug!("Received non-advertisement message from {sender} over UDP");
-                continue;
-            }
-            Ok((None, sender)) => {
-                debug!("Received empty advertisement packet from {sender}");
-                continue;
-            }
-            Err(error) => {
-                error!("Could not receive advertisement: {error}\n\
-                       TODO: Do not stop listening for advertisements upon receiving an illegal message, just discard the UDP packet.");
-                continue;
-            }
-        };
+    let mut buffer = BytesMut::zeroed(MAX_UDP_SIZE);
+    loop {
+        let mut codec = BattleshipPlusCodec::default();
+        let mut read_bytes = 0;
+        let mut unfinished_sender = None;
+        loop {
+            let result = if let Some(sender) = unfinished_sender {
+                socket
+                    .recv(&mut buffer[read_bytes..])
+                    .await
+                    .map(|datagram_length| (datagram_length, sender))
+            } else {
+                socket.recv_from(&mut buffer[read_bytes..]).await
+            };
+            let sender = match result {
+                Ok((datagram_length, sender)) => {
+                    read_bytes += datagram_length;
+                    sender
+                }
+                Err(_) => todo!(),
+            };
+            let advertisement = match codec.decode(&mut buffer) {
+                Ok(Some(Some(messages::ProtocolMessage::ServerAdvertisement(advertisement)))) => {
+                    advertisement
+                }
+                Ok(None) => {
+                    // Read further, ensuring that there is enough space for the next datagram.
+                    if read_bytes + MAX_UDP_SIZE > buffer.len() {
+                        buffer.resize(buffer.len() - read_bytes - MAX_UDP_SIZE, 0);
+                    }
+                    unfinished_sender = Some(sender);
+                    debug!("{read_bytes}");
+                    continue;
+                }
+                // Discard the datagram, log it, and continue listening in case of an exception.
+                Ok(Some(Some(_))) => {
+                    debug!("Received non-advertisement message over UDP from {sender}");
+                    break;
+                }
+                Ok(Some(None)) => {
+                    debug!("Received empty advertisement packet from {sender}");
+                    break;
+                }
+                Err(error) => {
+                    debug!("Could not receive advertisement: {error}");
+                    break;
+                }
+            };
 
-        channel_sender
-            .send((advertisement, sender))
-            .expect("Internal advertisement channel should be open");
+            channel_sender
+                .send((advertisement, sender))
+                .expect("Internal advertisement channel should be open");
+            break;
+        }
+        // Shrink the buffer, if necessary.
+        buffer.resize(MAX_UDP_SIZE, 0);
     }
 }
 
