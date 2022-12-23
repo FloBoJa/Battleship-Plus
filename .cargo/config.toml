@@ -1,2 +1,4 @@
 [env]
 RESOURCE_DIR = { value = "res", relative = true }
+SSLKEYLOGFILE = { value = "res/tls.keylog", relative = true }
+LIB = { value = "lib", relative = true }
