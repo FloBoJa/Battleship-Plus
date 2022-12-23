@@ -183,7 +183,6 @@ mod actions_shoot {
 
     use tokio::sync::RwLock;
 
-    use battleship_plus_common::messages::*;
     use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError};
@@ -257,9 +256,8 @@ mod actions_shoot {
 
         // shoot ship_target1
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate {
                     x: ship_target1.data().pos_x as u32,
                     y: ship_target1.data().pos_y as u32,
@@ -283,9 +281,8 @@ mod actions_shoot {
 
         // shoot ship_target2
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate {
                     x: ship_target2.data().pos_x as u32,
                     y: ship_target2.data().pos_y as u32,
@@ -309,9 +306,8 @@ mod actions_shoot {
 
         // missed shot
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
@@ -364,9 +360,8 @@ mod actions_shoot {
 
         // first shot
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
@@ -382,9 +377,8 @@ mod actions_shoot {
 
         // deny second shot
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
@@ -432,9 +426,8 @@ mod actions_shoot {
 
         // first shot
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
@@ -457,9 +450,8 @@ mod actions_shoot {
 
         // deny second shot
         assert!(Action::Shoot {
-            player_id: player.id,
-            request: ShootRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
@@ -488,9 +480,8 @@ mod actions_shoot {
         }));
 
         let res = Action::Shoot {
-            player_id: 42,
-            request: ShootRequest {
-                ship_number: 1,
+            ship_id: (42, 1),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 0, y: 0 }),
             },
         }
@@ -513,9 +504,8 @@ mod actions_shoot {
         }));
 
         let res = Action::Shoot {
-            player_id: 42,
-            request: ShootRequest {
-                ship_number: 1,
+            ship_id: (42, 1),
+            properties: ShootProperties {
                 target: Some(Coordinate { x: 9999, y: 9999 }),
             },
         }
@@ -538,7 +528,6 @@ mod actions_move {
 
     use tokio::sync::RwLock;
 
-    use battleship_plus_common::messages::*;
     use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError};
@@ -579,9 +568,8 @@ mod actions_move {
 
         // move ship forward
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
@@ -597,9 +585,8 @@ mod actions_move {
 
         // move ship backward
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
@@ -651,9 +638,8 @@ mod actions_move {
 
         // move ship forward
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
@@ -670,9 +656,8 @@ mod actions_move {
 
         // try to move ship backwards and fail
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
@@ -722,9 +707,8 @@ mod actions_move {
 
         // move ship forward
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
@@ -755,9 +739,8 @@ mod actions_move {
 
         // try to move ship backwards and fail
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
@@ -797,9 +780,8 @@ mod actions_move {
         }));
 
         let res = Action::Move {
-            player_id: 42,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (42, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
@@ -869,9 +851,8 @@ mod actions_move {
 
         // move ship1 backwards
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
@@ -881,9 +862,8 @@ mod actions_move {
 
         // move ship2 backward
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 1,
+            ship_id: (player.id, 1),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
@@ -947,9 +927,8 @@ mod actions_move {
 
         // move ship1 backwards into ship2
         assert!(Action::Move {
-            player_id: player.id,
-            request: MoveRequest {
-                ship_number: 0,
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }

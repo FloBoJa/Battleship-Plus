@@ -4,6 +4,7 @@ use log::{debug, error};
 use tokio::sync::RwLock;
 
 use battleship_plus_common::messages::*;
+use battleship_plus_common::types::*;
 
 use crate::game::data::{Game, PlayerID};
 use crate::game::ship::ShipID;
@@ -28,36 +29,36 @@ pub enum Action {
 
     // Game actions
     Move {
-        player_id: PlayerID,
-        request: MoveRequest,
+        ship_id: ShipID,
+        properties: MoveProperties,
     },
     Rotate {
-        player_id: PlayerID,
-        request: RotateRequest,
+        ship_id: ShipID,
+        properties: RotateProperties,
     },
     Shoot {
-        player_id: PlayerID,
-        request: ShootRequest,
+        ship_id: ShipID,
+        properties: ShootProperties,
     },
     ScoutPlane {
-        player_id: PlayerID,
-        request: ScoutPlaneRequest,
+        ship_id: ShipID,
+        properties: ScoutPlaneProperties,
     },
     PredatorMissile {
-        player_id: PlayerID,
-        request: PredatorMissileRequest,
+        ship_id: ShipID,
+        properties: PredatorMissileProperties,
     },
     EngineBoost {
-        player_id: PlayerID,
-        request: EngineBoostRequest,
+        ship_id: ShipID,
+        properties: EngineBoostProperties,
     },
     Torpedo {
-        player_id: PlayerID,
-        request: TorpedoRequest,
+        ship_id: ShipID,
+        properties: TorpedoProperties,
     },
     MultiMissile {
-        player_id: PlayerID,
-        request: MultiMissileAttackRequest,
+        ship_id: ShipID,
+        properties: MultiMissileProperties,
     },
 }
 
@@ -119,21 +120,21 @@ impl Action {
                     }
                     Ok(())
                 })
-                .await
+                    .await
             }
             // TODO: Action::PlaceShips { .. } => {}
-            Action::Move { player_id, request } => {
-                check_player_exists(&game, *player_id).await?;
-                let ship_id = (*player_id, request.ship_number);
+            Action::Move { ship_id, properties } => {
+                let player_id = ship_id.0;
+                check_player_exists(&game, player_id).await?;
 
                 mutate_game(&game, |g| {
                     let board_bounds = g.board_bounds();
-                    let player = g.players.get_mut(player_id).unwrap();
+                    let player = g.players.get_mut(&player_id).unwrap();
 
                     let trajectory = match g.ships.move_ship(
                         player,
                         &ship_id,
-                        request.direction(),
+                        properties.direction(),
                         &board_bounds,
                     ) {
                         Ok(trajectory) => trajectory,
@@ -145,23 +146,23 @@ impl Action {
 
                     Ok(())
                 })
-                .await
+                    .await
             }
             // TODO: Action::Rotate { .. } => {}
-            Action::Shoot { player_id, request } => {
-                check_player_exists(&game, *player_id).await?;
-                let ship_id = (*player_id, request.ship_number);
+            Action::Shoot { ship_id, properties } => {
+                let player_id = ship_id.0;
+                check_player_exists(&game, player_id).await?;
 
                 let target = [
-                    request.target.as_ref().unwrap().x as i32,
-                    request.target.as_ref().unwrap().y as i32,
+                    properties.target.as_ref().unwrap().x as i32,
+                    properties.target.as_ref().unwrap().y as i32,
                 ];
 
                 match mutate_game(&game, |g| {
                     let bounds = g.board_bounds();
-                    let player = g.players.get_mut(player_id).unwrap();
+                    let player = g.players.get_mut(&player_id).unwrap();
 
-                    g.ships.attack_with_ship(player, &ship_id, &target, &bounds)
+                    g.ships.attack_with_ship(player, ship_id, &target, &bounds)
                 })
                 .await
                 {
