@@ -1,10 +1,11 @@
+use std::future::Future;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
 
 use log::{error, info, trace, warn};
 use tokio::sync::{mpsc, Mutex, MutexGuard, RwLock};
 
-use battleship_plus_common::messages::{JoinResponse, ProtocolMessage, ServerConfigResponse, StatusMessage};
+use battleship_plus_common::messages::{JoinResponse, ProtocolMessage, ServerConfigResponse, SetReadyStateRequest, SetReadyStateResponse, StatusMessage, TeamSwitchResponse};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::types::Config;
 use bevy_quinnet::server::{ClientPayload, Endpoint, Server, ServerConfigurationData};
@@ -12,6 +13,7 @@ use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;
+use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
 use crate::game::data::{Game, Player};
 
 pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
@@ -95,7 +97,7 @@ async fn endpoint_task(cfg: Arc<Config>, server: Arc<Mutex<Server>>, game: Arc<R
         if payload.msg.is_none() {
             continue;
         }
-        match handle_message(cfg.clone(), ep, payload.client_id, payload.msg.as_ref().unwrap(), &game, &game_end_tx) {
+        match handle_message(cfg.clone(), ep, payload.client_id, payload.msg.as_ref().unwrap(), &game, &game_end_tx).await {
             Ok(_) => {
                 trace!("handled message from {:?}", payload);
             }
@@ -111,13 +113,13 @@ async fn handle_message(cfg: Arc<Config>,
                         client_id: ClientId,
                         msg: &ProtocolMessage,
                         game: &Arc<RwLock<Game>>,
-                        game_end_tx: &mpsc::UnboundedSender<()>) -> Result<(), QuinnetError> {
+                        game_end_tx: &mpsc::UnboundedSender<()>) -> Result<(), MessageHandlerError> {
     match msg {
         // common
         ProtocolMessage::ServerConfigRequest(_) =>
             ep.send_message(client_id, ProtocolMessage::ServerConfigResponse(ServerConfigResponse {
                 config: Some(cfg.as_ref().clone()),
-            })),
+            })).or_else(|e| Err(MessageHandlerError::Network(e))),
 
         // lobby
         ProtocolMessage::JoinRequest(props) => {
@@ -125,15 +127,17 @@ async fn handle_message(cfg: Arc<Config>,
                 let g = game.read().await;
                 if g.players.contains_key(&client_id) {
                     ep.send_message(client_id,
-                                    status_msg(400, "you joined already"))?;
+                                    status_msg(400, "you joined already"))
+                        .or_else(|e| Err(MessageHandlerError::Network(e)))?;
                 }
                 if g.players.values().any(|p| p.name == props.username) {
                     ep.send_message(client_id,
-                                    status_msg(441, "username is already taken"))?;
+                                    status_msg(441, "username is already taken"))
+                        .or_else(|e| Err(MessageHandlerError::Network(e)))?;
                 }
             }
 
-            let g = game.write().await;
+            let mut g = game.write().await;
             g.players.insert(client_id, Player {
                 id: client_id,
                 name: props.username.clone(),
@@ -145,15 +149,40 @@ async fn handle_message(cfg: Arc<Config>,
                 JoinResponse {
                     player_id: client_id,
                 }
-            ))
+            )).or_else(|e| Err(MessageHandlerError::Network(e)))
         }
         ProtocolMessage::TeamSwitchRequest(_) => {
-            // TODO: TeamSwitchRequest
-            todo!()
+            let action = Action::TeamSwitch {
+                player_id: client_id,
+            };
+
+            let g = game.write().await;
+            let state = game.write().await.get_state();
+            if let Err(e) = state.execute_action(action, g) {
+                action_validation_error_reply(ep, client_id, e)
+            } else {
+                ep.send_message(client_id, ProtocolMessage::TeamSwitchResponse(
+                    TeamSwitchResponse {}
+                )).or_else(|e| Err(MessageHandlerError::Network(e)))
+            }
         }
-        ProtocolMessage::SetReadyStateRequest(_) => {
-            // TODO: SetReadyStateRequest
-            todo!()
+        ProtocolMessage::SetReadyStateRequest(props) => {
+            let action = Action::SetReady {
+                player_id: client_id,
+                request: SetReadyStateRequest {
+                    ready_state: props.ready_state,
+                },
+            };
+
+            let g = game.write().await;
+            let state = game.write().await.get_state();
+            if let Err(e) = state.execute_action(action, g) {
+                action_validation_error_reply(ep, client_id, e)
+            } else {
+                ep.send_message(client_id, ProtocolMessage::SetReadyStateResponse(
+                    SetReadyStateResponse {}
+                )).or_else(|e| Err(MessageHandlerError::Network(e)))
+            }
         }
 
         // preparation phase
@@ -182,9 +211,58 @@ async fn handle_message(cfg: Arc<Config>,
     }
 }
 
+fn action_validation_error_reply(ep: &mut Endpoint, client_id: ClientId, error: ActionExecutionError) -> Result<(), MessageHandlerError> {
+    match error {
+        ActionExecutionError::Validation(e) => {
+            match e {
+                ActionValidationError::NonExistentPlayer { id } =>
+                    ep.send_message(client_id,
+                                    status_msg(400, format!("player id does not exist").as_str()))
+                        .or_else(|e| Err(MessageHandlerError::Network(e))),
+                ActionValidationError::NonExistentShip { id } =>
+                    ep.send_message(client_id,
+                                    status_msg(400, format!("ship does not exist").as_str()))
+                        .or_else(|e| Err(MessageHandlerError::Network(e))),
+                ActionValidationError::Cooldown { remaining_rounds } =>
+                    ep.send_message(client_id,
+                                    status_msg(471, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
+                        .or_else(|e| Err(MessageHandlerError::Network(e))),
+                ActionValidationError::InsufficientPoints { required } =>
+                    ep.send_message(client_id,
+                                    status_msg(471, format!("insufficient action points for requested action ({required})").as_str()))
+                        .or_else(|e| Err(MessageHandlerError::Network(e))),
+                ActionValidationError::Unreachable =>
+                    ep.send_message(client_id,
+                                    status_msg(472, format!("request target is unreachable").as_str()))
+                        .or_else(|e| Err(MessageHandlerError::Network(e))),
+                ActionValidationError::OutOfMap =>
+                    ep.send_message(client_id,
+                                    status_msg(472, format!("request target is out of map").as_str()))
+                        .or_else(|e| Err(MessageHandlerError::Network(e))),
+            }
+        }
+        ActionExecutionError::OutOfState(state) => {
+            ep.send_message(client_id,
+                            status_msg(400, format!("request not allowed in {state}").as_str()))
+                .or_else(|e| Err(MessageHandlerError::Network(e)))?;
+            ep.disconnect_client(client_id)
+                .or_else(|e| Err(MessageHandlerError::Network(e)))
+        }
+        ActionExecutionError::InconsistentState(s) =>
+            ep.send_message(client_id,
+                            status_msg(500, format!("server detected an inconsistent state: {s}").as_str()))
+                .or_else(|e| Err(MessageHandlerError::Network(e))),
+    }
+}
+
 fn status_msg(code: u32, msg: &str) -> ProtocolMessage {
     ProtocolMessage::StatusMessage(StatusMessage {
         code, // bad request
         data: Some(Data::Message(msg.to_string())),
     })
+}
+
+pub enum MessageHandlerError {
+    Network(QuinnetError),
+    Protocol(ActionExecutionError),
 }

@@ -2929,9 +2929,9 @@ dependencies = [
     "bitflags",
     "errno",
     "io-lifetimes",
- "libc",
- "linux-raw-sys",
- "windows-sys 0.42.0",
+    "libc",
+    "linux-raw-sys",
+    "windows-sys 0.42.0",
 ]
 
 [[package]]
