@@ -5,13 +5,13 @@ mod actions_team_switch {
 
     use tokio::sync::RwLock;
 
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
     use crate::game::data::{Game, Player, PlayerID};
 
     #[tokio::test]
     async fn actions_team_switch() {
         let player_id: PlayerID = 42;
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             players: HashMap::from([(
                 player_id,
                 Player {
@@ -22,32 +22,28 @@ mod actions_team_switch {
             team_a: HashSet::from([player_id]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // player is in team a
         {
-            let g = game.read().await;
             assert!(g.team_a.contains(&player_id));
             assert!(!g.team_b.contains(&player_id));
         }
 
         // switch team a -> b
         assert!(Action::TeamSwitch { player_id }
-            .apply_on(game.clone())
-            .await
+            .apply_on(&mut g)
             .is_ok());
         {
-            let g = game.read().await;
             assert!(!g.team_a.contains(&player_id));
             assert!(g.team_b.contains(&player_id));
         }
 
         // switch team b -> a
         assert!(Action::TeamSwitch { player_id }
-            .apply_on(game.clone())
-            .await
+            .apply_on(&mut g)
             .is_ok());
         {
-            let g = game.read().await;
             assert!(g.team_a.contains(&player_id));
             assert!(!g.team_b.contains(&player_id));
         }
@@ -56,7 +52,7 @@ mod actions_team_switch {
     #[tokio::test]
     async fn actions_team_switch_detect_inconsistent_state() {
         let player_id: PlayerID = 42;
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             players: HashMap::from([(
                 player_id,
                 Player {
@@ -68,10 +64,10 @@ mod actions_team_switch {
             team_b: HashSet::from([player_id]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         let res = Action::TeamSwitch { player_id }
-            .apply_on(game.clone())
-            .await;
+            .apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
@@ -84,17 +80,19 @@ mod actions_team_switch {
     #[tokio::test]
     async fn actions_team_switch_unknown_player() {
         let player_id: PlayerID = 42;
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         let res = Action::TeamSwitch { player_id }
-            .apply_on(game.clone())
-            .await;
+            .apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
+            ActionExecutionError::Validation(
+                ActionValidationError::NonExistentPlayer { id }
+            ) => id == player_id,
             _ => false,
         })
     }
@@ -109,13 +107,13 @@ mod actions_player_set_ready_state {
 
     use battleship_plus_common::messages::SetReadyStateRequest;
 
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
     use crate::game::data::{Game, Player, PlayerID};
 
     #[tokio::test]
     async fn actions_player_set_ready() {
         let player_id: PlayerID = 42;
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             players: HashMap::from([(
                 player_id,
                 Player {
@@ -126,17 +124,16 @@ mod actions_player_set_ready_state {
             team_a: HashSet::from([player_id]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // set player ready
         assert!(Action::SetReady {
             player_id,
             request: SetReadyStateRequest { ready_state: true },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
         {
-            let g = game.read().await;
             assert!(g.players.get(&player_id).unwrap().is_ready);
         }
 
@@ -145,11 +142,9 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: false },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
         {
-            let g = game.read().await;
             assert!(!g.players.get(&player_id).unwrap().is_ready);
         }
     }
@@ -157,20 +152,22 @@ mod actions_player_set_ready_state {
     #[tokio::test]
     async fn actions_set_ready_unknown_player() {
         let player_id: PlayerID = 42;
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         let res = Action::SetReady {
             player_id,
             request: SetReadyStateRequest { ready_state: true },
         }
-        .apply_on(game.clone())
-        .await;
+            .apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
+            ActionExecutionError::Validation(
+                ActionValidationError::NonExistentPlayer { id }
+            ) => id == player_id,
             _ => false,
         })
     }
@@ -185,7 +182,7 @@ mod actions_shoot {
 
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
     use crate::game::data::{Game, Player};
     use crate::game::ship::{Cooldown, GetShipID, Ship, ShipData};
     use crate::game::ship_manager::ShipManager;
@@ -242,7 +239,7 @@ mod actions_shoot {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
@@ -253,6 +250,7 @@ mod actions_shoot {
             ]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // shoot ship_target1
         assert!(Action::Shoot {
@@ -264,13 +262,11 @@ mod actions_shoot {
                 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check ship_target1 destroyed and ship_target2 untouched
         {
-            let g = game.read().await;
             assert!(g.ships.get_by_id(&ship_target1.id()).is_none());
             assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
             assert_eq!(
@@ -289,13 +285,11 @@ mod actions_shoot {
                 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check ship_target1 destroyed and ship_target2 health reduced
         {
-            let g = game.read().await;
             assert!(g.ships.get_by_id(&ship_target1.id()).is_none());
             assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
             assert_eq!(
@@ -311,13 +305,11 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // board untouched
         {
-            let g = game.read().await;
             assert!(g.ships.get_by_id(&ship_target1.id()).is_none());
             assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
             assert_eq!(
@@ -350,13 +342,14 @@ mod actions_shoot {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // first shot
         assert!(Action::Shoot {
@@ -365,13 +358,11 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // action points reduced
         {
-            let g = game.read().await;
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
         }
 
@@ -382,13 +373,11 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_err());
+            .apply_on(&mut g)
+            .is_err());
 
         // board untouched
         {
-            let g = game.read().await;
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
         }
     }
@@ -416,13 +405,14 @@ mod actions_shoot {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // first shot
         assert!(Action::Shoot {
@@ -431,13 +421,11 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check cooldown
         {
-            let g = game.read().await;
             assert!(g
                 .ships
                 .get_by_id(&ship.id())
@@ -455,13 +443,11 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_err());
+            .apply_on(&mut g)
+            .is_err());
 
         // board untouched
         {
-            let g = game.read().await;
             assert!(g
                 .ships
                 .get_by_id(&ship.id())
@@ -475,9 +461,10 @@ mod actions_shoot {
 
     #[tokio::test]
     async fn actions_shoot_unknown_player() {
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         let res = Action::Shoot {
             ship_id: (42, 1),
@@ -485,23 +472,29 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 0, y: 0 }),
             },
         }
-        .apply_on(game.clone())
-        .await;
+            .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
+            ActionExecutionError::Validation(
+                ActionValidationError::NonExistentPlayer { id }
+            ) => id == 42,
             _ => false,
         })
     }
 
     #[tokio::test]
     async fn actions_shoot_reject_shot_into_oblivion() {
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(42, Player {
+                id: 42,
+                ..Default::default()
+            })]),
             board_size: 24,
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         let res = Action::Shoot {
             ship_id: (42, 1),
@@ -509,15 +502,14 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 9999, y: 9999 }),
             },
         }
-        .apply_on(game.clone())
-        .await;
+            .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
-        assert!(match err {
-            ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
-            _ => false,
-        })
+        assert!(matches!(err,
+                    ActionExecutionError::Validation(
+                        ActionValidationError::OutOfMap
+                    )));
     }
 }
 
@@ -530,7 +522,7 @@ mod actions_move {
 
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
     use crate::game::data::{Game, Player};
     use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
     use crate::game::ship_manager::ShipManager;
@@ -558,13 +550,14 @@ mod actions_move {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // move ship forward
         assert!(Action::Move {
@@ -573,13 +566,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check ship's new position
         {
-            let g = game.read().await;
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1))
         }
 
@@ -590,13 +581,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check ship's new position
         {
-            let g = game.read().await;
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0))
         }
     }
@@ -628,13 +617,14 @@ mod actions_move {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // move ship forward
         assert!(Action::Move {
@@ -643,13 +633,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check action points
         {
-            let g = game.read().await;
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
         }
@@ -661,13 +649,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_err());
+            .apply_on(&mut g)
+            .is_err());
 
         // check board untouched
         {
-            let g = game.read().await;
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
         }
@@ -697,13 +683,14 @@ mod actions_move {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // move ship forward
         assert!(Action::Move {
@@ -712,13 +699,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check ship's new position and cooldown
         {
-            let g = game.read().await;
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
             assert!(!g
                 .ships
@@ -744,13 +729,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_err());
+            .apply_on(&mut g)
+            .is_err());
 
         // check board untouched
         {
-            let g = game.read().await;
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
             assert!(!g
                 .ships
@@ -775,9 +758,10 @@ mod actions_move {
 
     #[tokio::test]
     async fn actions_move_unknown_player() {
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         let res = Action::Move {
             ship_id: (42, 0),
@@ -785,13 +769,14 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-        .apply_on(game.clone())
-        .await;
+            .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Illegal(e) => e == "PlayerID 42 is unknown",
+            ActionExecutionError::Validation(
+                ActionValidationError::NonExistentPlayer { id }
+            ) => id == 42,
             _ => false,
         })
     }
@@ -841,13 +826,14 @@ mod actions_move {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship1, ship2]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // move ship1 backwards
         assert!(Action::Move {
@@ -856,9 +842,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_err());
+            .apply_on(&mut g)
+            .is_err());
 
         // move ship2 backward
         assert!(Action::Move {
@@ -867,9 +852,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_err());
+            .apply_on(&mut g)
+            .is_err());
     }
 
     #[tokio::test]
@@ -917,13 +901,14 @@ mod actions_move {
             cool_downs: Default::default(),
         };
 
-        let game = Arc::new(RwLock::new(Game {
+        let g = Arc::new(RwLock::new(Game {
             board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship1.clone(), ship2.clone()]),
             ..Default::default()
         }));
+        let mut g = g.write().await;
 
         // move ship1 backwards into ship2
         assert!(Action::Move {
@@ -932,13 +917,11 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(game.clone())
-        .await
-        .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
         // check both ships destroyed
         {
-            let g = game.read().await;
             assert!(g.ships.get_by_id(&ship1.id()).is_none());
             assert!(g.ships.get_by_id(&ship2.id()).is_none());
         }

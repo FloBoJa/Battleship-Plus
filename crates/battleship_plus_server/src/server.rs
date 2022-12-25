@@ -157,9 +157,9 @@ async fn handle_message(cfg: Arc<Config>,
                 player_id: client_id,
             };
 
-            let g = game.write().await;
+            let mut g = game.write().await;
             let state = game.write().await.get_state();
-            if let Err(e) = state.execute_action(action, g) {
+            if let Err(e) = state.execute_action(action, &mut g) {
                 action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
                 ep.send_message(client_id, ProtocolMessage::TeamSwitchResponse(
@@ -175,9 +175,9 @@ async fn handle_message(cfg: Arc<Config>,
                 },
             };
 
-            let g = game.write().await;
+            let mut g = game.write().await;
             let state = game.write().await.get_state();
-            if let Err(e) = state.execute_action(action, g) {
+            if let Err(e) = state.execute_action(action, &mut g) {
                 action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
                 ep.send_message(client_id, ProtocolMessage::SetReadyStateResponse(
@@ -203,8 +203,8 @@ async fn handle_message(cfg: Arc<Config>,
                 return Ok(());
             }
 
-            let g = game.write().await;
-            g.get_state().execute_action(action, g)
+            let mut g = game.write().await;
+            g.get_state().execute_action(action, &mut g)
                 .or_else(|e| Err(MessageHandlerError::Protocol(e)))
         }
 

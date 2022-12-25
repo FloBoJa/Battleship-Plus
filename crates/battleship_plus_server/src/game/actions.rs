@@ -84,7 +84,7 @@ pub enum ActionValidationError {
 impl Action {
     pub(crate) fn apply_on(
         &self,
-        mut game: RwLockWriteGuard<Game>,
+        game: &mut RwLockWriteGuard<Game>,
     ) -> Result<(), ActionExecutionError> {
         // TODO: implement actions below
         // TODO: add tests for all actions
@@ -92,7 +92,7 @@ impl Action {
 
         match self {
             Action::TeamSwitch { player_id } => {
-                check_player_exists(&game, *player_id)?;
+                check_player_exists(game, *player_id)?;
 
                 match (game.team_a.remove(player_id), game.team_b.remove(player_id)) {
                     (true, false) => game.team_b.insert(*player_id),
@@ -108,7 +108,7 @@ impl Action {
                 Ok(())
             }
             Action::SetReady { player_id, request } => {
-                check_player_exists(&game, *player_id)?;
+                check_player_exists(game, *player_id)?;
 
                 match game.players.get_mut(player_id) {
                     Some(p) => p.is_ready = request.ready_state,
@@ -119,7 +119,7 @@ impl Action {
             // TODO: Action::PlaceShips { .. } => {}
             Action::Move { ship_id, properties } => {
                 let player_id = ship_id.0;
-                check_player_exists(&game, player_id)?;
+                check_player_exists(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
                 let mut player = game.players.get(&player_id).unwrap().clone();
@@ -144,7 +144,7 @@ impl Action {
             // TODO: Action::Rotate { .. } => {}
             Action::Shoot { ship_id, properties } => {
                 let player_id = ship_id.0;
-                check_player_exists(&game, player_id)?;
+                check_player_exists(game, player_id)?;
 
                 let target = [
                     properties.target.as_ref().unwrap().x as i32,
@@ -152,11 +152,11 @@ impl Action {
                 ];
 
                 let bounds = game.board_bounds();
-                let player = game.players.get_mut(&player_id).unwrap();
+                let mut player = game.players.get(&player_id).unwrap().clone();
 
-                match game.ships.attack_with_ship(player, ship_id, &target, &bounds) {
+                match game.ships.attack_with_ship(&mut player, ship_id, &target, &bounds) {
                     Ok(_) => {
-                        // TODO: find a way to propagate this result to the caller
+                        game.players.insert(player_id, player).expect("unable to update player");
                         Ok(())
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
@@ -167,7 +167,7 @@ impl Action {
             // TODO: Action::EngineBoost { .. } => {}
             // TODO: Action::Torpedo { .. } => {}
             // TODO: Action::MultiMissile { .. } => {}
-            Action::NOP => (),
+            Action::NOP => Ok(()),
             _ => todo!(),
         }
 
