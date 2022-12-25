@@ -50,7 +50,7 @@ impl GameState {
     pub fn execute_action(
         &self,
         action: Action,
-        game: RwLockWriteGuard<Game>,
+        game: &mut RwLockWriteGuard<Game>,
     ) -> Result<(), ActionExecutionError> {
         if !self.is_action_valid(&action) {
             return Err(ActionExecutionError::OutOfState(*self));
