@@ -1,18 +1,18 @@
 use std::borrow::Borrow;
 use std::net::{IpAddr, SocketAddr};
 
-use futures::sink::SinkExt;
-use log::{debug, warn};
+use futures::SinkExt;
+use log::{trace, warn};
 use tokio::net::UdpSocket;
 use tokio::time;
 use tokio_util::udp::UdpFramed;
-
-use crate::config_provider::ConfigProvider;
 
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
     messages::{self, packet_payload::ProtocolMessage},
 };
+
+use crate::config_provider::ConfigProvider;
 
 pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
     if !cfg.server_config().enable_announcements_v4 && cfg.server_config().enable_announcements_v6 {
@@ -70,7 +70,7 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
                 )
                 .await
                 {
-                    Ok(_) => debug!("IPv4 advertisement dispatched"),
+                    Ok(_) => trace!("IPv4 advertisement dispatched"),
                     Err(e) => warn!("unable to dispatch IPv4 advertisement: {}", e),
                 };
             }
@@ -84,7 +84,7 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
                 )
                 .await
                 {
-                    Ok(_) => debug!("IPv6 advertisement dispatched"),
+                    Ok(_) => trace!("IPv6 advertisement dispatched"),
                     Err(e) => warn!("unable to dispatch IPv6 advertisement: {}", e),
                 };
             }
@@ -107,6 +107,6 @@ pub(crate) async fn dispatch_announcement(
 
     match socket.send((message, dst)).await {
         Ok(_) => Ok(()),
-        Err(e) => Err(format!("unable to send advertisement message: {}", e)),
+        Err(e) => Err(format!("unable to send advertisement message: {e}")),
     }
 }

@@ -3,10 +3,11 @@ use std::collections::{HashMap, HashSet};
 use rstar::AABB;
 
 use crate::game::ship_manager::ShipManager;
+use crate::game::states::GameState;
 
 pub type PlayerID = u32;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Game {
     pub(crate) players: HashMap<PlayerID, Player>,
     pub(crate) team_a: HashSet<PlayerID>,
@@ -16,9 +17,31 @@ pub struct Game {
 
     pub(crate) ships: ShipManager,
     pub(crate) board_size: u32,
+
+    pub(crate) state: GameState,
+}
+
+#[cfg(test)]
+impl Default for Game {
+    fn default() -> Self {
+        Game::new(128, 8, 8)
+    }
 }
 
 impl Game {
+    pub fn new(board_size: u32, team_a_limit: u32, team_b_limit: u32) -> Self {
+        Game {
+            players: Default::default(),
+            team_a: Default::default(),
+            team_b: Default::default(),
+            ships: Default::default(),
+            team_a_limit,
+            team_b_limit,
+            board_size,
+            state: GameState::Lobby,
+        }
+    }
+
     pub fn can_start(&self) -> bool {
         self.team_a.len() <= self.team_a_limit as usize
             && self.team_b.len() <= self.team_b_limit as usize
@@ -27,6 +50,10 @@ impl Game {
 
     pub fn board_bounds(&self) -> AABB<[i32; 2]> {
         AABB::from_corners([0; 2], [(self.board_size - 1) as i32; 2])
+    }
+
+    pub fn get_state(&self) -> GameState {
+        self.state
     }
 }
 

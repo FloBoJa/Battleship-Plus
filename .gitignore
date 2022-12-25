@@ -15,3 +15,7 @@ target/
 
 # bevy_quinnet known_hosts
 **/quinnet/known_hosts
+/certificate4.pem
+/certificate6.pem
+/key4.pem
+/key6.pem
