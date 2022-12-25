@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
@@ -21,11 +20,13 @@ use tokio::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
+use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
+
 use crate::{
     server::certificate::retrieve_certificate,
     shared::{
-        AsyncRuntime, ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S,
-        DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
+        AsyncRuntime, ClientId, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
+        DEFAULT_MESSAGE_QUEUE_SIZE, QuinnetError,
     },
 };
 
@@ -190,6 +191,10 @@ impl Endpoint {
         }
     }
 
+    pub async fn receive_payload_waiting(&mut self) -> Option<ClientPayload> {
+        self.payloads_receiver.recv().await
+    }
+
     pub fn receive_payload(&mut self) -> Result<Option<ClientPayload>, QuinnetError> {
         match self.payloads_receiver.try_recv() {
             Ok(msg) => Ok(Some(msg)),
@@ -242,6 +247,13 @@ pub struct Server {
 }
 
 impl Server {
+    pub fn new_standalone() -> Server {
+        Server {
+            runtime: tokio::runtime::Handle::current(),
+            endpoint: None,
+        }
+    }
+
     pub fn endpoint(&self) -> &Endpoint {
         self.endpoint.as_ref().unwrap()
     }
@@ -348,7 +360,7 @@ async fn endpoint_task(
     // Handle incoming connections/clients.
     tokio::select! {
         _ = close_receiver.recv() => {
-            trace!("Endpoint incoming connection handler received a requets to close")
+            trace!("Endpoint incoming connection handler received a request to close")
         }
         _ = async {
             while let Some(connecting) = endpoint.accept().await {
