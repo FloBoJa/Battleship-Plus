@@ -2,7 +2,9 @@ use log::{debug, error};
 use tokio::sync::RwLockWriteGuard;
 
 use battleship_plus_common::messages::*;
+use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::types::*;
+use bevy_quinnet::shared::ClientId;
 
 use crate::game::data::{Game, PlayerID};
 use crate::game::ship::ShipID;
@@ -58,6 +60,8 @@ pub enum Action {
         ship_id: ShipID,
         properties: MultiMissileProperties,
     },
+
+    NOP,
 }
 
 #[derive(Debug, Clone)]
@@ -163,10 +167,62 @@ impl Action {
             // TODO: Action::EngineBoost { .. } => {}
             // TODO: Action::Torpedo { .. } => {}
             // TODO: Action::MultiMissile { .. } => {}
+            Action::NOP => (),
             _ => todo!(),
         }
 
         // TODO: find a good way to return Action Results
+    }
+}
+
+impl From<(ClientId, &ShipActionRequest)> for Action {
+    fn from((client_id, request): (ClientId, &ShipActionRequest)) -> Self {
+        let ship_id: ShipID = (client_id, request.ship_number);
+        match request.clone().action_properties {
+            None => Action::NOP,
+            Some(p) => match p {
+                ActionProperties::MoveProperties(props) =>
+                    Action::Move {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::ShootProperties(props) =>
+                    Action::Shoot {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::RotateProperties(props) =>
+                    Action::Rotate {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::TorpedoProperties(props) =>
+                    Action::Torpedo {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::ScoutPlaneProperties(props) =>
+                    Action::ScoutPlane {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::MultiMissileProperties(props) =>
+                    Action::MultiMissile {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::PredatorMissileProperties(props) =>
+                    Action::PredatorMissile {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+                ActionProperties::EngineBoostProperties(props) =>
+                    Action::EngineBoost {
+                        ship_id,
+                        properties: props.clone(),
+                    },
+            }
+        }
     }
 }
 
