@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::fmt::{Display, Formatter, Write};
 
 use log::debug;
-use tokio::sync::RwLock;
+use tokio::sync::RwLockWriteGuard;
 
 use crate::game::actions::{Action, ActionExecutionError};
 use crate::game::data::Game;
@@ -12,6 +12,17 @@ pub enum GameState {
     Preparation,
     InGame,
     End,
+}
+
+impl Display for GameState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GameState::Lobby => f.write_str("Lobby"),
+            GameState::Preparation => f.write_str("Preparation"),
+            GameState::InGame => f.write_str("InGame"),
+            GameState::End => f.write_str("End"),
+        }
+    }
 }
 
 impl GameState {
@@ -36,16 +47,16 @@ impl GameState {
         }
     }
 
-    pub async fn execute_action(
+    pub fn execute_action(
         &self,
         action: Action,
-        game: Arc<RwLock<Game>>,
+        game: RwLockWriteGuard<Game>,
     ) -> Result<(), ActionExecutionError> {
         if !self.is_action_valid(&action) {
             return Err(ActionExecutionError::OutOfState(*self));
         }
 
         debug!("execute {:?} action on game", action);
-        action.apply_on(game).await
+        action.apply_on(game)
     }
 }
