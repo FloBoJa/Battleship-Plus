@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
@@ -67,7 +68,7 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
         let _ = game_end_rx.recv().await;
 
         for h in handles {
-            let _ = h.1.send(());
+            h.1.send(()).expect("unable to notify endpoint tasks to cancel");
 
             if let Err(e) = h.0.await {
                 error!("server task finished with an error {e}");
@@ -159,7 +160,7 @@ async fn handle_message(cfg: Arc<Config>,
             let g = game.write().await;
             let state = game.write().await.get_state();
             if let Err(e) = state.execute_action(action, g) {
-                action_validation_error_reply(ep, client_id, e)
+                action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
                 ep.send_message(client_id, ProtocolMessage::TeamSwitchResponse(
                     TeamSwitchResponse {}
@@ -177,7 +178,7 @@ async fn handle_message(cfg: Arc<Config>,
             let g = game.write().await;
             let state = game.write().await.get_state();
             if let Err(e) = state.execute_action(action, g) {
-                action_validation_error_reply(ep, client_id, e)
+                action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
                 ep.send_message(client_id, ProtocolMessage::SetReadyStateResponse(
                     SetReadyStateResponse {}
@@ -196,51 +197,60 @@ async fn handle_message(cfg: Arc<Config>,
             // TODO: ServerStateRequest
             todo!()
         }
-        ProtocolMessage::ActionRequest(_) => {
-            // TODO: ActionRequest
-            todo!()
+        ProtocolMessage::ActionRequest(request) => {
+            let action = Action::from((client_id, request));
+            if let Action::NOP = action {
+                return Ok(());
+            }
+
+            let g = game.write().await;
+            g.get_state().execute_action(action, g)
+                .or_else(|e| Err(MessageHandlerError::Protocol(e)))
         }
 
         // received a client-bound message
         _ => {
             warn!("Client {} sent a client-bound message {:?}", client_id, msg);
             ep.send_message(client_id,
-                            status_msg(400, "unable to process client-bound messages"))?;
+                            status_msg(400, "unable to process client-bound messages"))
+                .or_else(|e| Err(MessageHandlerError::Network(e)))?;
             ep.disconnect_client(client_id)
+                .or_else(|e| Err(MessageHandlerError::Network(e)))
         }
     }
 }
 
-fn action_validation_error_reply(ep: &mut Endpoint, client_id: ClientId, error: ActionExecutionError) -> Result<(), MessageHandlerError> {
-    match error {
-        ActionExecutionError::Validation(e) => {
-            match e {
-                ActionValidationError::NonExistentPlayer { id } =>
-                    ep.send_message(client_id,
-                                    status_msg(400, format!("player id does not exist").as_str()))
-                        .or_else(|e| Err(MessageHandlerError::Network(e))),
-                ActionValidationError::NonExistentShip { id } =>
-                    ep.send_message(client_id,
-                                    status_msg(400, format!("ship does not exist").as_str()))
-                        .or_else(|e| Err(MessageHandlerError::Network(e))),
-                ActionValidationError::Cooldown { remaining_rounds } =>
-                    ep.send_message(client_id,
-                                    status_msg(471, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
-                        .or_else(|e| Err(MessageHandlerError::Network(e))),
-                ActionValidationError::InsufficientPoints { required } =>
-                    ep.send_message(client_id,
-                                    status_msg(471, format!("insufficient action points for requested action ({required})").as_str()))
-                        .or_else(|e| Err(MessageHandlerError::Network(e))),
-                ActionValidationError::Unreachable =>
-                    ep.send_message(client_id,
-                                    status_msg(472, format!("request target is unreachable").as_str()))
-                        .or_else(|e| Err(MessageHandlerError::Network(e))),
-                ActionValidationError::OutOfMap =>
-                    ep.send_message(client_id,
-                                    status_msg(472, format!("request target is out of map").as_str()))
-                        .or_else(|e| Err(MessageHandlerError::Network(e))),
-            }
-        }
+fn action_validation_error_reply(ep: &mut Endpoint,
+                                 client_id: ClientId,
+                                 error: ActionExecutionError,
+                                 game_end_tx: &mpsc::UnboundedSender<()>) -> Result<(), MessageHandlerError> {
+    match error.clone() {
+        ActionExecutionError::Validation(e) => match e {
+            ActionValidationError::NonExistentPlayer { id } =>
+                ep.send_message(client_id,
+                                status_msg(400, format!("player id does not exist").as_str()))
+                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+            ActionValidationError::NonExistentShip { id } =>
+                ep.send_message(client_id,
+                                status_msg(400, format!("ship does not exist").as_str()))
+                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+            ActionValidationError::Cooldown { remaining_rounds } =>
+                ep.send_message(client_id,
+                                status_msg(471, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
+                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+            ActionValidationError::InsufficientPoints { required } =>
+                ep.send_message(client_id,
+                                status_msg(471, format!("insufficient action points for requested action ({required})").as_str()))
+                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+            ActionValidationError::Unreachable =>
+                ep.send_message(client_id,
+                                status_msg(472, format!("request target is unreachable").as_str()))
+                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+            ActionValidationError::OutOfMap =>
+                ep.send_message(client_id,
+                                status_msg(472, format!("request target is out of map").as_str()))
+                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+        },
         ActionExecutionError::OutOfState(state) => {
             ep.send_message(client_id,
                             status_msg(400, format!("request not allowed in {state}").as_str()))
@@ -248,10 +258,14 @@ fn action_validation_error_reply(ep: &mut Endpoint, client_id: ClientId, error: 
             ep.disconnect_client(client_id)
                 .or_else(|e| Err(MessageHandlerError::Network(e)))
         }
-        ActionExecutionError::InconsistentState(s) =>
-            ep.send_message(client_id,
-                            status_msg(500, format!("server detected an inconsistent state: {s}").as_str()))
-                .or_else(|e| Err(MessageHandlerError::Network(e))),
+        ActionExecutionError::InconsistentState(s) => {
+            if let Err(e) = ep.broadcast_message(status_msg(500, format!("server detected an inconsistent state: {s}").as_str())) {
+                error!("detected inconsistent state: {e}");
+            }
+
+            game_end_tx.send(()).expect("failed to end game");
+            Err(MessageHandlerError::Protocol(error))
+        }
     }
 }
 
@@ -262,7 +276,18 @@ fn status_msg(code: u32, msg: &str) -> ProtocolMessage {
     })
 }
 
+#[derive(Debug)]
 pub enum MessageHandlerError {
     Network(QuinnetError),
     Protocol(ActionExecutionError),
+}
+
+impl Display for MessageHandlerError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MessageHandlerError: ")?;
+        match self {
+            MessageHandlerError::Network(e) => f.write_str(format!("{e}").as_str()),
+            MessageHandlerError::Protocol(e) => f.write_str(format!("{:?}", e).as_str()),
+        }
+    }
 }
