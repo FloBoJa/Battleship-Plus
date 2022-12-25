@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::future::Future;
-use std::net::Ipv6Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use log::{error, info, trace, warn};
@@ -20,10 +19,14 @@ use crate::game::data::{Game, Player};
 pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
     let addr6 = cfg.server_config().game_address_v6;
     let addr4 = cfg.server_config().game_address_v4;
+    let ascii_host: String = cfg.game_config().server_name
+        .chars()
+        .filter(|c| c.is_ascii())
+        .collect();
 
     let mut server6 = Server::new_standalone();
     let server6 = match server6.start_endpoint(
-        ServerConfigurationData::new(addr6.ip().to_string(), addr6.port(), Ipv6Addr::UNSPECIFIED.to_string()),
+        ServerConfigurationData::new(ascii_host.clone(), addr6.port(), Ipv6Addr::UNSPECIFIED.to_string()),
         CertificateRetrievalMode::LoadFromFileOrGenerateSelfSigned {
             cert_file: "./certificate6.pem".to_string(),
             key_file: "./key6.pem".to_string(),
@@ -37,6 +40,35 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
         }
     };
 
+    let server4;
+    {
+        if addr6.ip().is_unspecified() && addr4.ip().is_unspecified() && addr6.port() == addr4.port() {
+            // quinnet will panic on systems that support dual stack ports
+            // therefore we skip the case when the server should listen on
+            // the same port for IPv4 and IPv6 on 0.0.0.0 and [::].
+            // https://stackoverflow.com/a/51913093
+
+            // TODO: Find a nice way to support dual stack and non dual stack OSs
+            server4 = None;
+        } else {
+            let mut s4 = Server::new_standalone();
+            server4 = match s4.start_endpoint(
+                ServerConfigurationData::new(ascii_host.clone(), addr4.port(), Ipv4Addr::UNSPECIFIED.to_string()),
+                CertificateRetrievalMode::LoadFromFileOrGenerateSelfSigned {
+                    cert_file: "./certificate4.pem".to_string(),
+                    key_file: "./key4.pem".to_string(),
+                    save_on_disk: true,
+                },
+            ) {
+                Ok(_) => Some(Arc::new(Mutex::new(s4))),
+                Err(e) => {
+                    warn!("Unable to listen on {addr4}: {e}");
+                    None
+                }
+            };
+        }
+    }
+
     info!("Endpoint initialized");
 
     loop {
@@ -49,7 +81,7 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
         let (game_end_tx, mut game_end_rx) = mpsc::unbounded_channel();
 
         let handles: Vec<_> =
-            [&server6] // add other endpoints here (e.g. in case the system does not support dual stack ports)
+            [&server6, &server4]
                 .iter()
                 .filter(|e| e.is_some())
                 .map(|server| {
@@ -120,7 +152,7 @@ async fn handle_message(cfg: Arc<Config>,
         ProtocolMessage::ServerConfigRequest(_) =>
             ep.send_message(client_id, ProtocolMessage::ServerConfigResponse(ServerConfigResponse {
                 config: Some(cfg.as_ref().clone()),
-            })).or_else(|e| Err(MessageHandlerError::Network(e))),
+            })).map_err(MessageHandlerError::Network),
 
         // lobby
         ProtocolMessage::JoinRequest(props) => {
@@ -129,12 +161,12 @@ async fn handle_message(cfg: Arc<Config>,
                 if g.players.contains_key(&client_id) {
                     ep.send_message(client_id,
                                     status_msg(400, "you joined already"))
-                        .or_else(|e| Err(MessageHandlerError::Network(e)))?;
+                        .map_err(MessageHandlerError::Network)?;
                 }
                 if g.players.values().any(|p| p.name == props.username) {
                     ep.send_message(client_id,
                                     status_msg(441, "username is already taken"))
-                        .or_else(|e| Err(MessageHandlerError::Network(e)))?;
+                        .map_err(MessageHandlerError::Network)?;
                 }
             }
 
@@ -150,7 +182,7 @@ async fn handle_message(cfg: Arc<Config>,
                 JoinResponse {
                     player_id: client_id,
                 }
-            )).or_else(|e| Err(MessageHandlerError::Network(e)))
+            )).map_err(MessageHandlerError::Network)
         }
         ProtocolMessage::TeamSwitchRequest(_) => {
             let action = Action::TeamSwitch {
@@ -164,7 +196,7 @@ async fn handle_message(cfg: Arc<Config>,
             } else {
                 ep.send_message(client_id, ProtocolMessage::TeamSwitchResponse(
                     TeamSwitchResponse {}
-                )).or_else(|e| Err(MessageHandlerError::Network(e)))
+                )).map_err(MessageHandlerError::Network)
             }
         }
         ProtocolMessage::SetReadyStateRequest(props) => {
@@ -182,7 +214,7 @@ async fn handle_message(cfg: Arc<Config>,
             } else {
                 ep.send_message(client_id, ProtocolMessage::SetReadyStateResponse(
                     SetReadyStateResponse {}
-                )).or_else(|e| Err(MessageHandlerError::Network(e)))
+                )).map_err(MessageHandlerError::Network)
             }
         }
 
@@ -204,8 +236,7 @@ async fn handle_message(cfg: Arc<Config>,
             }
 
             let mut g = game.write().await;
-            g.get_state().execute_action(action, &mut g)
-                .or_else(|e| Err(MessageHandlerError::Protocol(e)))
+            g.get_state().execute_action(action, &mut g).map_err(MessageHandlerError::Protocol)
         }
 
         // received a client-bound message
@@ -213,9 +244,9 @@ async fn handle_message(cfg: Arc<Config>,
             warn!("Client {} sent a client-bound message {:?}", client_id, msg);
             ep.send_message(client_id,
                             status_msg(400, "unable to process client-bound messages"))
-                .or_else(|e| Err(MessageHandlerError::Network(e)))?;
+                .map_err(MessageHandlerError::Network)?;
             ep.disconnect_client(client_id)
-                .or_else(|e| Err(MessageHandlerError::Network(e)))
+                .map_err(MessageHandlerError::Network)
         }
     }
 }
@@ -228,35 +259,35 @@ fn action_validation_error_reply(ep: &mut Endpoint,
         ActionExecutionError::Validation(e) => match e {
             ActionValidationError::NonExistentPlayer { id } =>
                 ep.send_message(client_id,
-                                status_msg(400, format!("player id does not exist").as_str()))
-                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+                                status_msg(400, format!("player id {id} does not exist").as_str()))
+                    .map_err(MessageHandlerError::Network),
             ActionValidationError::NonExistentShip { id } =>
                 ep.send_message(client_id,
-                                status_msg(400, format!("ship does not exist").as_str()))
-                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+                                status_msg(400, format!("ship ({}, {}) does not exist", id.0, id.1).as_str()))
+                    .map_err(MessageHandlerError::Network),
             ActionValidationError::Cooldown { remaining_rounds } =>
                 ep.send_message(client_id,
                                 status_msg(471, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
-                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+                    .map_err(MessageHandlerError::Network),
             ActionValidationError::InsufficientPoints { required } =>
                 ep.send_message(client_id,
                                 status_msg(471, format!("insufficient action points for requested action ({required})").as_str()))
-                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+                    .map_err(MessageHandlerError::Network),
             ActionValidationError::Unreachable =>
                 ep.send_message(client_id,
                                 status_msg(472, format!("request target is unreachable").as_str()))
-                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+                    .map_err(MessageHandlerError::Network),
             ActionValidationError::OutOfMap =>
                 ep.send_message(client_id,
                                 status_msg(472, format!("request target is out of map").as_str()))
-                    .or_else(|e| Err(MessageHandlerError::Network(e))),
+                    .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {
             ep.send_message(client_id,
                             status_msg(400, format!("request not allowed in {state}").as_str()))
-                .or_else(|e| Err(MessageHandlerError::Network(e)))?;
+                .map_err(MessageHandlerError::Network)?;
             ep.disconnect_client(client_id)
-                .or_else(|e| Err(MessageHandlerError::Network(e)))
+                .map_err(MessageHandlerError::Network)
         }
         ActionExecutionError::InconsistentState(s) => {
             if let Err(e) = ep.broadcast_message(status_msg(500, format!("server detected an inconsistent state: {s}").as_str())) {
