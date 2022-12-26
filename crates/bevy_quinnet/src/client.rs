@@ -55,6 +55,7 @@ pub struct ConnectionLostEvent(ConnectionId);
 #[derive(Debug, Deserialize, Clone)]
 pub struct ConnectionConfiguration {
     server_host: String,
+    server_scope: Option<u32>,
     server_port: u16,
     local_bind_host: String,
     local_bind_port: u16,
@@ -66,6 +67,8 @@ impl ConnectionConfiguration {
     /// # Arguments
     ///
     /// * `server_host` - Address of the server
+    /// * `server_scope` - Scope ID that the server is listening on. Only relevant for
+    /// IPv6 link-local connections.
     /// * `server_port` - Port that the server is listening on
     /// * `local_bind_host` - Local address to bind to, which should usually be a wildcard address like `0.0.0.0` or `[::]`, which allow communication with any reachable IPv4 or IPv6 address. See [`quinn::endpoint::Endpoint`] for more precision
     /// * `local_bind_port` - Local port to bind to. Use 0 to get an OS-assigned port.. See [`quinn::endpoint::Endpoint`] for more precision
@@ -84,12 +87,14 @@ impl ConnectionConfiguration {
     /// ```
     pub fn new(
         server_host: String,
+        server_scope: Option<u32>,
         server_port: u16,
         local_bind_host: String,
         local_bind_port: u16,
     ) -> Self {
         Self {
             server_host,
+            server_scope,
             server_port,
             local_bind_host,
             local_bind_port,
@@ -396,11 +401,18 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
 
     info!("Trying to connect to server on: {} ...", server_adr_str);
 
-    let server_addr: SocketAddr = server_adr_str
+    let mut server_addr: SocketAddr = server_adr_str
         .to_socket_addrs()
         .expect("Failed to parse server address")
         .next()
         .expect("Failed to resolve server address");
+
+    // Specify scope, if appropriate and provided.
+    if let SocketAddr::V6(server_addr) = &mut server_addr {
+        if let Some(scope) = config.server_scope {
+            server_addr.set_scope_id(scope);
+        }
+    }
 
     let client_cfg = configure_client(spawn_config.cert_mode, spawn_config.to_sync_client.clone())
         .expect("Failed to configure client");
