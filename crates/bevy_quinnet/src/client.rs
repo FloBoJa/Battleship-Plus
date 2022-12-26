@@ -80,6 +80,7 @@ impl ConnectionConfiguration {
     ///
     /// let config = ConnectionConfiguration::new(
     ///         "127.0.0.1".to_string(),
+    ///         None,
     ///         6000,
     ///         "0.0.0.0".to_string(),
     ///         0,
