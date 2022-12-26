@@ -15,7 +15,8 @@ use battleship_plus_common::{
 };
 
 pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
-    if !cfg.server_config().enable_announcements_v4 && !cfg.server_config().enable_announcements_v6 {
+    if !cfg.server_config().enable_announcements_v4 && !cfg.server_config().enable_announcements_v6
+    {
         return;
     }
 

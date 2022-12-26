@@ -244,8 +244,16 @@ fn process_advertisement(
         server.last_advertisement_received = time.elapsed();
     } else {
         let server_address = match sender {
-            SocketAddr::V4(sender) => SocketAddrV4::new(sender.ip().to_owned(), advertisement.port as u16).into(),
-            SocketAddr::V6(sender) => SocketAddrV6::new(sender.ip().to_owned(), advertisement.port as u16, 0, sender.scope_id()).into(),
+            SocketAddr::V4(sender) => {
+                SocketAddrV4::new(sender.ip().to_owned(), advertisement.port as u16).into()
+            }
+            SocketAddr::V6(sender) => SocketAddrV6::new(
+                sender.ip().to_owned(),
+                advertisement.port as u16,
+                0,
+                sender.scope_id(),
+            )
+            .into(),
         };
         request_config(server_address, commands, client);
 
@@ -272,7 +280,7 @@ fn request_config(
     // Bind to UDPv4 if the server communicates on it.
     let (local_address, server_scope) = match server_address {
         SocketAddr::V4(_) => ("0.0.0.0".to_string(), None),
-        SocketAddr::V6(server_address) => ("[::]".to_string(), Some(server_address.scope_id()))
+        SocketAddr::V6(server_address) => ("[::]".to_string(), Some(server_address.scope_id())),
     };
 
     let connection_configuration = ConnectionConfiguration::new(
