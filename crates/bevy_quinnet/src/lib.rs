@@ -469,7 +469,13 @@ mod tests {
     }
 
     fn default_client_configuration(port: u16) -> ConnectionConfiguration {
-        ConnectionConfiguration::new(SERVER_HOST.to_string(), None, port, "0.0.0.0".to_string(), 0)
+        ConnectionConfiguration::new(
+            SERVER_HOST.to_string(),
+            None,
+            port,
+            "0.0.0.0".to_string(),
+            0,
+        )
     }
 
     fn start_simple_connection(mut client: ResMut<Client>, port: Res<Port>) {
