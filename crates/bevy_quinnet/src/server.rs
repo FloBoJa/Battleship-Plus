@@ -25,10 +25,13 @@ use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessa
 use crate::{
     server::certificate::retrieve_certificate,
     shared::{
-        AsyncRuntime, ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S,
-        DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
+        ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
+        DEFAULT_MESSAGE_QUEUE_SIZE,
     },
 };
+
+#[cfg(not(feature = "no_bevy"))]
+use crate::shared::AsyncRuntime;
 
 use self::certificate::{CertificateRetrievalMode, ServerCertificate};
 
@@ -341,6 +344,27 @@ impl Server {
     pub fn is_listening(&self) -> bool {
         self.endpoint.is_some()
     }
+
+    #[cfg(feature = "no_bevy")]
+    pub fn update(&mut self) {
+        if let Some(endpoint) = self.get_endpoint_mut() {
+            while let Ok(message) = endpoint.internal_receiver.try_recv() {
+                match message {
+                    InternalAsyncMessage::ClientConnected(connection) => {
+                        let id = connection.client_id;
+                        endpoint.clients.insert(id, connection);
+                        endpoint
+                            .internal_sender
+                            .send(InternalSyncMessage::ClientConnectedAck(id))
+                            .unwrap();
+                    }
+                    InternalAsyncMessage::ClientLostConnection(client_id) => {
+                        endpoint.clients.remove(&client_id);
+                    }
+                }
+            }
+        }
+    }
 }
 
 async fn endpoint_task(
@@ -434,12 +458,16 @@ async fn handle_client_connection(
         .await
         .expect("Failed to signal connection to sync client");
 
+    #[cfg(not(feature = "no_bevy"))]
     // Wait for the sync server to acknowledge the connection before spawning reception tasks.
     while let Ok(InternalSyncMessage::ClientConnectedAck(id)) = from_sync_server.recv().await {
         if id == client_id {
             break;
         }
     }
+    #[cfg(feature = "no_bevy")]
+    // Do not generate an "unused" warning.
+    let _ = from_sync_server;
 
     // Spawn a task to listen for streams opened by this client
     let _client_receiver = tokio::spawn(async move {
@@ -536,6 +564,7 @@ async fn client_receiver_task(
     )
 }
 
+#[cfg(not(feature = "no_bevy"))]
 fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Server {
         endpoint: None,
@@ -544,6 +573,7 @@ fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
 }
 
 // Receive messages from the async server tasks and update the sync server.
+#[cfg(not(feature = "no_bevy"))]
 fn update_sync_server(
     mut server: ResMut<Server>,
     mut connection_events: EventWriter<ConnectionEvent>,
@@ -571,8 +601,10 @@ fn update_sync_server(
 }
 
 #[derive(Default)]
+#[cfg(not(feature = "no_bevy"))]
 pub struct QuinnetServerPlugin {}
 
+#[cfg(not(feature = "no_bevy"))]
 impl Plugin for QuinnetServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ConnectionEvent>()
