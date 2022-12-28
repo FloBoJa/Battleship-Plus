@@ -13,7 +13,7 @@ use bevy_quinnet::{
 };
 use bytes::BytesMut;
 use std::{
-    net::{Ipv6Addr, SocketAddr},
+    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     str::FromStr,
     sync::mpsc,
     time::Duration,
@@ -243,7 +243,18 @@ fn process_advertisement(
         server.name = advertisement.display_name.clone();
         server.last_advertisement_received = time.elapsed();
     } else {
-        let server_address = SocketAddr::new(sender.ip(), advertisement.port as u16);
+        let server_address = match sender {
+            SocketAddr::V4(sender) => {
+                SocketAddrV4::new(sender.ip().to_owned(), advertisement.port as u16).into()
+            }
+            SocketAddr::V6(sender) => SocketAddrV6::new(
+                sender.ip().to_owned(),
+                advertisement.port as u16,
+                0,
+                sender.scope_id(),
+            )
+            .into(),
+        };
         request_config(server_address, commands, client);
 
         commands.spawn(ServerInformation {
@@ -267,15 +278,14 @@ fn request_config(
     client: &mut ResMut<Client>,
 ) {
     // Bind to UDPv4 if the server communicates on it.
-    let local_address = if server_address.is_ipv4() {
-        "0.0.0.0"
-    } else {
-        "[::]"
-    }
-    .to_string();
+    let (local_address, server_scope) = match server_address {
+        SocketAddr::V4(_) => ("0.0.0.0".to_string(), None),
+        SocketAddr::V6(server_address) => ("[::]".to_string(), Some(server_address.scope_id())),
+    };
 
     let connection_configuration = ConnectionConfiguration::new(
         server_address.ip().to_string(),
+        server_scope,
         server_address.port(),
         local_address,
         0,
