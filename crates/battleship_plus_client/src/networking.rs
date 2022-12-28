@@ -1,4 +1,8 @@
-use battleship_plus_common::{codec::BattleshipPlusCodec, messages, types};
+use battleship_plus_common::{
+    codec::BattleshipPlusCodec,
+    messages::{self, ProtocolMessage},
+    types,
+};
 use bevy::prelude::*;
 use bevy::utils::synccell::SyncCell;
 use bevy_quinnet::{
@@ -26,11 +30,11 @@ pub struct NetworkingPlugin;
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(QuinnetClientPlugin::default())
-            .add_event::<(messages::ServerConfigResponse, SocketAddr)>()
+            .add_event::<(ProtocolMessage, SocketAddr)>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(receive_advertisements)
             .add_system(clean_up_servers)
-            .add_system(listen_for_server_configurations)
+            .add_system(listen_for_messages)
             .add_system(process_server_configurations);
 
         if cfg!(feature = "fake_server") {
@@ -164,7 +168,7 @@ async fn listen_for_advertisements(
                 Err(_) => todo!(),
             };
             let advertisement = match codec.decode(&mut buffer) {
-                Ok(Some(Some(messages::ProtocolMessage::ServerAdvertisement(advertisement)))) => {
+                Ok(Some(Some(ProtocolMessage::ServerAdvertisement(advertisement)))) => {
                     advertisement
                 }
                 Ok(None) => {
@@ -309,8 +313,8 @@ fn request_config(
     }
 }
 
-fn listen_for_server_configurations(
-    mut event: EventWriter<(messages::ServerConfigResponse, SocketAddr)>,
+fn listen_for_messages(
+    mut event: EventWriter<(ProtocolMessage, SocketAddr)>,
     mut client: ResMut<Client>,
     connection_records: Query<&ConnectionRecord>,
 ) {
@@ -344,22 +348,22 @@ fn listen_for_server_configurations(
             }
         };
 
-        match message {
-            messages::packet_payload::ProtocolMessage::ServerConfigResponse(message) => {
-                event.send((message.to_owned(), sender));
-            }
-            other => {
-                warn!("Received unimplemented message type {:?}", other);
-            }
-        }
+        event.send((message, sender));
     }
 }
 
 fn process_server_configurations(
-    mut event: EventReader<(messages::ServerConfigResponse, SocketAddr)>,
+    mut event: EventReader<(ProtocolMessage, SocketAddr)>,
     mut servers: Query<&mut ServerInformation>,
 ) {
-    for (response, sender) in event.iter() {
+    let config_response_events = event.iter().filter_map(|received_message| {
+        if let (ProtocolMessage::ServerConfigResponse(response), sender) = received_message {
+            Some((response, sender))
+        } else {
+            None
+        }
+    });
+    for (response, sender) in config_response_events {
         let mut server = match servers.iter_mut().find(|server| &server.address == sender) {
             Some(server) => server,
             None => continue,
