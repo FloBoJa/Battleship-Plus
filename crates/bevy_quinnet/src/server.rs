@@ -25,8 +25,8 @@ use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessa
 use crate::{
     server::certificate::retrieve_certificate,
     shared::{
-        AsyncRuntime, ClientId, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
-        DEFAULT_MESSAGE_QUEUE_SIZE, QuinnetError,
+        AsyncRuntime, ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S,
+        DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
     },
 };
 

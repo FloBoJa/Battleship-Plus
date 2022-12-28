@@ -31,18 +31,14 @@ mod actions_team_switch {
         }
 
         // switch team a -> b
-        assert!(Action::TeamSwitch { player_id }
-            .apply_on(&mut g)
-            .is_ok());
+        assert!(Action::TeamSwitch { player_id }.apply_on(&mut g).is_ok());
         {
             assert!(!g.team_a.contains(&player_id));
             assert!(g.team_b.contains(&player_id));
         }
 
         // switch team b -> a
-        assert!(Action::TeamSwitch { player_id }
-            .apply_on(&mut g)
-            .is_ok());
+        assert!(Action::TeamSwitch { player_id }.apply_on(&mut g).is_ok());
         {
             assert!(g.team_a.contains(&player_id));
             assert!(!g.team_b.contains(&player_id));
@@ -66,8 +62,7 @@ mod actions_team_switch {
         }));
         let mut g = g.write().await;
 
-        let res = Action::TeamSwitch { player_id }
-            .apply_on(&mut g);
+        let res = Action::TeamSwitch { player_id }.apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
@@ -85,14 +80,12 @@ mod actions_team_switch {
         }));
         let mut g = g.write().await;
 
-        let res = Action::TeamSwitch { player_id }
-            .apply_on(&mut g);
+        let res = Action::TeamSwitch { player_id }.apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Validation(
-                ActionValidationError::NonExistentPlayer { id }
-            ) => id == player_id,
+            ActionExecutionError::Validation(ActionValidationError::NonExistentPlayer { id }) =>
+                id == player_id,
             _ => false,
         })
     }
@@ -131,8 +124,8 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: true },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
         {
             assert!(g.players.get(&player_id).unwrap().is_ready);
         }
@@ -142,8 +135,8 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: false },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
         {
             assert!(!g.players.get(&player_id).unwrap().is_ready);
         }
@@ -161,13 +154,12 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: true },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Validation(
-                ActionValidationError::NonExistentPlayer { id }
-            ) => id == player_id,
+            ActionExecutionError::Validation(ActionValidationError::NonExistentPlayer { id }) =>
+                id == player_id,
             _ => false,
         })
     }
@@ -262,8 +254,8 @@ mod actions_shoot {
                 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship_target1 destroyed and ship_target2 untouched
         {
@@ -285,8 +277,8 @@ mod actions_shoot {
                 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship_target1 destroyed and ship_target2 health reduced
         {
@@ -305,8 +297,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // board untouched
         {
@@ -358,8 +350,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // action points reduced
         {
@@ -373,8 +365,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // board untouched
         {
@@ -421,8 +413,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check cooldown
         {
@@ -443,8 +435,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // board untouched
         {
@@ -472,14 +464,13 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 0, y: 0 }),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Validation(
-                ActionValidationError::NonExistentPlayer { id }
-            ) => id == 42,
+            ActionExecutionError::Validation(ActionValidationError::NonExistentPlayer { id }) =>
+                id == 42,
             _ => false,
         })
     }
@@ -487,10 +478,13 @@ mod actions_shoot {
     #[tokio::test]
     async fn actions_shoot_reject_shot_into_oblivion() {
         let g = Arc::new(RwLock::new(Game {
-            players: HashMap::from([(42, Player {
-                id: 42,
-                ..Default::default()
-            })]),
+            players: HashMap::from([(
+                42,
+                Player {
+                    id: 42,
+                    ..Default::default()
+                },
+            )]),
             board_size: 24,
             ..Default::default()
         }));
@@ -502,14 +496,14 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 9999, y: 9999 }),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
-        assert!(matches!(err,
-                    ActionExecutionError::Validation(
-                        ActionValidationError::OutOfMap
-                    )));
+        assert!(matches!(
+            err,
+            ActionExecutionError::Validation(ActionValidationError::OutOfMap)
+        ));
     }
 }
 
@@ -566,8 +560,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new position
         {
@@ -581,8 +575,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new position
         {
@@ -633,8 +627,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check action points
         {
@@ -649,8 +643,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // check board untouched
         {
@@ -699,8 +693,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new position and cooldown
         {
@@ -729,8 +723,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // check board untouched
         {
@@ -769,14 +763,13 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
-            ActionExecutionError::Validation(
-                ActionValidationError::NonExistentPlayer { id }
-            ) => id == 42,
+            ActionExecutionError::Validation(ActionValidationError::NonExistentPlayer { id }) =>
+                id == 42,
             _ => false,
         })
     }
@@ -842,8 +835,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // move ship2 backward
         assert!(Action::Move {
@@ -852,8 +845,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
     }
 
     #[tokio::test]
@@ -917,8 +910,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check both ships destroyed
         {
