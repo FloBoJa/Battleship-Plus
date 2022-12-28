@@ -277,7 +277,7 @@ async fn handle_message(
         }
         ProtocolMessage::ActionRequest(request) => {
             let action = Action::from((client_id, request));
-            if let Action::NOP = action {
+            if let Action::None = action {
                 return Ok(());
             }
 
@@ -327,11 +327,11 @@ fn action_validation_error_reply(
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Unreachable =>
                 ep.send_message(client_id,
-                                status_msg(472, format!("request target is unreachable").as_str()))
+                                status_msg(472, "request target is unreachable".to_string().as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::OutOfMap =>
                 ep.send_message(client_id,
-                                status_msg(472, format!("request target is out of map").as_str()))
+                                status_msg(472, "request target is out of map".to_string().as_str()))
                     .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {

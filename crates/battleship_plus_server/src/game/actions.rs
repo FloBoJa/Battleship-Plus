@@ -61,7 +61,7 @@ pub enum Action {
         properties: MultiMissileProperties,
     },
 
-    NOP,
+    None,
 }
 
 #[derive(Debug, Clone)]
@@ -128,7 +128,7 @@ impl Action {
 
                 let trajectory = match game.ships.move_ship(
                     &mut player,
-                    &ship_id,
+                    ship_id,
                     properties.direction(),
                     &board_bounds,
                 ) {
@@ -177,7 +177,7 @@ impl Action {
             // TODO: Action::EngineBoost { .. } => {}
             // TODO: Action::Torpedo { .. } => {}
             // TODO: Action::MultiMissile { .. } => {}
-            Action::NOP => Ok(()),
+            Action::None => Ok(()),
             _ => todo!(),
         }
 
@@ -189,39 +189,39 @@ impl From<(ClientId, &ShipActionRequest)> for Action {
     fn from((client_id, request): (ClientId, &ShipActionRequest)) -> Self {
         let ship_id: ShipID = (client_id, request.ship_number);
         match request.clone().action_properties {
-            None => Action::NOP,
+            None => Action::None,
             Some(p) => match p {
                 ActionProperties::MoveProperties(props) => Action::Move {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::ShootProperties(props) => Action::Shoot {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::RotateProperties(props) => Action::Rotate {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::TorpedoProperties(props) => Action::Torpedo {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::ScoutPlaneProperties(props) => Action::ScoutPlane {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::MultiMissileProperties(props) => Action::MultiMissile {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::PredatorMissileProperties(props) => Action::PredatorMissile {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
                 ActionProperties::EngineBoostProperties(props) => Action::EngineBoost {
                     ship_id,
-                    properties: props.clone(),
+                    properties: props,
                 },
             },
         }
