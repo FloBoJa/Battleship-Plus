@@ -14,4 +14,4 @@ tokio-util = { version = "0.7", default_features = false, features = ["codec", "
 bytes = "1.3"
 futures = { version = "0.3", default_features = false, features = ["std"] }
 rstar = "0.9.3"
-bevy_quinnet = { path = "../bevy_quinnet" }
+bevy_quinnet = { path = "../bevy_quinnet", features = ["no_bevy"] }

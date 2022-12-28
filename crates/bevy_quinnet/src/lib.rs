@@ -23,11 +23,15 @@ mod tests {
             Client, ConnectionConfiguration, QuinnetClientPlugin, DEFAULT_KNOWN_HOSTS_FILE,
         },
         server::{
-            self, certificate::CertificateRetrievalMode, QuinnetServerPlugin, Server,
+            self, certificate::CertificateRetrievalMode, Server,
             ServerConfigurationData,
         },
         shared::ClientId,
     };
+
+    #[cfg(not(feature = "no_bevy"))]
+    use crate::server::QuinnetServerPlugin;
+
     use battleship_plus_common::messages::{self, ProtocolMessage};
     use bevy::{
         app::ScheduleRunnerPlugin,
@@ -206,9 +210,11 @@ mod tests {
         let mut server_app = App::new();
         server_app
             .add_plugin(ScheduleRunnerPlugin::default())
-            .add_plugin(QuinnetServerPlugin::default())
             .insert_resource(ServerTestData::default())
             .add_system(handle_server_events);
+
+        #[cfg(not(feature = "no_bevy"))]
+        server_app.add_plugin(QuinnetServerPlugin::default());
 
         // Startup
         client_app.update();
@@ -461,10 +467,13 @@ mod tests {
         let mut server_app = App::new();
         server_app
             .add_plugin(ScheduleRunnerPlugin::default())
-            .add_plugin(QuinnetServerPlugin::default())
             .insert_resource(ServerTestData::default())
             .add_startup_system(start_listening)
             .add_system(handle_server_events);
+
+            #[cfg(not(feature = "no_bevy"))]
+            server_app.add_plugin(QuinnetServerPlugin::default());
+
         server_app
     }
 

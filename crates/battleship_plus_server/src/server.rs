@@ -154,6 +154,12 @@ async fn endpoint_task(
         if payload.msg.is_none() {
             continue;
         }
+
+        // Give the sync server a chance to register newly connected clients.
+        server.update();
+
+        // Re-borrow since server.update() requires a mutable borrow.
+        let ep = server.endpoint_mut();
         match handle_message(
             cfg.clone(),
             ep,
