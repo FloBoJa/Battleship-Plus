@@ -1,6 +1,6 @@
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
-    messages::{self, ProtocolMessage},
+    messages::{self, ProtocolMessage, ServerAdvertisement},
     types,
 };
 use bevy::prelude::*;
@@ -30,7 +30,7 @@ pub struct NetworkingPlugin;
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(QuinnetClientPlugin::default())
-            .add_event::<(ProtocolMessage, SocketAddr)>()
+            .add_event::<MessageReceivedEvent>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(receive_advertisements)
             .add_system(clean_up_servers)
@@ -44,6 +44,8 @@ impl Plugin for NetworkingPlugin {
         }
     }
 }
+
+pub struct MessageReceivedEvent(ProtocolMessage, SocketAddr);
 
 fn start_server(mut server: ResMut<Server>) {
     info!("Removing bevy_quinnet's known_hosts file to allow unstable certificate.");
@@ -67,16 +69,14 @@ pub struct ServerInformation {
 }
 
 #[derive(Component)]
-struct AdvertisementReceiver(SyncCell<mpsc::Receiver<(messages::ServerAdvertisement, SocketAddr)>>);
+struct AdvertisementReceiver(SyncCell<mpsc::Receiver<(ServerAdvertisement, SocketAddr)>>);
 
 impl AdvertisementReceiver {
-    fn new(
-        receiver: mpsc::Receiver<(messages::ServerAdvertisement, SocketAddr)>,
-    ) -> AdvertisementReceiver {
+    fn new(receiver: mpsc::Receiver<(ServerAdvertisement, SocketAddr)>) -> AdvertisementReceiver {
         AdvertisementReceiver(SyncCell::new(receiver))
     }
 
-    fn get(&mut self) -> &mut mpsc::Receiver<(messages::ServerAdvertisement, SocketAddr)> {
+    fn get(&mut self) -> &mut mpsc::Receiver<(ServerAdvertisement, SocketAddr)> {
         self.0.get()
     }
 }
@@ -115,8 +115,7 @@ fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRunti
             None
         }
     };
-    let (sender_v4, receiver_v4) =
-        mpsc::sync_channel::<(messages::ServerAdvertisement, SocketAddr)>(10);
+    let (sender_v4, receiver_v4) = mpsc::sync_channel::<(ServerAdvertisement, SocketAddr)>(10);
     if let Some(socket) = socket_v4 {
         commands.spawn(AdvertisementReceiver::new(receiver_v4));
         runtime.spawn(listen_for_advertisements(socket, sender_v4));
@@ -144,7 +143,7 @@ const MAX_UDP_SIZE: usize = 64 * 1024;
 
 async fn listen_for_advertisements(
     socket: UdpSocket,
-    channel_sender: mpsc::SyncSender<(messages::ServerAdvertisement, SocketAddr)>,
+    channel_sender: mpsc::SyncSender<(ServerAdvertisement, SocketAddr)>,
 ) {
     let mut buffer = BytesMut::zeroed(MAX_UDP_SIZE);
     loop {
@@ -314,7 +313,7 @@ fn request_config(
 }
 
 fn listen_for_messages(
-    mut event: EventWriter<(ProtocolMessage, SocketAddr)>,
+    mut event: EventWriter<MessageReceivedEvent>,
     mut client: ResMut<Client>,
     connection_records: Query<&ConnectionRecord>,
 ) {
@@ -348,16 +347,18 @@ fn listen_for_messages(
             }
         };
 
-        event.send((message, sender));
+        event.send(MessageReceivedEvent(message, sender));
     }
 }
 
 fn process_server_configurations(
-    mut event: EventReader<(ProtocolMessage, SocketAddr)>,
+    mut event: EventReader<MessageReceivedEvent>,
     mut servers: Query<&mut ServerInformation>,
 ) {
     let config_response_events = event.iter().filter_map(|received_message| {
-        if let (ProtocolMessage::ServerConfigResponse(response), sender) = received_message {
+        if let MessageReceivedEvent(ProtocolMessage::ServerConfigResponse(response), sender) =
+            received_message
+        {
             Some((response, sender))
         } else {
             None
