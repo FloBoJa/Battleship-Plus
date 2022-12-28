@@ -5,8 +5,8 @@ use crate::server_advertisement::start_announcement_timer;
 
 mod config_provider;
 mod game;
-mod server_advertisement;
 mod server;
+mod server_advertisement;
 
 #[tokio::main]
 async fn main() {

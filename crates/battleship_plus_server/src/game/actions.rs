@@ -1,8 +1,8 @@
 use log::{debug, error};
 use tokio::sync::RwLockWriteGuard;
 
-use battleship_plus_common::messages::*;
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
+use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
 use bevy_quinnet::shared::ClientId;
 
@@ -98,8 +98,7 @@ impl Action {
                     (true, false) => game.team_b.insert(*player_id),
                     (false, true) => game.team_a.insert(*player_id),
                     _ => {
-                        let msg =
-                            format!("found illegal team assignment for player {}", player_id);
+                        let msg = format!("found illegal team assignment for player {}", player_id);
                         error!("{}", msg.as_str());
                         return Err(ActionExecutionError::InconsistentState(msg));
                     }
@@ -117,7 +116,10 @@ impl Action {
                 Ok(())
             }
             // TODO: Action::PlaceShips { .. } => {}
-            Action::Move { ship_id, properties } => {
+            Action::Move {
+                ship_id,
+                properties,
+            } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
 
@@ -142,7 +144,10 @@ impl Action {
                 Ok(())
             }
             // TODO: Action::Rotate { .. } => {}
-            Action::Shoot { ship_id, properties } => {
+            Action::Shoot {
+                ship_id,
+                properties,
+            } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
 
@@ -154,9 +159,14 @@ impl Action {
                 let bounds = game.board_bounds();
                 let mut player = game.players.get(&player_id).unwrap().clone();
 
-                match game.ships.attack_with_ship(&mut player, ship_id, &target, &bounds) {
+                match game
+                    .ships
+                    .attack_with_ship(&mut player, ship_id, &target, &bounds)
+                {
                     Ok(_) => {
-                        game.players.insert(player_id, player).expect("unable to update player");
+                        game.players
+                            .insert(player_id, player)
+                            .expect("unable to update player");
                         Ok(())
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
@@ -181,59 +191,50 @@ impl From<(ClientId, &ShipActionRequest)> for Action {
         match request.clone().action_properties {
             None => Action::NOP,
             Some(p) => match p {
-                ActionProperties::MoveProperties(props) =>
-                    Action::Move {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::ShootProperties(props) =>
-                    Action::Shoot {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::RotateProperties(props) =>
-                    Action::Rotate {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::TorpedoProperties(props) =>
-                    Action::Torpedo {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::ScoutPlaneProperties(props) =>
-                    Action::ScoutPlane {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::MultiMissileProperties(props) =>
-                    Action::MultiMissile {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::PredatorMissileProperties(props) =>
-                    Action::PredatorMissile {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-                ActionProperties::EngineBoostProperties(props) =>
-                    Action::EngineBoost {
-                        ship_id,
-                        properties: props.clone(),
-                    },
-            }
+                ActionProperties::MoveProperties(props) => Action::Move {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::ShootProperties(props) => Action::Shoot {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::RotateProperties(props) => Action::Rotate {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::TorpedoProperties(props) => Action::Torpedo {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::ScoutPlaneProperties(props) => Action::ScoutPlane {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::MultiMissileProperties(props) => Action::MultiMissile {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::PredatorMissileProperties(props) => Action::PredatorMissile {
+                    ship_id,
+                    properties: props.clone(),
+                },
+                ActionProperties::EngineBoostProperties(props) => Action::EngineBoost {
+                    ship_id,
+                    properties: props.clone(),
+                },
+            },
         }
     }
 }
 
-fn check_player_exists(
-    game: &Game,
-    id: PlayerID,
-) -> Result<(), ActionExecutionError> {
+fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
     if !game.players.contains_key(&id) {
         let msg = format!("PlayerID {} is unknown", id);
         debug!("{}", msg.as_str());
-        Err(ActionExecutionError::Validation(ActionValidationError::NonExistentPlayer { id }))
+        Err(ActionExecutionError::Validation(
+            ActionValidationError::NonExistentPlayer { id },
+        ))
     } else {
         Ok(())
     }
