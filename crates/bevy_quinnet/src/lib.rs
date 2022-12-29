@@ -22,10 +22,7 @@ mod tests {
             },
             Client, ConnectionConfiguration, QuinnetClientPlugin, DEFAULT_KNOWN_HOSTS_FILE,
         },
-        server::{
-            self, certificate::CertificateRetrievalMode, Server,
-            ServerConfigurationData,
-        },
+        server::{self, certificate::CertificateRetrievalMode, Server, ServerConfigurationData},
         shared::ClientId,
     };
 
@@ -471,8 +468,8 @@ mod tests {
             .add_startup_system(start_listening)
             .add_system(handle_server_events);
 
-            #[cfg(not(feature = "no_bevy"))]
-            server_app.add_plugin(QuinnetServerPlugin::default());
+        #[cfg(not(feature = "no_bevy"))]
+        server_app.add_plugin(QuinnetServerPlugin::default());
 
         server_app
     }

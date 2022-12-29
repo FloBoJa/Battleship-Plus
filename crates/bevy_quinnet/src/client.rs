@@ -25,7 +25,6 @@ use tokio::{
         },
         oneshot,
     },
-    task::JoinSet,
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -437,17 +436,17 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                 .await
                 .expect("Failed to signal connection to sync client");
 
-            let send = connection
-                .open_uni()
+            let (send, recv) = connection
+                .open_bi()
                 .await
-                .expect("Failed to open send stream");
+                .expect("Failed to open bidirectional stream");
             let mut frame_send = FramedWrite::new(send, BattleshipPlusCodec::default());
 
             let close_sender_clone = spawn_config.close_sender.clone();
             let _network_sends = tokio::spawn(async move {
                 tokio::select! {
                     _ = spawn_config.close_receiver.recv() => {
-                        trace!("Unidirectional send Stream forced to disconnected")
+                        trace!("Sending half of stream forced to disconnect")
                     }
                     _ = async {
                         while let Some(msg_bytes) = spawn_config.to_server_receiver.recv().await {
@@ -463,36 +462,30 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                                     .expect("Failed to signal connection lost to sync client");
                             }
                         }
-                    } => {
-                        trace!("Unidirectional send Stream ended")
-                    }
+                        trace!("Sending half of stream ended")
+                    } => {}
                 }
+                trace!("Sending half of stream closed")
             });
 
-            let mut uni_receivers: JoinSet<()> = JoinSet::new();
             let mut close_receiver = spawn_config.close_sender.subscribe();
             let _network_reads = tokio::spawn(async move {
                 tokio::select! {
                     _ = close_receiver.recv() => {
-                        trace!("New Stream listener forced to disconnected")
+                        trace!("Receiving half of stream forced to disconnect")
                     }
                     _ = async {
-                        while let Ok(recv)= connection.accept_uni().await {
-                            let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::default());
-                            let from_server_sender = spawn_config.from_server_sender.clone();
+                        let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::default());
+                        let from_server_sender = spawn_config.from_server_sender.clone();
 
-                            uni_receivers.spawn(async move {
-                                while let Some(Ok(msg_bytes)) = frame_recv.next().await {
-                                    from_server_sender.send(msg_bytes).await.unwrap(); // TODO Clean: error handling
-                                }
-                            });
+                        while let Some(Ok(msg_bytes)) = frame_recv.next().await {
+                            from_server_sender.send(msg_bytes).await.unwrap(); // TODO Clean: error handling
                         }
-                    } => {
-                        trace!("New Stream listener ended ")
-                    }
+
+                        trace!("Receiving half of stream ended")
+                    } => {}
                 }
-                uni_receivers.shutdown().await;
-                trace!("All unidirectional stream receivers cleaned");
+                trace!("Receiving half of stream closed")
             });
         }
     }

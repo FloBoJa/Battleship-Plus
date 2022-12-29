@@ -16,7 +16,6 @@ use tokio::{
         broadcast,
         mpsc::{self, error::TryRecvError},
     },
-    task::JoinSet,
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -434,18 +433,33 @@ async fn handle_client_connection(
         mpsc::channel::<ProtocolMessage>(DEFAULT_MESSAGE_QUEUE_SIZE);
 
     let to_sync_server_clone = to_sync_server.clone();
-    let close_sender_clone = client_close_sender.clone();
-    let connection_clone = connection.clone();
+    let close_sender_for_sender_task = client_close_sender.clone();
+    let close_sender_for_receiver_task = client_close_sender.clone();
+
     tokio::spawn(async move {
-        client_sender_task(
-            client_id,
-            connection_clone,
-            to_client_receiver,
-            client_close_receiver,
-            close_sender_clone,
-            to_sync_server_clone,
-        )
-        .await
+        if let Ok((send_stream, recv_stream)) = connection.accept_bi().await {
+            tokio::spawn(async move {
+                client_sender_task(
+                    client_id,
+                    send_stream,
+                    to_client_receiver,
+                    client_close_receiver,
+                    close_sender_for_sender_task,
+                    to_sync_server_clone,
+                )
+                .await
+            });
+
+            tokio::spawn(async move {
+                client_receiver_task(
+                    client_id,
+                    recv_stream,
+                    close_sender_for_receiver_task.subscribe(),
+                    from_clients_sender,
+                )
+                .await
+            });
+        }
     });
 
     // Signal the sync server of this new connection
@@ -457,50 +471,21 @@ async fn handle_client_connection(
         }))
         .await
         .expect("Failed to signal connection to sync client");
-
-    #[cfg(not(feature = "no_bevy"))]
-    // Wait for the sync server to acknowledge the connection before spawning reception tasks.
-    while let Ok(InternalSyncMessage::ClientConnectedAck(id)) = from_sync_server.recv().await {
-        if id == client_id {
-            break;
-        }
-    }
-    #[cfg(feature = "no_bevy")]
-    // Do not generate an "unused" warning.
-    let _ = from_sync_server;
-
-    // Spawn a task to listen for streams opened by this client
-    let _client_receiver = tokio::spawn(async move {
-        client_receiver_task(
-            client_id,
-            connection,
-            client_close_sender.subscribe(),
-            from_clients_sender,
-        )
-        .await
-    });
 }
 
 async fn client_sender_task(
     client_id: ClientId,
-    connection: quinn::Connection,
+    send_stream: quinn::SendStream,
     mut to_client_receiver: tokio::sync::mpsc::Receiver<ProtocolMessage>,
     mut close_receiver: tokio::sync::broadcast::Receiver<()>,
     close_sender: tokio::sync::broadcast::Sender<()>,
     to_sync_server: mpsc::Sender<InternalAsyncMessage>,
 ) {
-    let send_stream = connection.open_uni().await.unwrap_or_else(|_| {
-        panic!(
-            "Failed to open unidirectional send stream for client: {}",
-            client_id
-        )
-    });
-
     let mut framed_send_stream = FramedWrite::new(send_stream, BattleshipPlusCodec::default());
 
     tokio::select! {
         _ = close_receiver.recv() => {
-            trace!("Unidirectional send stream forced to disconnected for client: {}", client_id)
+            trace!("Sending half of stream forced to disconnect for client: {}", client_id)
         }
         _ = async {
             while let Some(message) = to_client_receiver.recv().await {
@@ -520,48 +505,37 @@ async fn client_sender_task(
             }
         } => {}
     }
+    trace!("Sending half of stream closed for client: {}", client_id)
 }
 
 async fn client_receiver_task(
     client_id: ClientId,
-    connection: quinn::Connection,
+    recv_stream: quinn::RecvStream,
     mut close_receiver: tokio::sync::broadcast::Receiver<()>,
     from_clients_sender: mpsc::Sender<ClientPayload>,
 ) {
-    let mut uni_receivers: JoinSet<()> = JoinSet::new();
     tokio::select! {
         _ = close_receiver.recv() => {
-            trace!("New Stream listener forced to disconnected for client: {}", client_id)
+            trace!("Receiving half of stream forced to disconnect for client: {}", client_id)
         }
         _ = async {
-            // For each new stream opened by the client
-            while let Ok(recv) = connection.accept_uni().await {
-                let mut frame_recv = FramedRead::new(recv, BattleshipPlusCodec::default());
+            let mut frame_recv = FramedRead::new(recv_stream, BattleshipPlusCodec::default());
 
-                // Spawn a task to receive data on this stream.
-                let from_client_sender = from_clients_sender.clone();
-                uni_receivers.spawn(async move {
-                    while let Some(Ok(msg_bytes)) = frame_recv.next().await {
-                        from_client_sender
-                            .send(ClientPayload {
-                                client_id,
-                                msg: msg_bytes,
-                            })
-                            .await
-                            .unwrap();// TODO Fix: error event
-                    }
-                    trace!("Unidirectional stream receiver ended for client: {}", client_id)
-                });
+            // Spawn a task to receive data on this stream.
+            let from_client_sender = from_clients_sender.clone();
+            while let Some(Ok(msg_bytes)) = frame_recv.next().await {
+                from_client_sender
+                    .send(ClientPayload {
+                        client_id,
+                        msg: msg_bytes,
+                    })
+                    .await
+                    .unwrap();// TODO Fix: error event
             }
-        } => {
-            trace!("New Stream listener ended for client: {}", client_id)
-        }
+            trace!("Receiving half of stream ended for client: {}", client_id)
+        } => {}
     }
-    uni_receivers.shutdown().await;
-    trace!(
-        "All unidirectional stream receivers cleaned for client: {}",
-        client_id
-    )
+    trace!("Receiving half of stream closed for client: {}", client_id)
 }
 
 #[cfg(not(feature = "no_bevy"))]
