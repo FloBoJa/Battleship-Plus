@@ -102,11 +102,6 @@ pub(crate) enum InternalAsyncMessage {
     ClientLostConnection(ClientId),
 }
 
-#[derive(Debug, Clone)]
-pub(crate) enum InternalSyncMessage {
-    ClientConnectedAck(ClientId),
-}
-
 #[derive(Debug)]
 pub(crate) struct ClientConnection {
     client_id: ClientId,
@@ -120,7 +115,6 @@ pub struct Endpoint {
     close_sender: broadcast::Sender<()>,
 
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
-    pub(crate) internal_sender: broadcast::Sender<InternalSyncMessage>,
 }
 
 impl Endpoint {
@@ -298,8 +292,6 @@ impl Server {
             mpsc::channel::<ClientPayload>(DEFAULT_MESSAGE_QUEUE_SIZE);
         let (to_sync_server, from_async_server) =
             mpsc::channel::<InternalAsyncMessage>(DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE);
-        let (to_async_server, from_sync_server) =
-            broadcast::channel::<InternalSyncMessage>(DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE);
         // Create a close channel for this endpoint
         let (endpoint_close_sender, endpoint_close_receiver) =
             broadcast::channel(DEFAULT_KILL_MESSAGE_QUEUE_SIZE);
@@ -312,7 +304,6 @@ impl Server {
                 server_addr,
                 to_sync_server.clone(),
                 endpoint_close_receiver,
-                from_sync_server,
                 from_clients_sender.clone(),
             )
             .await;
@@ -323,7 +314,6 @@ impl Server {
             payloads_receiver: from_clients_receiver,
             close_sender: endpoint_close_sender,
             internal_receiver: from_async_server,
-            internal_sender: to_async_server,
         });
 
         Ok(server_cert)
@@ -352,10 +342,6 @@ impl Server {
                     InternalAsyncMessage::ClientConnected(connection) => {
                         let id = connection.client_id;
                         endpoint.clients.insert(id, connection);
-                        endpoint
-                            .internal_sender
-                            .send(InternalSyncMessage::ClientConnectedAck(id))
-                            .unwrap();
                     }
                     InternalAsyncMessage::ClientLostConnection(client_id) => {
                         endpoint.clients.remove(&client_id);
@@ -371,7 +357,6 @@ async fn endpoint_task(
     endpoint_adr: SocketAddr,
     to_sync_server: mpsc::Sender<InternalAsyncMessage>,
     mut close_receiver: broadcast::Receiver<()>,
-    mut from_sync_server: broadcast::Receiver<InternalSyncMessage>,
     from_clients_sender: mpsc::Sender<ClientPayload>,
 ) {
     let mut client_gen_id: ClientId = 0;
@@ -398,7 +383,6 @@ async fn endpoint_task(
                             connection,
                             client_id,
                             &to_sync_server,
-                            &mut from_sync_server,
                             from_clients_sender.clone(),
                         )
                         .await;
@@ -414,7 +398,6 @@ async fn handle_client_connection(
     connection: quinn::Connection,
     client_id: ClientId,
     to_sync_server: &mpsc::Sender<InternalAsyncMessage>,
-    from_sync_server: &mut broadcast::Receiver<InternalSyncMessage>,
     from_clients_sender: mpsc::Sender<ClientPayload>,
 ) {
     info!(
@@ -559,10 +542,6 @@ fn update_sync_server(
                 InternalAsyncMessage::ClientConnected(connection) => {
                     let id = connection.client_id;
                     endpoint.clients.insert(id, connection);
-                    endpoint
-                        .internal_sender
-                        .send(InternalSyncMessage::ClientConnectedAck(id))
-                        .unwrap();
                     connection_events.send(ConnectionEvent { id });
                 }
                 InternalAsyncMessage::ClientLostConnection(client_id) => {
