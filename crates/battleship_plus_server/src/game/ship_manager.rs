@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use rstar::{AABB, Envelope, PointDistance, RTree, RTreeObject};
+use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
 use battleship_plus_common::types::{MoveDirection, RotateDirection};
 
 use crate::game::actions::ActionValidationError;
 use crate::game::data::Player;
-use crate::game::ship::{Cooldown, GetShipID, Ship, ship_distance, ShipID};
+use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {

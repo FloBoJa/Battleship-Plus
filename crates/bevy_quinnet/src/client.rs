@@ -1,3 +1,4 @@
+use std::string::ToString;
 use std::{
     collections::{
         hash_map::{Iter, IterMut},
@@ -7,7 +8,6 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
-use std::string::ToString;
 
 use bevy::prelude::*;
 use futures::sink::SinkExt;
@@ -32,13 +32,13 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 
 use crate::shared::{
-    AsyncRuntime, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE, QuinnetError,
+    AsyncRuntime, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
 };
 
 use self::certificate::{
-    CertConnectionAbortEvent, CertificateVerificationMode, CertInteractionEvent,
+    load_known_hosts_store_from_config, CertConnectionAbortEvent, CertInteractionEvent,
     CertTrustUpdateEvent, CertVerificationInfo, CertVerificationStatus, CertVerifierAction,
-    load_known_hosts_store_from_config, SkipServerVerification, TofuServerVerification,
+    CertificateVerificationMode, SkipServerVerification, TofuServerVerification,
 };
 
 pub mod certificate;
@@ -304,7 +304,7 @@ impl Client {
                 to_server_receiver,
                 from_server_sender,
             })
-                .await
+            .await
         });
 
         self.last_gen_id += 1;

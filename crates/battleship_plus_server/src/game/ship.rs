@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::sync::Arc;
 
-use rstar::{AABB, Envelope, PointDistance, RTreeObject, SelectionFunction};
+use rstar::{Envelope, PointDistance, RTreeObject, SelectionFunction, AABB};
 
 use battleship_plus_common::types::*;
 

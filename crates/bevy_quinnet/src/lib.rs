@@ -19,21 +19,21 @@ mod tests {
 
     use battleship_plus_common::messages::{self, ProtocolMessage};
 
+    #[cfg(not(feature = "no_bevy"))]
+    use crate::server::QuinnetServerPlugin;
     use crate::{
         client::{
             self,
             certificate::{
-                CertConnectionAbortEvent, CertificateVerificationMode, CertInteractionEvent,
-                CertTrustUpdateEvent, CertVerificationInfo, CertVerificationStatus,
-                CertVerifierAction,
+                CertConnectionAbortEvent, CertInteractionEvent, CertTrustUpdateEvent,
+                CertVerificationInfo, CertVerificationStatus, CertVerifierAction,
+                CertificateVerificationMode,
             },
-            Client, ConnectionConfiguration, DEFAULT_KNOWN_HOSTS_FILE, QuinnetClientPlugin,
+            Client, ConnectionConfiguration, QuinnetClientPlugin, DEFAULT_KNOWN_HOSTS_FILE,
         },
         server::{self, certificate::CertificateRetrievalMode, Server, ServerConfigurationData},
         shared::ClientId,
     };
-    #[cfg(not(feature = "no_bevy"))]
-    use crate::server::QuinnetServerPlugin;
 
     const SERVER_HOST: &str = "127.0.0.1";
     const TEST_CERT_FILE: &str = "assets/tests/test_cert.pem";
