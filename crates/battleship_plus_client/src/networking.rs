@@ -1,10 +1,21 @@
+use std::{
+    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    str::FromStr,
+    sync::mpsc,
+    time::Duration,
+};
+
+use bevy::prelude::*;
+use bevy::utils::synccell::SyncCell;
+use bytes::BytesMut;
+use tokio::net::UdpSocket;
+use tokio_util::codec::Decoder;
+
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
     messages::{self, ProtocolMessage, ServerAdvertisement},
     types,
 };
-use bevy::prelude::*;
-use bevy::utils::synccell::SyncCell;
 use bevy_quinnet::{
     client::{
         certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
@@ -12,15 +23,6 @@ use bevy_quinnet::{
     },
     shared::{AsyncRuntime, QuinnetError},
 };
-use bytes::BytesMut;
-use std::{
-    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    str::FromStr,
-    sync::mpsc,
-    time::Duration,
-};
-use tokio::net::UdpSocket;
-use tokio_util::codec::Decoder;
 
 pub struct NetworkingPlugin;
 
@@ -70,8 +72,7 @@ fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRunti
             None
         }
     };
-    let (sender_v6, receiver_v6) =
-        mpsc::sync_channel::<(messages::ServerAdvertisement, SocketAddr)>(10);
+    let (sender_v6, receiver_v6) = mpsc::sync_channel::<(ServerAdvertisement, SocketAddr)>(10);
     if let Some(socket) = socket_v6 {
         commands.spawn(AdvertisementReceiver::new(receiver_v6));
         runtime.spawn(listen_for_advertisements(socket, sender_v6));
@@ -210,7 +211,7 @@ fn receive_advertisements(
 }
 
 fn process_advertisement(
-    advertisement: messages::ServerAdvertisement,
+    advertisement: ServerAdvertisement,
     sender: SocketAddr,
     commands: &mut Commands,
     time: &Res<Time>,
@@ -281,9 +282,7 @@ fn request_config(
         server_address,
     });
 
-    let message = messages::packet_payload::ProtocolMessage::ServerConfigRequest(
-        messages::ServerConfigRequest {},
-    );
+    let message = ProtocolMessage::ServerConfigRequest(messages::ServerConfigRequest {});
 
     if let Err(error) = client.connection().send_message(message) {
         warn!("Failed to send server configuration request to {server_address}: {error}");
@@ -363,7 +362,7 @@ fn clean_up_servers(
     servers
         .iter()
         .filter(|(_, server)| {
-            time.elapsed() - server.last_advertisement_received > std::time::Duration::from_secs(10)
+            time.elapsed() - server.last_advertisement_received > Duration::from_secs(10)
         })
         .for_each(|(entity, _)| commands.entity(entity).despawn_recursive());
 }

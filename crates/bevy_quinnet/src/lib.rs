@@ -7,34 +7,33 @@ pub mod shared;
 ///                      Tests                          ///
 ///                                                     ///
 ///////////////////////////////////////////////////////////
-
 #[cfg(test)]
 mod tests {
     use std::{fs, io::ErrorKind, thread::sleep, time::Duration};
 
-    use crate::{
-        client::{
-            self,
-            certificate::{
-                CertConnectionAbortEvent, CertInteractionEvent, CertTrustUpdateEvent,
-                CertVerificationInfo, CertVerificationStatus, CertVerifierAction,
-                CertificateVerificationMode,
-            },
-            Client, ConnectionConfiguration, QuinnetClientPlugin, DEFAULT_KNOWN_HOSTS_FILE,
-        },
-        server::{self, certificate::CertificateRetrievalMode, Server, ServerConfigurationData},
-        shared::ClientId,
-    };
-
-    #[cfg(not(feature = "no_bevy"))]
-    use crate::server::QuinnetServerPlugin;
-
-    use battleship_plus_common::messages::{self, ProtocolMessage};
     use bevy::{
         app::ScheduleRunnerPlugin,
         prelude::{App, EventReader, Res, ResMut, Resource},
     };
     use serde::{Deserialize, Serialize};
+
+    use battleship_plus_common::messages::{self, ProtocolMessage};
+
+    use crate::{
+        client::{
+            self,
+            certificate::{
+                CertConnectionAbortEvent, CertificateVerificationMode, CertInteractionEvent,
+                CertTrustUpdateEvent, CertVerificationInfo, CertVerificationStatus,
+                CertVerifierAction,
+            },
+            Client, ConnectionConfiguration, DEFAULT_KNOWN_HOSTS_FILE, QuinnetClientPlugin,
+        },
+        server::{self, certificate::CertificateRetrievalMode, Server, ServerConfigurationData},
+        shared::ClientId,
+    };
+    #[cfg(not(feature = "no_bevy"))]
+    use crate::server::QuinnetServerPlugin;
 
     const SERVER_HOST: &str = "127.0.0.1";
     const TEST_CERT_FILE: &str = "assets/tests/test_cert.pem";
@@ -149,7 +148,7 @@ mod tests {
         }
 
         let sent_server_message =
-            messages::ProtocolMessage::JoinResponse(messages::JoinResponse { player_id: 42 });
+            ProtocolMessage::JoinResponse(messages::JoinResponse { player_id: 42 });
         {
             let server = server_app.world.resource::<Server>();
             server
@@ -191,10 +190,14 @@ mod tests {
 
         let port = 6001; // TODO Use port 0 and retrieve the port used by the server.
 
-        match fs::remove_file(DEFAULT_KNOWN_HOSTS_FILE) {
-            Ok(_) => (),
-            Err(error) if error.kind() == ErrorKind::NotFound => (),
-            Err(_) => panic!("Failed to remove default known hosts file"),
+        {
+            let lock = DEFAULT_KNOWN_HOSTS_FILE.lock().unwrap();
+
+            match fs::remove_file(lock.to_string()) {
+                Ok(_) => (),
+                Err(error) if error.kind() == ErrorKind::NotFound => (),
+                Err(_) => panic!("Failed to remove default known hosts file"),
+            }
         }
 
         let mut client_app = App::new();
@@ -444,9 +447,11 @@ mod tests {
             );
         }
 
-        // Leave the workspace clean
-        fs::remove_file(DEFAULT_KNOWN_HOSTS_FILE)
-            .expect("Failed to remove default known hosts file");
+        {
+            // Leave the workspace clean
+            fs::remove_file(DEFAULT_KNOWN_HOSTS_FILE.lock().unwrap().to_string())
+                .expect("Failed to remove default known hosts file");
+        }
     }
 
     fn build_client_app() -> App {

@@ -98,7 +98,7 @@ impl Action {
                     (true, false) => game.team_b.insert(*player_id),
                     (false, true) => game.team_a.insert(*player_id),
                     _ => {
-                        let msg = format!("found illegal team assignment for player {}", player_id);
+                        let msg = format!("found illegal team assignment for player {player_id}");
                         error!("{}", msg.as_str());
                         return Err(ActionExecutionError::InconsistentState(msg));
                     }
@@ -256,7 +256,7 @@ impl From<(ClientId, &ShipActionRequest)> for Action {
 
 fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
     if !game.players.contains_key(&id) {
-        let msg = format!("PlayerID {} is unknown", id);
+        let msg = format!("PlayerID {id} is unknown", );
         debug!("{}", msg.as_str());
         Err(ActionExecutionError::Validation(
             ActionValidationError::NonExistentPlayer { id },

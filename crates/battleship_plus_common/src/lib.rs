@@ -7,15 +7,18 @@ pub mod types {
 #[allow(clippy::large_enum_variant)]
 pub mod messages {
     pub use crate::messages::packet_payload::ProtocolMessage;
+
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.messages.rs"));
 }
 
 pub mod codec {
-    use crate::messages;
+    use std::fmt::{Display, Formatter};
+
     use bytes::{Buf, BufMut, BytesMut};
     pub use prost::Message as ProstMessage;
-    use std::fmt::{Display, Formatter};
     use tokio_util::codec::{Decoder, Encoder};
+
+    use crate::messages;
 
     #[derive(Clone, Debug)]
     pub enum CodecError {
@@ -26,8 +29,8 @@ pub mod codec {
     impl Display for CodecError {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
-                CodecError::IO(s) => f.write_str(format!("IO: {}", s).as_str()),
-                CodecError::PROTOCOL(s) => f.write_str(format!("PROTOCOL: {}", s).as_str()),
+                CodecError::IO(s) => f.write_str(format!("IO: {s}").as_str()),
+                CodecError::PROTOCOL(s) => f.write_str(format!("PROTOCOL: {s}").as_str()),
             }
         }
     }

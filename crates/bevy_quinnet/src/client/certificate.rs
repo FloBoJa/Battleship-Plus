@@ -15,6 +15,7 @@ use futures::executor::block_on;
 use rustls::ServerName as RustlsServerName;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::client::ProtectedString;
 use crate::shared::{CertificateFingerprint, QuinnetError};
 
 use super::{ConnectionId, DEFAULT_KNOWN_HOSTS_FILE, InternalAsyncMessage};
@@ -261,8 +262,7 @@ impl TofuServerVerification {
                 match block_on(cert_action_recv) {
                     Ok(action) => self.apply_verifier_immediate_action(&action, status, cert_info),
                     Err(err) => Err(rustls::Error::InvalidCertificateData(format!(
-                        "Failed to receive CertVerifierAction: {}",
-                        err
+                        "Failed to receive CertVerifierAction: {err}",
                     ))),
                 }
             }
@@ -297,13 +297,16 @@ impl TofuServerVerification {
                         .insert(cert_info.server_name.clone(), cert_info.fingerprint.clone());
 
                     match file.lock() {
-                        Ok(file) => if let Err(store_error) = store_known_hosts_to_file(&file.to_string(), &store_clone) {
-                            return Err(rustls::Error::General(format!(
-                                "Failed to store new certificate entry: {store_error}",
-                            )));
-                        },
-                        Err(e) =>
-                            panic!("unable to acquire lock on known_hosts file: {e}")
+                        Ok(file) => {
+                            if let Err(store_error) =
+                                store_known_hosts_to_file(&file.to_string(), &store_clone)
+                            {
+                                return Err(rustls::Error::General(format!(
+                                    "Failed to store new certificate entry: {store_error}",
+                                )));
+                            }
+                        }
+                        Err(e) => panic!("unable to acquire lock on known_hosts file: {e}"),
                     }
                 }
                 // In all cases raise an event containing the new certificate entry
@@ -358,7 +361,7 @@ impl rustls::client::ServerCertVerifier for TofuServerVerification {
 }
 
 fn store_known_hosts_to_file(file: &String, store: &CertStore) -> Result<(), Box<dyn Error>> {
-    let path = std::path::Path::new(file);
+    let path = Path::new(file);
     let prefix = path.parent().unwrap();
     std::fs::create_dir_all(prefix)?;
     let mut store_file = File::create(path)?;
@@ -388,7 +391,7 @@ fn parse_known_host_line(
 fn load_known_hosts_from_file(
     file: Arc<Mutex<String>>,
     file_path: Option<MutexGuard<String>>,
-) -> Result<(CertStore, Option<Arc<Mutex<String>>>), Box<dyn Error>> {
+) -> Result<(CertStore, Option<ProtectedString>), Box<dyn Error>> {
     let mut store = HashMap::new();
     {
         let guard = match file_path {
@@ -406,26 +409,23 @@ fn load_known_hosts_from_file(
 
 pub(crate) fn load_known_hosts_store_from_config(
     known_host_config: KnownHosts,
-) -> Result<(CertStore, Option<Arc<Mutex<String>>>), Box<dyn Error>> {
+) -> Result<(CertStore, Option<ProtectedString>), Box<dyn Error>> {
     match known_host_config {
         KnownHosts::Store(store) => Ok((store, None)),
-        KnownHosts::HostsFile(file) => {
-            match file.lock() {
-                Ok(file_guard) => {
-                    let path = file_guard.to_string();
-                    if !Path::new(&path).exists() {
-                        warn!(
-                            "Known hosts file `{}` not found, no known hosts loaded",
-                            path
-                        );
-                        Ok((HashMap::new(), Some(file.clone())))
-                    } else {
-                        load_known_hosts_from_file(file.clone(), Some(file_guard))
-                    }
+        KnownHosts::HostsFile(file) => match file.lock() {
+            Ok(file_guard) => {
+                let path = file_guard.to_string();
+                if !Path::new(&path).exists() {
+                    warn!(
+                        "Known hosts file `{}` not found, no known hosts loaded",
+                        path
+                    );
+                    Ok((HashMap::new(), Some(file.clone())))
+                } else {
+                    load_known_hosts_from_file(file.clone(), Some(file_guard))
                 }
-                Err(e) =>
-                    panic!("unable to acquire lock on known_hosts file: {e}")
             }
-        }
+            Err(e) => panic!("unable to acquire lock on known_hosts file: {e}"),
+        },
     }
 }

@@ -982,22 +982,46 @@ mod actions_rotate {
         };
 
         let g = (rotate)(g, RotateDirection::CounterClockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::East);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::East
+        );
         let g = (rotate)(g, RotateDirection::CounterClockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::North);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::North
+        );
         let g = (rotate)(g, RotateDirection::CounterClockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::West);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::West
+        );
         let g = (rotate)(g, RotateDirection::CounterClockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::South);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::South
+        );
 
         let g = (rotate)(g, RotateDirection::Clockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::West);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::West
+        );
         let g = (rotate)(g, RotateDirection::Clockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::North);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::North
+        );
         let g = (rotate)(g, RotateDirection::Clockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::East);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::East
+        );
         let g = (rotate)(g, RotateDirection::Clockwise);
-        assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::South);
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::South
+        );
     }
 
     #[tokio::test]
@@ -1049,7 +1073,10 @@ mod actions_rotate {
         // check action points
         {
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
-            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::East);
+            assert_eq!(
+                g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+                Orientation::East
+            );
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
         }
 
@@ -1066,7 +1093,10 @@ mod actions_rotate {
         // check board untouched
         {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
-            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::East);
+            assert_eq!(
+                g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+                Orientation::East
+            );
             assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
         }
     }
@@ -1117,7 +1147,10 @@ mod actions_rotate {
         // check ship's new rotation and cooldown
         {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
-            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::East);
+            assert_eq!(
+                g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+                Orientation::East
+            );
             assert!(!g
                 .ships
                 .get_by_id(&ship.id())
@@ -1148,7 +1181,10 @@ mod actions_rotate {
         // check board untouched
         {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
-            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().orientation(), Orientation::East);
+            assert_eq!(
+                g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+                Orientation::East
+            );
             assert!(!g
                 .ships
                 .get_by_id(&ship.id())
