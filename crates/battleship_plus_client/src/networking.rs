@@ -11,6 +11,7 @@ use bytes::BytesMut;
 use tokio::net::UdpSocket;
 use tokio_util::codec::Decoder;
 
+use crate::game_state::GameState;
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
     messages::{self, ProtocolMessage, ServerAdvertisement},
@@ -23,6 +24,7 @@ use bevy_quinnet::{
     },
     shared::{AsyncRuntime, QuinnetError},
 };
+use iyes_loopless::prelude::*;
 
 pub struct NetworkingPlugin;
 
@@ -31,14 +33,14 @@ impl Plugin for NetworkingPlugin {
         app.add_plugin(QuinnetClientPlugin::default())
             .add_event::<MessageReceivedEvent>()
             .add_startup_system(set_up_advertisement_listener)
-            .add_system(receive_advertisements)
             .add_system(clean_up_servers)
             .add_system(listen_for_messages)
-            .add_system(process_server_configurations);
+            .add_system(receive_advertisements.run_in_state(GameState::Unconnected))
+            .add_system(process_server_configurations.run_in_state(GameState::Unconnected));
     }
 }
 
-pub struct MessageReceivedEvent(ProtocolMessage, SocketAddr);
+pub struct MessageReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
 
 #[derive(Component, Debug)]
 pub struct ServerInformation {
@@ -248,10 +250,10 @@ fn process_advertisement(
     }
 }
 
-#[derive(Component)]
-struct ConnectionRecord {
-    connection_id: ConnectionId,
-    server_address: SocketAddr,
+#[derive(Component, Clone)]
+pub struct ConnectionRecord {
+    pub connection_id: ConnectionId,
+    pub server_address: SocketAddr,
 }
 
 fn request_config(
@@ -299,20 +301,6 @@ fn listen_for_messages(
             continue;
         }
 
-        let message = match connection.receive_message() {
-            Ok(Some(Some(value))) => value,
-            Ok(Some(None)) => {
-                warn!("Received empty PacketPayload");
-                continue;
-            }
-            Ok(None) => continue,
-            Err(QuinnetError::ChannelClosed) => continue,
-            Err(error) => {
-                warn!("Unexpected error occurred while receiving packet: {error}");
-                continue;
-            }
-        };
-
         let sender = match connection_records
             .iter()
             .find(|record| &record.connection_id == connection_id)
@@ -324,30 +312,62 @@ fn listen_for_messages(
             }
         };
 
-        event.send(MessageReceivedEvent(message, sender));
+        loop {
+            let message = match connection.receive_message() {
+                Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => status_message,
+                Ok(Some(Some(_other_message))) => {
+                    warn!(
+                        "Received message without status code, \
+                          this is probably a sign for an error of the server at {sender}"
+                    );
+                    continue;
+                }
+                Ok(Some(None)) => {
+                    // A keep-alive message
+                    continue;
+                }
+                Ok(None) => {
+                    // Nothing or an incomplete message, retry later
+                    break;
+                }
+                Err(QuinnetError::ChannelClosed) => continue,
+                Err(error) => {
+                    warn!("Unexpected error occurred while receiving packet: {error}");
+                    continue;
+                }
+            };
+
+            debug!("Received message from {sender}: {message:?}");
+            event.send(MessageReceivedEvent(message, sender));
+        }
     }
 }
 
 fn process_server_configurations(
-    mut event: EventReader<MessageReceivedEvent>,
+    mut events: EventReader<MessageReceivedEvent>,
     mut servers: Query<&mut ServerInformation>,
 ) {
-    let config_response_events = event.iter().filter_map(|received_message| {
-        if let MessageReceivedEvent(ProtocolMessage::ServerConfigResponse(response), sender) =
-            received_message
-        {
-            Some((response, sender))
-        } else {
-            None
+    for MessageReceivedEvent(messages::StatusMessage { code, data }, sender) in events.iter() {
+        // TODO: Include response.message as soon as that MR is merged.
+        if code / 100 != 2 {
+            warn!("Received error code {code} from server at {sender}");
+            continue;
         }
-    });
-    for (response, sender) in config_response_events {
+        let response = match data {
+            Some(messages::status_message::Data::ServerConfigResponse(response)) => response,
+            Some(_other_response) => {
+                warn!("No data in response after ConfigRequest but status code 2XX");
+                // ignore
+                continue;
+            }
+            None => continue,
+        };
         let mut server = match servers.iter_mut().find(|server| &server.address == sender) {
             Some(server) => server,
             None => continue,
         };
         if response.config.is_none() {
-            debug!("Received empty ServerConfigResponse from {sender}");
+            warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server");
             continue;
         }
         server.config = response.config.to_owned();
