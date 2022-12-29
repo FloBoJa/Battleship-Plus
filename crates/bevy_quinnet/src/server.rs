@@ -24,11 +24,10 @@ use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessa
 use crate::{
     server::certificate::retrieve_certificate,
     shared::{
-        ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
-        DEFAULT_MESSAGE_QUEUE_SIZE,
+        ClientId, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
+        QuinnetError,
     },
 };
-
 #[cfg(not(feature = "no_bevy"))]
 use crate::shared::AsyncRuntime;
 
@@ -187,6 +186,32 @@ impl Endpoint {
         }
     }
 
+    #[cfg(feature = "no_bevy")]
+    pub async fn receive_payload_waiting(&mut self) -> Option<ClientPayload> {
+        let payload = self.payloads_receiver.recv().await;
+
+        // ensure internal client management is up to date
+        self.update();
+
+        payload
+    }
+
+    #[cfg(feature = "no_bevy")]
+    fn update(&mut self) {
+        while let Ok(message) = self.internal_receiver.try_recv() {
+            match message {
+                InternalAsyncMessage::ClientConnected(connection) => {
+                    let id = connection.client_id;
+                    self.clients.insert(id, connection);
+                }
+                InternalAsyncMessage::ClientLostConnection(client_id) => {
+                    self.clients.remove(&client_id);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "no_bevy"))]
     pub async fn receive_payload_waiting(&mut self) -> Option<ClientPayload> {
         self.payloads_receiver.recv().await
     }
@@ -245,7 +270,7 @@ pub struct Server {
 impl Server {
     pub fn new_standalone() -> Server {
         Server {
-            runtime: tokio::runtime::Handle::current(),
+            runtime: runtime::Handle::current(),
             endpoint: None,
         }
     }
@@ -332,23 +357,6 @@ impl Server {
     /// Returns true if the server is currently listening for messages and connections.
     pub fn is_listening(&self) -> bool {
         self.endpoint.is_some()
-    }
-
-    #[cfg(feature = "no_bevy")]
-    pub fn update(&mut self) {
-        if let Some(endpoint) = self.get_endpoint_mut() {
-            while let Ok(message) = endpoint.internal_receiver.try_recv() {
-                match message {
-                    InternalAsyncMessage::ClientConnected(connection) => {
-                        let id = connection.client_id;
-                        endpoint.clients.insert(id, connection);
-                    }
-                    InternalAsyncMessage::ClientLostConnection(client_id) => {
-                        endpoint.clients.remove(&client_id);
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -459,9 +467,9 @@ async fn handle_client_connection(
 async fn client_sender_task(
     client_id: ClientId,
     send_stream: quinn::SendStream,
-    mut to_client_receiver: tokio::sync::mpsc::Receiver<ProtocolMessage>,
-    mut close_receiver: tokio::sync::broadcast::Receiver<()>,
-    close_sender: tokio::sync::broadcast::Sender<()>,
+    mut to_client_receiver: mpsc::Receiver<ProtocolMessage>,
+    mut close_receiver: broadcast::Receiver<()>,
+    close_sender: broadcast::Sender<()>,
     to_sync_server: mpsc::Sender<InternalAsyncMessage>,
 ) {
     let mut framed_send_stream = FramedWrite::new(send_stream, BattleshipPlusCodec::default());
@@ -494,7 +502,7 @@ async fn client_sender_task(
 async fn client_receiver_task(
     client_id: ClientId,
     recv_stream: quinn::RecvStream,
-    mut close_receiver: tokio::sync::broadcast::Receiver<()>,
+    mut close_receiver: broadcast::Receiver<()>,
     from_clients_sender: mpsc::Sender<ClientPayload>,
 ) {
     tokio::select! {
