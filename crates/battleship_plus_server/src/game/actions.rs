@@ -1,8 +1,8 @@
 use log::{debug, error};
 use tokio::sync::RwLockWriteGuard;
 
-use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::messages::*;
+use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::types::*;
 use bevy_quinnet::shared::ClientId;
 
@@ -143,7 +143,33 @@ impl Action {
 
                 Ok(())
             }
-            // TODO: Action::Rotate { .. } => {}
+            Action::Rotate {
+                ship_id,
+                properties,
+            } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id)?;
+
+                let board_bounds = game.board_bounds();
+                let mut player = game.players.get(&player_id).unwrap().clone();
+
+                let trajectory = match game.ships.rotate_ship(
+                    &mut player,
+                    ship_id,
+                    properties.direction(),
+                    &board_bounds,
+                ) {
+                    Ok(trajectory) => trajectory,
+                    Err(e) => return Err(ActionExecutionError::Validation(e)),
+                };
+
+                game.players.insert(player_id, player);
+
+                let _ /*destroyed_ships*/ = game.ships.destroy_colliding_ships_in_envelope(&trajectory);
+                // TODO: find a way to propagate destroyed ships
+
+                Ok(())
+            }
             Action::Shoot {
                 ship_id,
                 properties,

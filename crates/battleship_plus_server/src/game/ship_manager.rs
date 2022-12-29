@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
+use rstar::{AABB, Envelope, PointDistance, RTree, RTreeObject};
 
-use battleship_plus_common::types::MoveDirection;
+use battleship_plus_common::types::{MoveDirection, RotateDirection};
 
 use crate::game::actions::ActionValidationError;
 use crate::game::data::Player;
-use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
+use crate::game::ship::{Cooldown, GetShipID, Ship, ship_distance, ShipID};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {
@@ -145,7 +145,7 @@ impl ShipManager {
     }
 
     /// Checks for all conditions required for a ship movement and executes a move.
-    /// Returns the area the ship passed during movement.
+    /// Returns the area that has to be checked for collision.
     pub fn move_ship(
         &mut self,
         player: &mut Player,
@@ -177,6 +177,57 @@ impl ShipManager {
 
                 //let old_envelope = ship.envelope();
                 match ship.do_move(direction, bounds) {
+                    Err(e) => Err(e),
+                    Ok(new_position) => {
+                        // enforce costs
+                        let new_position = new_position;
+                        player.action_points -= costs.action_points;
+                        if costs.cooldown > 0 {
+                            ship.cool_downs_mut().push(Cooldown::Movement {
+                                remaining_rounds: costs.cooldown,
+                            });
+                        }
+
+                        Ok(new_position)
+                    }
+                }
+            },
+        )
+    }
+
+    /// Checks for all conditions required for a ship rotation and executes a rotation.
+    /// Returns the area that has to be checked for collision.
+    pub fn rotate_ship(
+        &mut self,
+        player: &mut Player,
+        ship_id: &ShipID,
+        direction: RotateDirection,
+        bounds: &AABB<[i32; 2]>,
+    ) -> Result<AABB<[i32; 2]>, ActionValidationError> {
+        self.mutate_ship_by_id(
+            ship_id,
+            true,
+            ActionValidationError::NonExistentShip { id: *ship_id },
+            |ship| {
+                // cooldown check
+                let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
+                    Cooldown::Movement { remaining_rounds } => Some(*remaining_rounds),
+                    _ => None,
+                });
+                if let Some(remaining_rounds) = remaining_rounds {
+                    return Err(ActionValidationError::Cooldown { remaining_rounds });
+                }
+
+                // check action points of player
+                let costs = ship.common_balancing().movement_costs.unwrap();
+                if player.action_points < costs.action_points {
+                    return Err(ActionValidationError::InsufficientPoints {
+                        required: costs.action_points,
+                    });
+                }
+
+                //let old_envelope = ship.envelope();
+                match ship.do_rotation(direction, bounds) {
                     Err(e) => Err(e),
                     Ok(new_position) => {
                         // enforce costs
