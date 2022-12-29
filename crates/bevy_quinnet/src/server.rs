@@ -21,15 +21,15 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 
+#[cfg(not(feature = "no_bevy"))]
+use crate::shared::AsyncRuntime;
 use crate::{
     server::certificate::retrieve_certificate,
     shared::{
-        ClientId, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
-        QuinnetError,
+        ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
+        DEFAULT_MESSAGE_QUEUE_SIZE,
     },
 };
-#[cfg(not(feature = "no_bevy"))]
-use crate::shared::AsyncRuntime;
 
 use self::certificate::{CertificateRetrievalMode, ServerCertificate};
 

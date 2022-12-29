@@ -1,8 +1,8 @@
 use log::{debug, error};
 use tokio::sync::RwLockWriteGuard;
 
-use battleship_plus_common::messages::*;
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
+use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
 use bevy_quinnet::shared::ClientId;
 
@@ -256,7 +256,7 @@ impl From<(ClientId, &ShipActionRequest)> for Action {
 
 fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
     if !game.players.contains_key(&id) {
-        let msg = format!("PlayerID {id} is unknown", );
+        let msg = format!("PlayerID {id} is unknown",);
         debug!("{}", msg.as_str());
         Err(ActionExecutionError::Validation(
             ActionValidationError::NonExistentPlayer { id },

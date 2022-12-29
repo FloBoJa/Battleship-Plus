@@ -215,11 +215,11 @@ checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
 name = "battleship_plus_client"
 version = "0.1.0"
 dependencies = [
-    "battleship_plus_common",
-    "bevy",
-    "bevy-inspector-egui",
-    "bevy_quinnet",
-    "bytes",
+ "battleship_plus_common",
+ "bevy",
+ "bevy-inspector-egui",
+ "bevy_quinnet",
+ "bytes",
  "futures",
  "pnet_datalink",
  "tokio",
@@ -271,11 +271,11 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd4c06a380d02588eac43f8a56d2d370614fe6b2e7467041e57b064e93ec7620"
 dependencies = [
-    "bevy",
-    "bevy-inspector-egui-derive",
-    "bevy_egui",
-    "image 0.24.5",
-    "pretty-type-name",
+ "bevy",
+ "bevy-inspector-egui-derive",
+ "bevy_egui",
+ "image 0.24.5",
+ "pretty-type-name",
 ]
 
 [[package]]
@@ -284,9 +284,9 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c6a0ceb52115321ef304a5a875e975bba5bbf2ceb802e1dfa07221e8bbc8178"
 dependencies = [
-    "proc-macro2",
-    "quote",
-    "syn",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -429,11 +429,11 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f93fab81b00d664b7fd09c74eadcc8ab4a608649af1fb355647cd43f95f38ec6"
 dependencies = [
-    "arboard",
-    "bevy",
-    "egui",
-    "thread_local",
-    "webbrowser",
+ "arboard",
+ "bevy",
+ "egui",
+ "thread_local",
+ "webbrowser",
 ]
 
 [[package]]
@@ -452,18 +452,18 @@ version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e853e346ba412354e02292c7aa5b9a9dccdfa748e273b1b7ebf8f6a172f89712"
 dependencies = [
-    "anyhow",
-    "base64 0.13.1",
-    "bevy_app",
-    "bevy_asset",
-    "bevy_core",
-    "bevy_core_pipeline",
-    "bevy_ecs",
-    "bevy_hierarchy",
-    "bevy_log",
-    "bevy_math",
-    "bevy_pbr",
-    "bevy_reflect",
+ "anyhow",
+ "base64 0.13.1",
+ "bevy_app",
+ "bevy_asset",
+ "bevy_core",
+ "bevy_core_pipeline",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_log",
+ "bevy_math",
+ "bevy_pbr",
+ "bevy_reflect",
  "bevy_render",
  "bevy_scene",
  "bevy_tasks",
@@ -615,17 +615,17 @@ checksum = "8ec44f7655039546bc5d34d98de877083473f3e9b2b81d560c528d6d74d3eff4"
 name = "bevy_quinnet"
 version = "0.2.0-custom"
 dependencies = [
-    "base64 0.20.0",
-    "battleship_plus_common",
-    "bevy",
-    "bincode",
-    "bytes",
-    "futures",
-    "futures-util",
-    "once_cell",
-    "quinn",
-    "rcgen",
-    "ring",
+ "base64 0.20.0",
+ "battleship_plus_common",
+ "bevy",
+ "bincode",
+ "bytes",
+ "futures",
+ "futures-util",
+ "once_cell",
+ "quinn",
+ "rcgen",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "serde",
@@ -1288,7 +1288,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac1b7517328c04c2aa68422fc60a41b92208182142ed04a25879c26c8f878794"
 dependencies = [
-    "libloading",
+ "libloading",
 ]
 
 [[package]]
@@ -1303,7 +1303,7 @@ version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b601108bca3af7650440ace4ca55b2daf52c36f2635be3587d77b16efd8d0691"
 dependencies = [
-    "bytemuck",
+ "bytemuck",
 ]
 
 [[package]]
@@ -1312,9 +1312,9 @@ version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65a5e883a316e53866977450eecfbcac9c48109c2ab3394af29feb83fcde4ea9"
 dependencies = [
-    "ahash 0.8.2",
-    "epaint",
-    "nohash-hasher",
+ "ahash 0.8.2",
+ "epaint",
+ "nohash-hasher",
 ]
 
 [[package]]
@@ -1329,7 +1329,7 @@ version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5277249c8c3430e7127e4f2c40a77485e7baf11ae132ce9b3253a8ed710df0a0"
 dependencies = [
-    "bytemuck",
+ "bytemuck",
 ]
 
 [[package]]
@@ -1393,14 +1393,14 @@ version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de14b65fe5e423e0058f77a8beb2c863b056d0566d6c4ce0d097aa5814cb705a"
 dependencies = [
-    "ab_glyph",
-    "ahash 0.8.2",
-    "atomic_refcell",
-    "bytemuck",
-    "ecolor",
-    "emath",
-    "nohash-hasher",
-    "parking_lot",
+ "ab_glyph",
+ "ahash 0.8.2",
+ "atomic_refcell",
+ "bytemuck",
+ "ecolor",
+ "emath",
+ "nohash-hasher",
+ "parking_lot",
 ]
 
 [[package]]
@@ -2504,7 +2504,7 @@ version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03c64931a1a212348ec4f3b4362585eca7159d0d09cbdf4a7f74f02173596fd4"
 dependencies = [
-    "base64 0.13.1",
+ "base64 0.13.1",
 ]
 
 [[package]]
@@ -2905,9 +2905,9 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300a51053b1cb55c80b7a9fde4120726ddf25ca241a1cbb926626f62fb136bff"
 dependencies = [
-    "base64 0.13.1",
-    "bitflags",
-    "serde",
+ "base64 0.13.1",
+ "bitflags",
+ "serde",
 ]
 
 [[package]]
@@ -2980,7 +2980,7 @@ version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0864aeff53f8c05aa08d86e5ef839d3dfcf07aeba2db32f12db0ef716e87bd55"
 dependencies = [
-    "base64 0.13.1",
+ "base64 0.13.1",
 ]
 
 [[package]]

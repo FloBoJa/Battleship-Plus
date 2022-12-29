@@ -5,14 +5,14 @@ use std::sync::Arc;
 use log::{debug, error, info, warn};
 use tokio::sync::{mpsc, Mutex, MutexGuard, RwLock};
 
+use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     JoinResponse, ProtocolMessage, ServerConfigResponse, SetReadyStateRequest,
     SetReadyStateResponse, StatusMessage, TeamSwitchResponse,
 };
-use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::types::Config;
-use bevy_quinnet::server::{ClientPayload, Endpoint, Server, ServerConfigurationData};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
+use bevy_quinnet::server::{ClientPayload, Endpoint, Server, ServerConfigurationData};
 use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;

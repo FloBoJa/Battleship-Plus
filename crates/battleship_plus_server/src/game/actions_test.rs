@@ -124,8 +124,8 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: true },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
         {
             assert!(g.players.get(&player_id).unwrap().is_ready);
         }
@@ -135,8 +135,8 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: false },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
         {
             assert!(!g.players.get(&player_id).unwrap().is_ready);
         }
@@ -154,7 +154,7 @@ mod actions_player_set_ready_state {
             player_id,
             request: SetReadyStateRequest { ready_state: true },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(match err {
@@ -254,8 +254,8 @@ mod actions_shoot {
                 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship_target1 destroyed and ship_target2 untouched
         {
@@ -277,8 +277,8 @@ mod actions_shoot {
                 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship_target1 destroyed and ship_target2 health reduced
         {
@@ -297,8 +297,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // board untouched
         {
@@ -350,8 +350,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // action points reduced
         {
@@ -365,8 +365,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // board untouched
         {
@@ -413,8 +413,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check cooldown
         {
@@ -435,8 +435,8 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 20, y: 20 }),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // board untouched
         {
@@ -464,7 +464,7 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 0, y: 0 }),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
@@ -496,7 +496,7 @@ mod actions_shoot {
                 target: Some(Coordinate { x: 9999, y: 9999 }),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
@@ -560,8 +560,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new position
         {
@@ -575,8 +575,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new position
         {
@@ -627,8 +627,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check action points
         {
@@ -643,8 +643,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // check board untouched
         {
@@ -693,8 +693,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new position and cooldown
         {
@@ -723,8 +723,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // check board untouched
         {
@@ -763,7 +763,7 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
@@ -835,8 +835,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // move ship2 backward
         assert!(Action::Move {
@@ -845,8 +845,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
     }
 
     #[tokio::test]
@@ -910,8 +910,8 @@ mod actions_move {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check both ships destroyed
         {
@@ -975,8 +975,8 @@ mod actions_rotate {
                     direction: i32::from(d),
                 },
             }
-                .apply_on(&mut g)
-                .is_ok());
+            .apply_on(&mut g)
+            .is_ok());
 
             g
         };
@@ -1067,8 +1067,8 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::CounterClockwise),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check action points
         {
@@ -1087,8 +1087,8 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::Clockwise),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // check board untouched
         {
@@ -1141,8 +1141,8 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::CounterClockwise),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check ship's new rotation and cooldown
         {
@@ -1175,8 +1175,8 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::Clockwise),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
 
         // check board untouched
         {
@@ -1219,7 +1219,7 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::CounterClockwise),
             },
         }
-            .apply_on(&mut g);
+        .apply_on(&mut g);
 
         assert!(res.is_err());
         let err = res.unwrap_err();
@@ -1270,8 +1270,8 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::Clockwise),
             },
         }
-            .apply_on(&mut g)
-            .is_err());
+        .apply_on(&mut g)
+        .is_err());
     }
 
     #[tokio::test]
@@ -1360,8 +1360,8 @@ mod actions_rotate {
                 direction: i32::from(RotateDirection::CounterClockwise),
             },
         }
-            .apply_on(&mut g)
-            .is_ok());
+        .apply_on(&mut g)
+        .is_ok());
 
         // check results
         {

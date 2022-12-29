@@ -1,3 +1,5 @@
+use std::ops::Deref;
+use std::sync::MutexGuard;
 use std::{
     collections::HashMap,
     error::Error,
@@ -7,8 +9,6 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
-use std::ops::Deref;
-use std::sync::MutexGuard;
 
 use bevy::prelude::warn;
 use futures::executor::block_on;
@@ -18,7 +18,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::client::ProtectedString;
 use crate::shared::{CertificateFingerprint, QuinnetError};
 
-use super::{ConnectionId, DEFAULT_KNOWN_HOSTS_FILE, InternalAsyncMessage};
+use super::{ConnectionId, InternalAsyncMessage, DEFAULT_KNOWN_HOSTS_FILE};
 
 pub const DEFAULT_CERT_VERIFIER_BEHAVIOUR: CertVerifierBehaviour =
     CertVerifierBehaviour::ImmediateAction(CertVerifierAction::AbortConnection);
@@ -204,7 +204,7 @@ impl rustls::client::ServerCertVerifier for SkipServerVerification {
         _end_entity: &rustls::Certificate,
         _intermediates: &[rustls::Certificate],
         _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item=&[u8]>,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
         _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
@@ -330,7 +330,7 @@ impl rustls::client::ServerCertVerifier for TofuServerVerification {
         _end_entity: &rustls::Certificate,
         _intermediates: &[rustls::Certificate],
         _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item=&[u8]>,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
         _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
