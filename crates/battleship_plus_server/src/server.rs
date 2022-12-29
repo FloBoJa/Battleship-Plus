@@ -2,17 +2,17 @@ use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
-use log::{error, info, trace, warn};
+use log::{debug, error, info, warn};
 use tokio::sync::{mpsc, Mutex, MutexGuard, RwLock};
 
-use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     JoinResponse, ProtocolMessage, ServerConfigResponse, SetReadyStateRequest,
     SetReadyStateResponse, StatusMessage, TeamSwitchResponse,
 };
+use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::types::Config;
-use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::server::{ClientPayload, Endpoint, Server, ServerConfigurationData};
+use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;
@@ -140,10 +140,9 @@ async fn endpoint_task(
             lock = server.lock() => lock,
         };
 
-        let ep = server.endpoint_mut();
         let payload: ClientPayload = tokio::select! {
             _ = cancel_rx.recv() => return,
-            p = ep.receive_payload_waiting() => {
+            p = server.endpoint_mut().receive_payload_waiting() => {
                 match p {
                     Some(p) => p,
                     None => return,
@@ -155,10 +154,6 @@ async fn endpoint_task(
             continue;
         }
 
-        // Give the sync server a chance to register newly connected clients.
-        server.update();
-
-        // Re-borrow since server.update() requires a mutable borrow.
         let ep = server.endpoint_mut();
         match handle_message(
             cfg.clone(),
@@ -171,7 +166,7 @@ async fn endpoint_task(
         .await
         {
             Ok(_) => {
-                trace!("handled message from {:?}", payload);
+                debug!("handled message from {:?}", payload);
             }
             Err(e) => {
                 warn!("unable to handle message {:?}: {e}", payload);
