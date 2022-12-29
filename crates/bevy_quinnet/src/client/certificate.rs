@@ -298,8 +298,7 @@ impl TofuServerVerification {
 
                     match file.lock() {
                         Ok(file) => {
-                            if let Err(store_error) =
-                                store_known_hosts_to_file(&file.to_string(), &store_clone)
+                            if let Err(store_error) = store_known_hosts_to_file(&file, &store_clone)
                             {
                                 return Err(rustls::Error::General(format!(
                                     "Failed to store new certificate entry: {store_error}",
@@ -399,7 +398,7 @@ fn load_known_hosts_from_file(
             Some(guard) => guard,
         };
 
-        for line in BufReader::new(File::open(&guard.to_string())?).lines() {
+        for line in BufReader::new(File::open(guard.to_string())?).lines() {
             let entry = parse_known_host_line(line?)?;
             store.insert(entry.0, entry.1);
         }
