@@ -617,6 +617,7 @@ dependencies = [
  "bytes",
  "futures",
  "futures-util",
+ "once_cell",
  "quinn",
  "rcgen",
  "ring",
