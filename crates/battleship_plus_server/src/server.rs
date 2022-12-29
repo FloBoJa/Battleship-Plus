@@ -371,7 +371,7 @@ impl Display for MessageHandlerError {
         f.write_str("MessageHandlerError: ")?;
         match self {
             MessageHandlerError::Network(e) => f.write_str(format!("{e}").as_str()),
-            MessageHandlerError::Protocol(e) => f.write_str(format!("{:?}", e).as_str()),
+            MessageHandlerError::Protocol(e) => f.write_str(format!("{e:?}").as_str()),
         }
     }
 }

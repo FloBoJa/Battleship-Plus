@@ -44,7 +44,10 @@ use self::certificate::{
 pub mod certificate;
 
 pub const DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE: usize = 100;
-pub static DEFAULT_KNOWN_HOSTS_FILE: Lazy<Arc<Mutex<String>>> =
+
+pub type ProtectedString = Arc<Mutex<String>>;
+
+pub static DEFAULT_KNOWN_HOSTS_FILE: Lazy<ProtectedString> =
     Lazy::new(|| Arc::new(Mutex::new("quinnet/known_hosts".to_string())));
 
 pub type ConnectionId = u64;
@@ -74,8 +77,8 @@ impl ConnectionConfiguration {
     /// * `server_scope` - Scope ID that the server is listening on. Only relevant for
     /// IPv6 link-local connections.
     /// * `server_port` - Port that the server is listening on
-    /// * `local_bind_host` - Local address to bind to, which should usually be a wildcard address like `0.0.0.0` or `[::]`, which allow communication with any reachable IPv4 or IPv6 address. See [`quinn::endpoint::Endpoint`] for more precision
-    /// * `local_bind_port` - Local port to bind to. Use 0 to get an OS-assigned port.. See [`quinn::endpoint::Endpoint`] for more precision
+    /// * `local_bind_host` - Local address to bind to, which should usually be a wildcard address like `0.0.0.0` or `[::]`, which allow communication with any reachable IPv4 or IPv6 address. See [`Endpoint`] for more precision
+    /// * `local_bind_port` - Local port to bind to. Use 0 to get an OS-assigned port.. See [`Endpoint`] for more precision
     ///
     /// # Examples
     ///
@@ -135,8 +138,8 @@ pub(crate) struct ConnectionSpawnConfig {
     connection_config: ConnectionConfiguration,
     cert_mode: CertificateVerificationMode,
     to_sync_client: mpsc::Sender<InternalAsyncMessage>,
-    close_sender: tokio::sync::broadcast::Sender<()>,
-    close_receiver: tokio::sync::broadcast::Receiver<()>,
+    close_sender: broadcast::Sender<()>,
+    close_receiver: broadcast::Receiver<()>,
     to_server_receiver: mpsc::Receiver<ProtocolMessage>,
     from_server_sender: mpsc::Sender<Option<ProtocolMessage>>,
 }
@@ -279,10 +282,8 @@ impl Client {
             mpsc::channel::<InternalAsyncMessage>(DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE);
 
         // Create a close channel for this connection
-        let (close_sender, close_receiver): (
-            tokio::sync::broadcast::Sender<()>,
-            tokio::sync::broadcast::Receiver<()>,
-        ) = broadcast::channel(DEFAULT_KILL_MESSAGE_QUEUE_SIZE);
+        let (close_sender, close_receiver): (broadcast::Sender<()>, broadcast::Receiver<()>) =
+            broadcast::channel(DEFAULT_KILL_MESSAGE_QUEUE_SIZE);
 
         let connection = Connection {
             state: ConnectionState::Disconnected,
@@ -571,7 +572,7 @@ impl Plugin for QuinnetClientPlugin {
 
         if app.world.get_resource_mut::<AsyncRuntime>().is_none() {
             app.insert_resource(AsyncRuntime(
-                tokio::runtime::Builder::new_multi_thread()
+                runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()
                     .unwrap(),

@@ -235,7 +235,12 @@ impl Ship {
         self.get_envelope_with_orientation(x, y, self.orientation())
     }
 
-    fn get_envelope_with_orientation(&self, x: i32, y: i32, orientation: Orientation) -> AABB<[i32; 2]> {
+    fn get_envelope_with_orientation(
+        &self,
+        x: i32,
+        y: i32,
+        orientation: Orientation,
+    ) -> AABB<[i32; 2]> {
         match orientation {
             Orientation::North => AABB::from_corners([x, y - (self.len() - 1)], [x, y]),
             Orientation::South => AABB::from_corners([x, y], [x, y + (self.len() - 1)]),

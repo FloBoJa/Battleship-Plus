@@ -168,12 +168,12 @@ impl Endpoint {
         for (_, client_connection) in self.clients.iter() {
             match client_connection.sender.try_send(message.clone()) {
                 Ok(_) => {}
-                Err(err) => match err {
-                    mpsc::error::TrySendError::Full(_) => return Err(QuinnetError::FullQueue),
-                    mpsc::error::TrySendError::Closed(_) => {
-                        return Err(QuinnetError::ChannelClosed)
+                Err(err) => {
+                    return match err {
+                        mpsc::error::TrySendError::Full(_) => Err(QuinnetError::FullQueue),
+                        mpsc::error::TrySendError::Closed(_) => Err(QuinnetError::ChannelClosed),
                     }
-                },
+                }
             };
         }
         Ok(())
