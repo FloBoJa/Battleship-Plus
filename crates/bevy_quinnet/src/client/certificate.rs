@@ -7,6 +7,8 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
+use std::ops::Deref;
+use std::sync::MutexGuard;
 
 use bevy::prelude::warn;
 use futures::executor::block_on;
@@ -15,7 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::shared::{CertificateFingerprint, QuinnetError};
 
-use super::{ConnectionId, InternalAsyncMessage, DEFAULT_KNOWN_HOSTS_FILE};
+use super::{ConnectionId, DEFAULT_KNOWN_HOSTS_FILE, InternalAsyncMessage};
 
 pub const DEFAULT_CERT_VERIFIER_BEHAVIOUR: CertVerifierBehaviour =
     CertVerifierBehaviour::ImmediateAction(CertVerifierAction::AbortConnection);
@@ -77,11 +79,12 @@ pub enum CertificateVerificationMode {
 /// # Example
 ///
 /// ```
+/// use std::sync::{Arc, Mutex};
 /// use bevy_quinnet::client::certificate::TrustOnFirstUseConfig;
 ///
 /// TrustOnFirstUseConfig {
 ///     known_hosts: bevy_quinnet::client::certificate::KnownHosts::HostsFile(
-///         "my_own_hosts_file".to_string(),
+///         Arc::new(Mutex::new("my_own_hosts_file".to_string())),
 ///     ),
 ///     ..Default::default()
 /// };
@@ -98,7 +101,7 @@ impl Default for TrustOnFirstUseConfig {
     /// Returns the default [`TrustOnFirstUseConfig`]
     fn default() -> Self {
         TrustOnFirstUseConfig {
-            known_hosts: KnownHosts::HostsFile(DEFAULT_KNOWN_HOSTS_FILE.to_string()),
+            known_hosts: KnownHosts::HostsFile(DEFAULT_KNOWN_HOSTS_FILE.deref().clone()),
             verifier_behaviour: HashMap::from([
                 (
                     CertVerificationStatus::UnknownCertificate,
@@ -182,7 +185,7 @@ pub enum KnownHosts {
     /// Directly contains the server name to fingerprint mapping
     Store(CertStore),
     /// Path of a file caontaing the server name to fingerprint mapping.
-    HostsFile(String), // TODO More on the file format + the limitations
+    HostsFile(Arc<Mutex<String>>), // TODO More on the file format + the limitations
 }
 
 /// Implementation of `ServerCertVerifier` that verifies everything as trustworthy.
@@ -200,7 +203,7 @@ impl rustls::client::ServerCertVerifier for SkipServerVerification {
         _end_entity: &rustls::Certificate,
         _intermediates: &[rustls::Certificate],
         _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _scts: &mut dyn Iterator<Item=&[u8]>,
         _ocsp_response: &[u8],
         _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
@@ -215,7 +218,7 @@ pub(crate) struct TofuServerVerification {
     to_sync_client: mpsc::Sender<InternalAsyncMessage>,
 
     /// If present, the file where new fingerprints should be stored
-    hosts_file: Option<String>,
+    hosts_file: Option<Arc<Mutex<String>>>,
 }
 
 impl TofuServerVerification {
@@ -223,7 +226,7 @@ impl TofuServerVerification {
         store: CertStore,
         verifier_behaviour: HashMap<CertVerificationStatus, CertVerifierBehaviour>,
         to_sync_client: mpsc::Sender<InternalAsyncMessage>,
-        hosts_file: Option<String>,
+        hosts_file: Option<Arc<Mutex<String>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
@@ -292,11 +295,15 @@ impl TofuServerVerification {
                     let mut store_clone = self.store.clone();
                     store_clone
                         .insert(cert_info.server_name.clone(), cert_info.fingerprint.clone());
-                    if let Err(store_error) = store_known_hosts_to_file(file, &store_clone) {
-                        return Err(rustls::Error::General(format!(
-                            "Failed to store new certificate entry: {}",
-                            store_error
-                        )));
+
+                    match file.lock() {
+                        Ok(file) => if let Err(store_error) = store_known_hosts_to_file(&file.to_string(), &store_clone) {
+                            return Err(rustls::Error::General(format!(
+                                "Failed to store new certificate entry: {store_error}",
+                            )));
+                        },
+                        Err(e) =>
+                            panic!("unable to acquire lock on known_hosts file: {e}")
                     }
                 }
                 // In all cases raise an event containing the new certificate entry
@@ -320,7 +327,7 @@ impl rustls::client::ServerCertVerifier for TofuServerVerification {
         _end_entity: &rustls::Certificate,
         _intermediates: &[rustls::Certificate],
         _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _scts: &mut dyn Iterator<Item=&[u8]>,
         _ocsp_response: &[u8],
         _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
@@ -379,30 +386,45 @@ fn parse_known_host_line(
 }
 
 fn load_known_hosts_from_file(
-    file_path: String,
-) -> Result<(CertStore, Option<String>), Box<dyn Error>> {
+    file: Arc<Mutex<String>>,
+    file_path: Option<MutexGuard<String>>,
+) -> Result<(CertStore, Option<Arc<Mutex<String>>>), Box<dyn Error>> {
     let mut store = HashMap::new();
-    for line in BufReader::new(File::open(&file_path)?).lines() {
-        let entry = parse_known_host_line(line?)?;
-        store.insert(entry.0, entry.1);
+    {
+        let guard = match file_path {
+            None => file.lock().expect("unable to acquire lock on file"),
+            Some(guard) => guard,
+        };
+
+        for line in BufReader::new(File::open(&guard.to_string())?).lines() {
+            let entry = parse_known_host_line(line?)?;
+            store.insert(entry.0, entry.1);
+        }
     }
-    Ok((store, Some(file_path)))
+    Ok((store, Some(file)))
 }
 
 pub(crate) fn load_known_hosts_store_from_config(
     known_host_config: KnownHosts,
-) -> Result<(CertStore, Option<String>), Box<dyn Error>> {
+) -> Result<(CertStore, Option<Arc<Mutex<String>>>), Box<dyn Error>> {
     match known_host_config {
         KnownHosts::Store(store) => Ok((store, None)),
         KnownHosts::HostsFile(file) => {
-            if !Path::new(&file).exists() {
-                warn!(
-                    "Known hosts file `{}` not found, no known hosts loaded",
-                    file
-                );
-                Ok((HashMap::new(), Some(file)))
-            } else {
-                load_known_hosts_from_file(file)
+            match file.lock() {
+                Ok(file_guard) => {
+                    let path = file_guard.to_string();
+                    if !Path::new(&path).exists() {
+                        warn!(
+                            "Known hosts file `{}` not found, no known hosts loaded",
+                            path
+                        );
+                        Ok((HashMap::new(), Some(file.clone())))
+                    } else {
+                        load_known_hosts_from_file(file.clone(), Some(file_guard))
+                    }
+                }
+                Err(e) =>
+                    panic!("unable to acquire lock on known_hosts file: {e}")
             }
         }
     }

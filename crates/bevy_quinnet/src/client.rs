@@ -7,11 +7,12 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
+use std::string::ToString;
 
-use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
+use once_cell::sync::Lazy;
 use quinn::{ClientConfig, Endpoint};
 use rustls::KeyLogFile;
 use serde::Deserialize;
@@ -28,25 +29,29 @@ use tokio::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
+use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
+
 use crate::shared::{
-    AsyncRuntime, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
+    AsyncRuntime, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE, QuinnetError,
 };
 
 use self::certificate::{
-    load_known_hosts_store_from_config, CertConnectionAbortEvent, CertInteractionEvent,
+    CertConnectionAbortEvent, CertificateVerificationMode, CertInteractionEvent,
     CertTrustUpdateEvent, CertVerificationInfo, CertVerificationStatus, CertVerifierAction,
-    CertificateVerificationMode, SkipServerVerification, TofuServerVerification,
+    load_known_hosts_store_from_config, SkipServerVerification, TofuServerVerification,
 };
 
 pub mod certificate;
 
 pub const DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE: usize = 100;
-pub const DEFAULT_KNOWN_HOSTS_FILE: &str = "quinnet/known_hosts";
+pub static DEFAULT_KNOWN_HOSTS_FILE: Lazy<Arc<Mutex<String>>> =
+    Lazy::new(|| Arc::new(Mutex::new("quinnet/known_hosts".to_string())));
 
 pub type ConnectionId = u64;
 
 /// Connection event raised when the client just connected to the server. Raised in the CoreStage::PreUpdate stage.
 pub struct ConnectionEvent(ConnectionId);
+
 /// ConnectionLost event raised when the client is considered disconnected from the server. Raised in the CoreStage::PreUpdate stage.
 pub struct ConnectionLostEvent(ConnectionId);
 
@@ -298,7 +303,7 @@ impl Client {
                 to_server_receiver,
                 from_server_sender,
             })
-            .await
+                .await
         });
 
         self.last_gen_id += 1;
