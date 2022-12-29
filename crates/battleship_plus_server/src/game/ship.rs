@@ -1,7 +1,7 @@
 use std::cmp::max;
 use std::sync::Arc;
 
-use rstar::{Envelope, PointDistance, RTreeObject, SelectionFunction, AABB};
+use rstar::{AABB, Envelope, PointDistance, RTreeObject, SelectionFunction};
 
 use battleship_plus_common::types::*;
 
@@ -172,6 +172,40 @@ impl Ship {
         }
     }
 
+    pub fn do_rotation(
+        &mut self,
+        direction: RotateDirection,
+        bounds: &AABB<[i32; 2]>,
+    ) -> Result<AABB<[i32; 2]>, ActionValidationError> {
+        let balancing = self.common_balancing();
+        let (x, y) = self.position();
+        let new_orientation = match (direction, self.orientation()) {
+            (RotateDirection::Clockwise, Orientation::North) => Orientation::East,
+            (RotateDirection::Clockwise, Orientation::West) => Orientation::North,
+            (RotateDirection::Clockwise, Orientation::South) => Orientation::West,
+            (RotateDirection::Clockwise, Orientation::East) => Orientation::South,
+            (RotateDirection::CounterClockwise, Orientation::North) => Orientation::West,
+            (RotateDirection::CounterClockwise, Orientation::West) => Orientation::South,
+            (RotateDirection::CounterClockwise, Orientation::South) => Orientation::East,
+            (RotateDirection::CounterClockwise, Orientation::East) => Orientation::North,
+        };
+
+        if bounds.contains_envelope(&self.get_envelope_with_orientation(x, y, new_orientation)) {
+            self.set_orientation(new_orientation);
+
+            let cooldown = balancing.movement_costs.unwrap().cooldown;
+            if cooldown > 0 {
+                self.cool_downs_mut().push(Cooldown::Movement {
+                    remaining_rounds: cooldown,
+                });
+            }
+
+            Ok(self.envelope())
+        } else {
+            Err(ActionValidationError::OutOfMap)
+        }
+    }
+
     fn set_position(&mut self, x: i32, y: i32) {
         match self {
             Ship::Carrier { data, .. }
@@ -185,8 +219,24 @@ impl Ship {
         };
     }
 
+    fn set_orientation(&mut self, orientation: Orientation) {
+        match self {
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => {
+                data.orientation = orientation;
+            }
+        };
+    }
+
     fn get_envelope(&self, x: i32, y: i32) -> AABB<[i32; 2]> {
-        match self.orientation() {
+        self.get_envelope_with_orientation(x, y, self.orientation())
+    }
+
+    fn get_envelope_with_orientation(&self, x: i32, y: i32, orientation: Orientation) -> AABB<[i32; 2]> {
+        match orientation {
             Orientation::North => AABB::from_corners([x, y - (self.len() - 1)], [x, y]),
             Orientation::South => AABB::from_corners([x, y], [x, y + (self.len() - 1)]),
             Orientation::East => AABB::from_corners([x, y], [x + (self.len() - 1), y]),
@@ -236,7 +286,7 @@ impl Default for ShipData {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Orientation {
     North,
     South,
