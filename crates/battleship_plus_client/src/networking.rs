@@ -343,6 +343,28 @@ fn listen_for_messages(
     }
 }
 
+pub enum ResponseError<T> {
+    A(T),
+}
+
+pub fn receive_response<T>(
+    events: &mut EventReader<MessageReceivedEvent>,
+) -> Result<T, ResponseError<T>>
+where
+    T: messages::Message,
+{
+    let messages = vec![];
+    for MessageReceivedEvent(messages::StatusMessage { code, data }, sender) in events_clone.iter()
+    {
+        // Return the first message containing the correct response type.
+        messages.push((code, data, sender));
+    }
+    // Otherwise, return the first status message containing a plausible error type (excluding
+    // server errors).
+    // Then, return the first server error.
+    // Finally, return the first status message.
+}
+
 fn process_server_configurations(
     mut events: EventReader<MessageReceivedEvent>,
     mut servers: Query<&mut ServerInformation>,
