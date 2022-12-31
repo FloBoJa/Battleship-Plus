@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     fs::write(
         messages_rust_source_path,
         format!(
-            "::battleship_plus_macros::add_conversions!(\n\
+            "::battleship_plus_macros::enhance!(\n\
                 {messages_rust_source}\n\
              );"
         ),
