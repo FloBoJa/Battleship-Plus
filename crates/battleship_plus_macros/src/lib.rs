@@ -3,19 +3,140 @@ use quote::ToTokens;
 use syn::parse_quote;
 
 #[proc_macro]
-pub fn add_conversions(tokens: TokenStream) -> TokenStream {
+pub fn enhance(tokens: TokenStream) -> TokenStream {
+    let tokens = for_all_items(tokens, add_event_enum);
+    let tokens = for_all_items(tokens, add_conversions);
+    tokens
+}
+
+fn for_all_items<F>(tokens: TokenStream, func: F) -> TokenStream
+where
+    F: Fn(&syn::Item) -> Vec<syn::Item>,
+{
     let mut file: syn::File = syn::parse(tokens).expect("Unable to parse rust source to syn::File");
 
     let mut modified_items = Vec::with_capacity(file.items.len());
     for item in &file.items {
-        modified_items.append(&mut process_item(item));
+        modified_items.append(&mut func(item));
     }
     file.items = modified_items;
 
     file.into_token_stream().into()
 }
 
-fn process_item(item: &syn::Item) -> Vec<syn::Item> {
+fn add_event_enum(item: &syn::Item) -> Vec<syn::Item> {
+    if let syn::Item::Mod(
+        item_mod @ syn::ItemMod {
+            content: Some(_), ..
+        },
+    ) = item
+    {
+        let mut item_mod = item_mod.to_owned();
+        let (brace, items) = item_mod.content.unwrap();
+        let mut modified_items = Vec::with_capacity(items.len());
+        for item in &items {
+            modified_items.append(&mut add_event_enum(item));
+        }
+        item_mod.content = Some((brace, modified_items));
+        return vec![syn::Item::Mod(item_mod)];
+    }
+
+    if let syn::Item::Enum(item_enum) = item {
+        if !format!("{}", item_enum.ident).ends_with("ProtocolMessage") {
+            return vec![syn::Item::Enum(item_enum.to_owned())];
+        }
+
+        let variants: Vec<syn::Variant> = item_enum
+            .variants
+            .iter()
+            .filter(|variant| {
+                variant
+                    .attrs
+                    .iter()
+                    .filter_map(|attr| attr.path.segments.iter().last().map(|ident| (attr, ident)))
+                    .filter(|(_, ident)| format!("{}", ident.ident) == "prost")
+                    .filter_map(|(attr, _)| attr.tokens.to_owned().into_iter().last())
+                    .filter_map(|token| {
+                        if let proc_macro2::TokenTree::Group(group) = token {
+                            Some(group)
+                        } else {
+                            None
+                        }
+                    })
+                    .filter_map(|group| group.stream().into_iter().last())
+                    .filter_map(|token| {
+                        if let proc_macro2::TokenTree::Literal(id) = token {
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|id| format!("{id}"))
+                    .map(|id| id.replace("\"", ""))
+                    .filter_map(|id| id.parse::<usize>().ok())
+                    // No StatusMessages or ServerAdvertisements
+                    .filter(|id| *id >= 10)
+                    // No Server-bound messages
+                    .any(|id| id < 40)
+            })
+            .map(|x| x.to_owned())
+            .collect();
+
+        let variant_identifiers: Vec<syn::Ident> = variants
+            .iter()
+            .map(|variant| variant.ident.clone())
+            .collect();
+
+        let event_enum: syn::ItemEnum = parse_quote!(
+
+            #[derive(prost::Oneof)]
+            pub enum EventMessage {
+                #(#variants),*
+            }
+
+        );
+
+        let from_event_item: syn::ItemImpl = parse_quote!(
+
+            impl From<EventMessage> for ProtocolMessage {
+                fn from(event_message: EventMessage) -> Self {
+                    match event_message {
+                        #(
+                            EventMessage::#variant_identifiers(message) => ProtocolMessage::#variant_identifiers(message),
+                        )*
+                    }
+                }
+            }
+
+        );
+
+        let from_protocol_item: syn::ItemImpl = parse_quote!(
+
+            impl TryFrom<ProtocolMessage> for EventMessage {
+                type Error = ();
+                fn try_from(protocol_message: ProtocolMessage) -> Result<Self, Self::Error> {
+                    match protocol_message {
+                        #(
+                            ProtocolMessage::#variant_identifiers(message) => Ok(EventMessage::#variant_identifiers(message)),
+                        )*
+                        _ => Err(()),
+                    }
+                }
+            }
+
+        );
+
+        return vec![
+            syn::Item::Enum(item_enum.to_owned()),
+            syn::Item::Enum(event_enum),
+            syn::Item::Impl(from_event_item),
+            syn::Item::Impl(from_protocol_item),
+        ];
+    }
+    vec![item.to_owned()]
+}
+
+fn add_conversions(item: &syn::Item) -> Vec<syn::Item> {
     // Modules, processed recursively.
     if let syn::Item::Mod(
         item_mod @ syn::ItemMod {
@@ -27,7 +148,7 @@ fn process_item(item: &syn::Item) -> Vec<syn::Item> {
         let (brace, items) = item_mod.content.unwrap();
         let mut modified_items = Vec::with_capacity(items.len());
         for item in &items {
-            modified_items.append(&mut process_item(item));
+            modified_items.append(&mut add_conversions(item));
         }
         item_mod.content = Some((brace, modified_items));
         return vec![syn::Item::Mod(item_mod)];

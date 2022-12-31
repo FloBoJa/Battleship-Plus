@@ -6,6 +6,7 @@ pub mod types {
 
 #[allow(clippy::large_enum_variant)]
 pub mod messages {
+    pub use crate::messages::packet_payload::EventMessage;
     pub use crate::messages::packet_payload::ProtocolMessage;
     pub use prost::Message;
 
