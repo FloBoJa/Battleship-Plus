@@ -5,8 +5,7 @@ use syn::parse_quote;
 #[proc_macro]
 pub fn enhance(tokens: TokenStream) -> TokenStream {
     let tokens = for_all_items(tokens, add_event_enum);
-    let tokens = for_all_items(tokens, add_conversions);
-    tokens
+    for_all_items(tokens, add_conversions)
 }
 
 fn for_all_items<F>(tokens: TokenStream, func: F) -> TokenStream
@@ -46,6 +45,8 @@ fn add_event_enum(item: &syn::Item) -> Vec<syn::Item> {
             return vec![syn::Item::Enum(item_enum.to_owned())];
         }
 
+        // Clippy misidentifies this, attr.tokens.iter() does not exist.
+        #[allow(clippy::unnecessary_to_owned)]
         let variants: Vec<syn::Variant> = item_enum
             .variants
             .iter()
@@ -72,7 +73,7 @@ fn add_event_enum(item: &syn::Item) -> Vec<syn::Item> {
                         }
                     })
                     .map(|id| format!("{id}"))
-                    .map(|id| id.replace("\"", ""))
+                    .map(|id| id.replace('\"', ""))
                     .filter_map(|id| id.parse::<usize>().ok())
                     // No StatusMessages or ServerAdvertisements
                     .filter(|id| *id >= 10)
