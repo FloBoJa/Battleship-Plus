@@ -14,7 +14,7 @@ use tokio_util::codec::Decoder;
 use crate::game_state::GameState;
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
-    messages::{self, ProtocolMessage, ServerAdvertisement},
+    messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement},
     types,
 };
 use bevy_quinnet::{
@@ -31,7 +31,9 @@ pub struct NetworkingPlugin;
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(QuinnetClientPlugin::default())
-            .add_event::<MessageReceivedEvent>()
+            .add_event::<messages::EventMessage>()
+            .add_event::<ResponseReceivedEvent>()
+            .init_resource::<CurrentServer>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(clean_up_servers)
             .add_system(listen_for_messages)
@@ -40,7 +42,10 @@ impl Plugin for NetworkingPlugin {
     }
 }
 
-pub struct MessageReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
+pub struct ResponseReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
+
+#[derive(Resource, Default)]
+pub struct CurrentServer(pub Option<ConnectionRecord>);
 
 #[derive(Component, Debug)]
 pub struct ServerInformation {
@@ -292,7 +297,9 @@ fn request_config(
 }
 
 fn listen_for_messages(
-    mut event: EventWriter<MessageReceivedEvent>,
+    mut response_events: EventWriter<ResponseReceivedEvent>,
+    mut game_events: EventWriter<messages::EventMessage>,
+    mut current_server: Res<CurrentServer>,
     mut client: ResMut<Client>,
     connection_records: Query<&ConnectionRecord>,
 ) {
@@ -313,32 +320,44 @@ fn listen_for_messages(
         };
 
         loop {
-            let message = match connection.receive_message() {
-                Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => status_message,
-                Ok(Some(Some(_other_message))) => {
-                    warn!(
-                        "Received message without status code, \
-                          this is probably a sign for an error of the server at {sender}"
-                    );
-                    continue;
+            match connection.receive_message() {
+                Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => {
+                    debug!("Received reponse from {sender}: {status_message:?}");
+                    response_events.send(ResponseReceivedEvent(status_message, sender));
+                }
+                Ok(Some(Some(other_message))) => {
+                    match &current_server.0 {
+                        None => {
+                            warn!("Received non-status message before joining a server from {sender}: {other_message:?}");
+                            continue;
+                        }
+                        Some(current_connection) if sender == current_connection.server_address => {
+                            // Carry on
+                        }
+                        Some(_other_connection) => {
+                            warn!("Received non-status message from unjoined server at {sender}: {other_message:?}");
+                            continue;
+                        }
+                    };
+                    match EventMessage::try_from(other_message.clone()) {
+                        Ok(game_event) => game_events.send(game_event),
+                        Err(()) => warn!(
+                            "Received non-event message without status code: {other_message:?}"
+                        ),
+                    }
                 }
                 Ok(Some(None)) => {
                     // A keep-alive message
-                    continue;
                 }
                 Ok(None) => {
                     // Nothing or an incomplete message, retry later
                     break;
                 }
-                Err(QuinnetError::ChannelClosed) => continue,
+                Err(QuinnetError::ChannelClosed) => {}
                 Err(error) => {
                     warn!("Unexpected error occurred while receiving packet: {error}");
-                    continue;
                 }
             };
-
-            debug!("Received message from {sender}: {message:?}");
-            event.send(MessageReceivedEvent(message, sender));
         }
     }
 }
@@ -348,13 +367,20 @@ pub enum ResponseError<T> {
 }
 
 pub fn receive_response<T>(
-    events: &mut EventReader<MessageReceivedEvent>,
+    events: &mut EventReader<ResponseReceivedEvent>,
 ) -> Result<T, ResponseError<T>>
 where
-    T: messages::Message,
+    T: messages::Message + Default,
 {
-    let messages = vec![];
-    for MessageReceivedEvent(messages::StatusMessage { code, data }, sender) in events_clone.iter()
+    let mut messages = vec![];
+    for ResponseReceivedEvent(
+        messages::StatusMessage {
+            code,
+            message,
+            data,
+        },
+        sender,
+    ) in events.iter()
     {
         // Return the first message containing the correct response type.
         messages.push((code, data, sender));
@@ -363,13 +389,22 @@ where
     // server errors).
     // Then, return the first server error.
     // Finally, return the first status message.
+    Ok(T::default())
 }
 
 fn process_server_configurations(
-    mut events: EventReader<MessageReceivedEvent>,
+    mut events: EventReader<ResponseReceivedEvent>,
     mut servers: Query<&mut ServerInformation>,
 ) {
-    for MessageReceivedEvent(messages::StatusMessage { code, data }, sender) in events.iter() {
+    for ResponseReceivedEvent(
+        messages::StatusMessage {
+            code,
+            message,
+            data,
+        },
+        sender,
+    ) in events.iter()
+    {
         // TODO: Include response.message as soon as that MR is merged.
         if code / 100 != 2 {
             warn!("Received error code {code} from server at {sender}");

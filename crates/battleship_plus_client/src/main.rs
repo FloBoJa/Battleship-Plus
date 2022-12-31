@@ -30,7 +30,6 @@ fn main() {
         }))
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(networking::NetworkingPlugin)
-        .init_resource::<CurrentServer>()
         .add_loopless_state(GameState::Unconnected)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
@@ -79,9 +78,6 @@ fn text_update_system(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text,
     }
 }
 
-#[derive(Resource, Default)]
-struct CurrentServer(Option<networking::ConnectionRecord>);
-
 fn join_any_server(
     mut commands: Commands,
     servers: Query<&networking::ServerInformation>,
@@ -107,23 +103,29 @@ fn join_any_server(
         }))
         .unwrap_or_else(|error| warn!("Could not send join request: {error}"));
     commands.insert_resource(NextState(GameState::Joining));
-    commands.insert_resource(CurrentServer(Some(connection_record.clone())));
+    commands.insert_resource(networking::CurrentServer(Some(connection_record.clone())));
 }
 
 #[derive(Resource)]
 struct PlayerId(u32);
 
 fn process_join_response(
-    mut events: EventReader<networking::MessageReceivedEvent>,
-    current_server: Res<CurrentServer>,
+    mut events: EventReader<networking::ResponseReceivedEvent>,
+    current_server: Res<networking::CurrentServer>,
     mut commands: Commands,
 ) {
     let current_server = current_server
         .0
         .as_ref()
         .expect("Joining state requires CurrentServer to have a value");
-    for networking::MessageReceivedEvent(messages::StatusMessage { code, data }, sender) in
-        events.iter()
+    for networking::ResponseReceivedEvent(
+        messages::StatusMessage {
+            code,
+            message,
+            data,
+        },
+        sender,
+    ) in events.iter()
     {
         if *sender != current_server.server_address {
             // ignore
