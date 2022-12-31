@@ -11,9 +11,9 @@ pub type PlayerID = u32;
 pub struct Game {
     pub(crate) players: HashMap<PlayerID, Player>,
     pub(crate) team_a: HashSet<PlayerID>,
-    pub(crate) team_a_limit: u32,
+    pub(crate) team_a_size: u32,
     pub(crate) team_b: HashSet<PlayerID>,
-    pub(crate) team_b_limit: u32,
+    pub(crate) team_b_size: u32,
 
     pub(crate) ships: ShipManager,
     pub(crate) board_size: u32,
@@ -35,16 +35,16 @@ impl Game {
             team_a: Default::default(),
             team_b: Default::default(),
             ships: Default::default(),
-            team_a_limit,
-            team_b_limit,
+            team_a_size: team_a_limit,
+            team_b_size: team_b_limit,
             board_size,
             state: GameState::Lobby,
         }
     }
 
     pub fn can_start(&self) -> bool {
-        self.team_a.len() <= self.team_a_limit as usize
-            && self.team_b.len() <= self.team_b_limit as usize
+        self.team_a.len() == self.team_a_size as usize
+            && self.team_b.len() == self.team_b_size as usize
             && self.players.iter().all(|(_, p)| p.is_ready)
     }
 
