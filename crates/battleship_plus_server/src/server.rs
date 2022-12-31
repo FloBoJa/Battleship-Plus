@@ -1,23 +1,24 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use log::{debug, error, info, warn};
-use tokio::sync::{mpsc, Mutex, MutexGuard, RwLock};
+use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    JoinResponse, ProtocolMessage, ServerConfigResponse, SetReadyStateRequest,
+    JoinResponse, LobbyChangeEvent, ProtocolMessage, ServerConfigResponse, SetReadyStateRequest,
     SetReadyStateResponse, StatusMessage, TeamSwitchResponse,
 };
-use battleship_plus_common::types::Config;
+use battleship_plus_common::types::{Config, PlayerLobbyState};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::server::{ClientPayload, Endpoint, Server, ServerConfigurationData};
 use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-use crate::game::data::{Game, Player};
+use crate::game::data::{Game, Player, PlayerID};
 
 pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
     let addr6 = cfg.server_config().game_address_v6;
@@ -42,7 +43,7 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
             save_on_disk: true,
         },
     ) {
-        Ok(_) => Some(Arc::new(Mutex::new(server6))),
+        Ok(_) => Some(Arc::new(RwLock::new(server6))),
         Err(e) => {
             error!("Unable to listen on {addr6}: {e}");
             panic!("Unable to listen on {addr6}: {e}")
@@ -76,7 +77,7 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
                     save_on_disk: true,
                 },
             ) {
-                Ok(_) => Some(Arc::new(Mutex::new(s4))),
+                Ok(_) => Some(Arc::new(RwLock::new(s4))),
                 Err(e) => {
                     warn!("Unable to listen on {addr4}: {e}");
                     None
@@ -85,7 +86,7 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
         }
     }
 
-    info!("Endpoint initialized");
+    info!("Endpoints initialized");
 
     loop {
         let game = Arc::new(RwLock::new(Game::new(
@@ -95,16 +96,22 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
         )));
         let (game_end_tx, mut game_end_rx) = mpsc::unbounded_channel();
 
-        let handles: Vec<_> = [&server6, &server4]
+        let servers: Vec<_> = [&server6, &server4]
             .iter()
             .filter(|e| e.is_some())
+            .map(|s| s.as_ref().unwrap().clone())
+            .collect();
+
+        let handles: Vec<_> = servers
+            .iter()
             .map(|server| {
                 let (cancel_tx, cancel_rx) = mpsc::unbounded_channel();
 
                 (
                     tokio::spawn(endpoint_task(
                         cfg.game_config(),
-                        server.as_ref().unwrap().clone(),
+                        server.clone(),
+                        servers.clone(),
                         game.clone(),
                         game_end_tx.clone(),
                         cancel_rx,
@@ -129,15 +136,16 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
 
 async fn endpoint_task(
     cfg: Arc<Config>,
-    server: Arc<Mutex<Server>>,
+    server: Arc<RwLock<Server>>,
+    servers: Vec<Arc<RwLock<Server>>>,
     game: Arc<RwLock<Game>>,
     game_end_tx: mpsc::UnboundedSender<()>,
     mut cancel_rx: mpsc::UnboundedReceiver<()>,
 ) {
     loop {
-        let mut server: MutexGuard<Server> = tokio::select! {
+        let mut server: RwLockWriteGuard<Server> = tokio::select! {
             _ = cancel_rx.recv() => return,
-            lock = server.lock() => lock,
+            lock = server.write() => lock,
         };
 
         let payload: ClientPayload = tokio::select! {
@@ -162,6 +170,7 @@ async fn endpoint_task(
             payload.msg.as_ref().unwrap(),
             &game,
             &game_end_tx,
+            &servers,
         )
         .await
         {
@@ -182,6 +191,7 @@ async fn handle_message(
     msg: &ProtocolMessage,
     game: &Arc<RwLock<Game>>,
     game_end_tx: &mpsc::UnboundedSender<()>,
+    servers: &Vec<Arc<RwLock<Server>>>,
 ) -> Result<(), MessageHandlerError> {
     match msg {
         // common
@@ -231,7 +241,15 @@ async fn handle_message(
                     }),
                 ),
             )
-            .map_err(MessageHandlerError::Network)
+            .map_err(MessageHandlerError::Network)?;
+
+            broadcast_lobby_change_event(
+                g.team_a.iter().cloned(),
+                g.team_b.iter().cloned(),
+                g.players.clone(),
+                servers,
+            )
+            .await
         }
         ProtocolMessage::TeamSwitchRequest(_) => {
             let action = Action::TeamSwitch {
@@ -250,7 +268,15 @@ async fn handle_message(
                         ProtocolMessage::TeamSwitchResponse(TeamSwitchResponse {}),
                     ),
                 )
-                .map_err(MessageHandlerError::Network)
+                .map_err(MessageHandlerError::Network)?;
+
+                broadcast_lobby_change_event(
+                    g.team_a.iter().cloned(),
+                    g.team_b.iter().cloned(),
+                    g.players.clone(),
+                    servers,
+                )
+                .await
             }
         }
         ProtocolMessage::SetReadyStateRequest(props) => {
@@ -273,7 +299,15 @@ async fn handle_message(
                         ProtocolMessage::SetReadyStateResponse(SetReadyStateResponse {}),
                     ),
                 )
-                .map_err(MessageHandlerError::Network)
+                .map_err(MessageHandlerError::Network)?;
+
+                broadcast_lobby_change_event(
+                    g.team_a.iter().cloned(),
+                    g.team_b.iter().cloned(),
+                    g.players.clone(),
+                    servers,
+                )
+                .await
             }
         }
 
@@ -316,6 +350,45 @@ async fn handle_message(
                 .map_err(MessageHandlerError::Network)
         }
     }
+}
+
+async fn broadcast_lobby_change_event(
+    team_a: impl Iterator<Item = PlayerID>,
+    team_b: impl Iterator<Item = PlayerID>,
+    players: HashMap<PlayerID, Player>,
+    servers: &Vec<Arc<RwLock<Server>>>,
+) -> Result<(), MessageHandlerError> {
+    let msg = ProtocolMessage::LobbyChangeEvent(LobbyChangeEvent {
+        team_state_a: build_team_states(team_a, &players),
+        team_state_b: build_team_states(team_b, &players),
+    });
+
+    for s in servers {
+        let s = s.read().await;
+
+        s.endpoint()
+            .broadcast_message(msg.clone())
+            .map_err(MessageHandlerError::Network)?;
+    }
+
+    Ok(())
+}
+
+fn build_team_states(
+    team_player_ids: impl Iterator<Item = PlayerID>,
+    players: &HashMap<PlayerID, Player>,
+) -> Vec<PlayerLobbyState> {
+    team_player_ids
+        .map(|id| players.get(&id))
+        .map(|player| {
+            let player = player.expect("player id in a team is not found in the game");
+            PlayerLobbyState {
+                ready: player.is_ready,
+                player_id: player.id,
+                name: player.name.clone(),
+            }
+        })
+        .collect()
 }
 
 fn action_validation_error_reply(
