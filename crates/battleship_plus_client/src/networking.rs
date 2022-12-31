@@ -299,7 +299,7 @@ fn request_config(
 fn listen_for_messages(
     mut response_events: EventWriter<ResponseReceivedEvent>,
     mut game_events: EventWriter<messages::EventMessage>,
-    mut current_server: Res<CurrentServer>,
+    current_server: Res<CurrentServer>,
     mut client: ResMut<Client>,
     connection_records: Query<&ConnectionRecord>,
 ) {
@@ -362,36 +362,6 @@ fn listen_for_messages(
     }
 }
 
-pub enum ResponseError<T> {
-    A(T),
-}
-
-pub fn receive_response<T>(
-    events: &mut EventReader<ResponseReceivedEvent>,
-) -> Result<T, ResponseError<T>>
-where
-    T: messages::Message + Default,
-{
-    let mut messages = vec![];
-    for ResponseReceivedEvent(
-        messages::StatusMessage {
-            code,
-            message,
-            data,
-        },
-        sender,
-    ) in events.iter()
-    {
-        // Return the first message containing the correct response type.
-        messages.push((code, data, sender));
-    }
-    // Otherwise, return the first status message containing a plausible error type (excluding
-    // server errors).
-    // Then, return the first server error.
-    // Finally, return the first status message.
-    Ok(T::default())
-}
-
 fn process_server_configurations(
     mut events: EventReader<ResponseReceivedEvent>,
     mut servers: Query<&mut ServerInformation>,
@@ -405,15 +375,22 @@ fn process_server_configurations(
         sender,
     ) in events.iter()
     {
-        // TODO: Include response.message as soon as that MR is merged.
         if code / 100 != 2 {
-            warn!("Received error code {code} from server at {sender}");
+            if message.is_empty() {
+                warn!("Received error code {code} from server at {sender}");
+            } else {
+                warn!("Received error code {code} from server at {sender} with message: {message}");
+            }
             continue;
         }
         let response = match data {
             Some(messages::status_message::Data::ServerConfigResponse(response)) => response,
             Some(_other_response) => {
-                warn!("No data in response after ConfigRequest but status code 2XX");
+                if message.is_empty() {
+                    warn!("No data in response after ConfigRequest but status code 2XX");
+                } else {
+                    warn!("No data in response after ConfigRequest but status code 2XX with message: {message}");
+                }
                 // ignore
                 continue;
             }
@@ -424,7 +401,12 @@ fn process_server_configurations(
             None => continue,
         };
         if response.config.is_none() {
-            warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server");
+            if message.is_empty() {
+                warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server");
+            } else {
+                warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server. \
+                       The following message was included: {message}");
+            }
             continue;
         }
         server.config = response.config.to_owned();

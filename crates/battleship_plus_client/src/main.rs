@@ -132,7 +132,6 @@ fn process_join_response(
             continue;
         }
 
-        // TODO: Include response.message as soon as that MR is merged.
         match code {
             code if code / 100 == 2 => match data {
                 Some(messages::status_message::Data::JoinResponse(messages::JoinResponse {
@@ -146,24 +145,52 @@ fn process_join_response(
                     // ignore
                 }
                 None => {
-                    warn!("No data in response after JoinRequest but status code 2XX");
+                    if message.is_empty() {
+                        warn!("No data in response after JoinRequest but status code 2XX");
+                    } else {
+                        warn!("No data in response after JoinRequest but status code 2XX with message: {message}");
+                    }
                     // ignore
                 }
             },
             441 => {
-                warn!("User name was taken, this should not happen and might indicate an error in the server at {sender}");
+                if message.is_empty() {
+                    warn!("User name was taken, this should not happen \
+                           and might indicate an error in the server at {sender}");
+                } else {
+                    warn!("User name was taken, this should not happen \
+                           and might indicate an error in the server at {sender}. \
+                           The following message was included: {message}");
+                }
                 commands.insert_resource(NextState(GameState::Unconnected));
             }
             442 => info!("The lobby of the server at {sender} is full, disconnecting"),
             code if code / 10 == 44 => {
-                warn!("Unsuccessful, but received unknown status code {code} with data {data:?}");
+                if message.is_empty() {
+                    warn!("Unsuccessful, but received unknown status code {code} with data {data:?}");
+                } else {
+                    warn!("Unsuccessful, but received unknown status code {code} \
+                           with message \"{message}\" and data {data:?}");
+                }
                 commands.insert_resource(NextState(GameState::Unconnected));
             }
             code if code / 100 == 5 => {
-                error!("Server error {code} from {sender}, disconnecting");
+                if message.is_empty() {
+                    error!("Server error {code} from {sender}, disconnecting");
+                } else {
+                    error!("Server error {code} with message \"{message}\" from {sender}, disconnecting");
+                }
                 commands.insert_resource(NextState(GameState::Unconnected));
             }
-            code => todo!("Handle illegal error code {code}"),
+            code => {
+                if message.is_empty() {
+                    error!("Received unknown or illegal error code {code} from {sender}, disconnecting");
+                } else {
+                    error!("Received unknown or illegal error code {code} with message \"{message}\" \
+                            from {sender}, disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
         }
     }
 }

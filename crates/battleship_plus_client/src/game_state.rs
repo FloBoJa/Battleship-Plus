@@ -3,6 +3,7 @@ pub enum GameState {
     Unconnected,
     Joining,
     Lobby,
-    Placement,
-    Game,
+    // TODO:
+    // Placement,
+    // Game,
 }
