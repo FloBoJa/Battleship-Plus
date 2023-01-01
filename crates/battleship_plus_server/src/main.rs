@@ -14,7 +14,7 @@ mod server_test;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    pretty_env_logger::init();
 
     info!("Battleship Plus server startup");
 
