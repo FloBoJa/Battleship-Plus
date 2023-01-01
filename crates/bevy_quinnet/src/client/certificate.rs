@@ -190,10 +190,10 @@ pub enum KnownHosts {
 }
 
 /// Implementation of `ServerCertVerifier` that verifies everything as trustworthy.
-pub(crate) struct SkipServerVerification;
+pub struct SkipServerVerification;
 
 impl SkipServerVerification {
-    pub(crate) fn new() -> Arc<Self> {
+    pub fn new() -> Arc<Self> {
         Arc::new(Self)
     }
 }

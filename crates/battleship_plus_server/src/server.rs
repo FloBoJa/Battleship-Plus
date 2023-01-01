@@ -19,8 +19,20 @@ use bevy_quinnet::shared::{ClientId, QuinnetError};
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
 use crate::game::data::{Game, Player, PlayerID};
+use crate::tasks::{upgrade_oneshot, TaskControl};
 
-pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
+pub fn spawn_server_task(cfg: Arc<dyn ConfigProvider + Send + Sync>) -> TaskControl {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = tokio::spawn(server_task(cfg, rx));
+    TaskControl::new(tx, handle)
+}
+
+pub async fn server_task(
+    cfg: Arc<dyn ConfigProvider + Send + Sync>,
+    stop: tokio::sync::oneshot::Receiver<()>,
+) {
+    let mut stop = upgrade_oneshot(stop);
+
     let addr6 = cfg.server_config().game_address_v6;
     let addr4 = cfg.server_config().game_address_v4;
     let ascii_host: String = cfg
@@ -96,7 +108,12 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
         )));
         let (game_end_tx, mut game_end_rx) = mpsc::unbounded_channel();
 
-        let servers: Vec<_> = [&server6, &server4]
+        let (broadcast_tx, broadcast_rx): (
+            tokio::sync::broadcast::Sender<ProtocolMessage>,
+            tokio::sync::broadcast::Receiver<ProtocolMessage>,
+        ) = tokio::sync::broadcast::channel(128);
+
+        let servers: Vec<_> = [server6.clone(), server4.clone()]
             .iter()
             .filter(|e| e.is_some())
             .map(|s| s.as_ref().unwrap().clone())
@@ -111,7 +128,8 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
                     tokio::spawn(endpoint_task(
                         cfg.game_config(),
                         server.clone(),
-                        servers.clone(),
+                        broadcast_tx.clone(),
+                        broadcast_rx.resubscribe(),
                         game.clone(),
                         game_end_tx.clone(),
                         cancel_rx,
@@ -121,7 +139,10 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
             })
             .collect();
 
-        let _ = game_end_rx.recv().await;
+        tokio::select! {
+            _ = game_end_rx.recv() => {},
+            _ = stop.recv() => return,
+        }
 
         for h in handles {
             h.1.send(())
@@ -137,7 +158,8 @@ pub(crate) async fn server_task(cfg: Arc<dyn ConfigProvider>) {
 async fn endpoint_task(
     cfg: Arc<Config>,
     server: Arc<RwLock<Server>>,
-    servers: Vec<Arc<RwLock<Server>>>,
+    broadcast_tx: tokio::sync::broadcast::Sender<ProtocolMessage>,
+    mut broadcast_rx: tokio::sync::broadcast::Receiver<ProtocolMessage>,
     game: Arc<RwLock<Game>>,
     game_end_tx: mpsc::UnboundedSender<()>,
     mut cancel_rx: mpsc::UnboundedReceiver<()>,
@@ -150,6 +172,14 @@ async fn endpoint_task(
 
         let payload: ClientPayload = tokio::select! {
             _ = cancel_rx.recv() => return,
+            msg = broadcast_rx.recv() => {
+                if let Ok(msg) = msg {
+                    if let Err(e) = server.endpoint().broadcast_message(msg.clone()) {
+                        warn!("unable to broadcast {msg:?}: {e}");
+                    }
+                }
+                continue;
+            },
             p = server.endpoint_mut().receive_payload_waiting() => {
                 match p {
                     Some(p) => p,
@@ -170,7 +200,7 @@ async fn endpoint_task(
             payload.msg.as_ref().unwrap(),
             &game,
             &game_end_tx,
-            &servers,
+            &broadcast_tx,
         )
         .await
         {
@@ -191,7 +221,7 @@ async fn handle_message(
     msg: &ProtocolMessage,
     game: &Arc<RwLock<Game>>,
     game_end_tx: &mpsc::UnboundedSender<()>,
-    servers: &Vec<Arc<RwLock<Server>>>,
+    broadcast_tx: &tokio::sync::broadcast::Sender<ProtocolMessage>,
 ) -> Result<(), MessageHandlerError> {
     match msg {
         // common
@@ -249,7 +279,7 @@ async fn handle_message(
                 g.team_a.iter().cloned(),
                 g.team_b.iter().cloned(),
                 g.players.clone(),
-                servers,
+                broadcast_tx,
             )
             .await
         }
@@ -273,7 +303,7 @@ async fn handle_message(
                     g.team_a.iter().cloned(),
                     g.team_b.iter().cloned(),
                     g.players.clone(),
-                    servers,
+                    broadcast_tx,
                 )
                 .await
             }
@@ -301,7 +331,7 @@ async fn handle_message(
                     g.team_a.iter().cloned(),
                     g.team_b.iter().cloned(),
                     g.players.clone(),
-                    servers,
+                    broadcast_tx,
                 )
                 .await
             }
@@ -352,22 +382,16 @@ async fn broadcast_lobby_change_event(
     team_a: impl Iterator<Item = PlayerID>,
     team_b: impl Iterator<Item = PlayerID>,
     players: HashMap<PlayerID, Player>,
-    servers: &Vec<Arc<RwLock<Server>>>,
+    broadcast_tx: &tokio::sync::broadcast::Sender<ProtocolMessage>,
 ) -> Result<(), MessageHandlerError> {
     let msg = ProtocolMessage::LobbyChangeEvent(LobbyChangeEvent {
         team_state_a: build_team_states(team_a, &players),
         team_state_b: build_team_states(team_b, &players),
     });
-
-    for s in servers {
-        let s = s.read().await;
-
-        s.endpoint()
-            .broadcast_message(msg.clone())
-            .map_err(MessageHandlerError::Network)?;
+    match broadcast_tx.send(msg) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(MessageHandlerError::Broadcast(e)),
     }
-
-    Ok(())
 }
 
 fn build_team_states(
@@ -458,6 +482,7 @@ fn status_response(code: u32, message: &str, data: Option<Data>) -> ProtocolMess
 pub enum MessageHandlerError {
     Network(QuinnetError),
     Protocol(ActionExecutionError),
+    Broadcast(tokio::sync::broadcast::error::SendError<ProtocolMessage>),
 }
 
 impl Display for MessageHandlerError {
@@ -466,6 +491,7 @@ impl Display for MessageHandlerError {
         match self {
             MessageHandlerError::Network(e) => f.write_str(format!("{e}").as_str()),
             MessageHandlerError::Protocol(e) => f.write_str(format!("{e:?}").as_str()),
+            MessageHandlerError::Broadcast(e) => f.write_str(format!("{e:?}").as_str()),
         }
     }
 }

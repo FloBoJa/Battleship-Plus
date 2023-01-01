@@ -18,7 +18,7 @@ pub trait ConfigProvider {
     fn server_config(&self) -> Arc<ServerConfig>;
 }
 
-mod default {
+pub(crate) mod default {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
     use std::sync::Arc;
     use std::time::Duration;
@@ -154,6 +154,6 @@ mod default {
     }
 }
 
-pub fn default_config_provider() -> Arc<dyn ConfigProvider> {
+pub fn default_config_provider() -> Arc<dyn ConfigProvider + Send + Sync> {
     Arc::from(default::DefaultGameConfig)
 }

@@ -13,11 +13,17 @@ use battleship_plus_common::{
 };
 
 use crate::config_provider::ConfigProvider;
+use crate::tasks::{upgrade_oneshot, TaskControl};
 
-pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
+/// Starts broadcasting game announcements at a fixed interval.
+/// When a task is started by this call, it returns a Channel to signal the task to stop and a JoinHandle.
+pub(crate) async fn spawn_timer_task(cfg: &dyn ConfigProvider) -> Option<TaskControl> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut stop = upgrade_oneshot(rx);
+
     if !cfg.server_config().enable_announcements_v4 && !cfg.server_config().enable_announcements_v6
     {
-        return;
+        return None;
     }
 
     let sock_v4;
@@ -58,9 +64,12 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
     let announce_v4 = cfg.server_config().announcement_address_v4;
     let announce_v6 = cfg.server_config().announcement_address_v6;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         loop {
-            timer.tick().await;
+            tokio::select! {
+                _ = stop.recv() => return,
+                _ = timer.tick() => {}
+            }
 
             if sock_v4.as_ref().is_some() {
                 match dispatch_announcement(
@@ -91,6 +100,8 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
             }
         }
     });
+
+    Some(TaskControl::new(tx, handle))
 }
 
 pub(crate) async fn dispatch_announcement(
