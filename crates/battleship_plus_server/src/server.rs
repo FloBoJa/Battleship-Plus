@@ -4,6 +4,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use log::{debug, error, info, warn};
+use tokio::macros::support::thread_rng_n;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::messages::status_message::Data;
@@ -26,6 +27,11 @@ pub fn spawn_server_task(cfg: Arc<dyn ConfigProvider + Send + Sync>) -> TaskCont
     let handle = tokio::spawn(server_task(cfg, rx));
     TaskControl::new(tx, handle)
 }
+
+type BroadcastChannel = (
+    tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+    tokio::sync::broadcast::Receiver<(Vec<ClientId>, ProtocolMessage)>,
+);
 
 pub async fn server_task(
     cfg: Arc<dyn ConfigProvider + Send + Sync>,
@@ -108,10 +114,7 @@ pub async fn server_task(
         )));
         let (game_end_tx, mut game_end_rx) = mpsc::unbounded_channel();
 
-        let (broadcast_tx, broadcast_rx): (
-            tokio::sync::broadcast::Sender<ProtocolMessage>,
-            tokio::sync::broadcast::Receiver<ProtocolMessage>,
-        ) = tokio::sync::broadcast::channel(128);
+        let (broadcast_tx, broadcast_rx): BroadcastChannel = tokio::sync::broadcast::channel(128);
 
         let servers: Vec<_> = [server6.clone(), server4.clone()]
             .iter()
@@ -158,8 +161,8 @@ pub async fn server_task(
 async fn endpoint_task(
     cfg: Arc<Config>,
     server: Arc<RwLock<Server>>,
-    broadcast_tx: tokio::sync::broadcast::Sender<ProtocolMessage>,
-    mut broadcast_rx: tokio::sync::broadcast::Receiver<ProtocolMessage>,
+    broadcast_tx: tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+    mut broadcast_rx: tokio::sync::broadcast::Receiver<(Vec<ClientId>, ProtocolMessage)>,
     game: Arc<RwLock<Game>>,
     game_end_tx: mpsc::UnboundedSender<()>,
     mut cancel_rx: mpsc::UnboundedReceiver<()>,
@@ -172,9 +175,9 @@ async fn endpoint_task(
 
         let payload: ClientPayload = tokio::select! {
             _ = cancel_rx.recv() => return,
-            msg = broadcast_rx.recv() => {
-                if let Ok(msg) = msg {
-                    if let Err(e) = server.endpoint().broadcast_message(msg.clone()) {
+            broadcast = broadcast_rx.recv() => {
+                if let Ok((ids, msg)) = broadcast {
+                    if let Err(e) = server.endpoint().send_group_message(ids.iter(), msg.clone()) {
                         warn!("unable to broadcast {msg:?}: {e}");
                     }
                 }
@@ -221,7 +224,7 @@ async fn handle_message(
     msg: &ProtocolMessage,
     game: &Arc<RwLock<Game>>,
     game_end_tx: &mpsc::UnboundedSender<()>,
-    broadcast_tx: &tokio::sync::broadcast::Sender<ProtocolMessage>,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     match msg {
         // common
@@ -262,6 +265,9 @@ async fn handle_message(
                     is_ready: false,
                 },
             );
+
+            place_into_team(client_id, &mut g);
+            g.unready_players();
 
             ep.send_message(
                 client_id,
@@ -378,19 +384,44 @@ async fn handle_message(
     }
 }
 
+/// Tries to fill the player into the team with capacity left and less players first.
+/// Otherwise random.
+fn place_into_team(player_id: ClientId, game: &mut RwLockWriteGuard<Game>) {
+    let mut a = game.team_a.clone();
+    let mut b = game.team_b.clone();
+
+    let mut teams = [(&mut a, game.team_a_size), (&mut b, game.team_b_size)];
+    teams.sort_by_key(|(team, _)| team.len());
+    if let Some((team, _)) = teams
+        .iter_mut()
+        .find(|(team, size)| team.len() < *size as usize)
+    {
+        team.insert(player_id);
+
+        game.team_a = a;
+        game.team_b = b;
+    } else {
+        match thread_rng_n(2) {
+            0 => game.team_a.insert(player_id),
+            1 => game.team_b.insert(player_id),
+            _ => panic!("the universe just broke"),
+        };
+    }
+}
+
 async fn broadcast_lobby_change_event(
     team_a: impl Iterator<Item = PlayerID>,
     team_b: impl Iterator<Item = PlayerID>,
     players: HashMap<PlayerID, Player>,
-    broadcast_tx: &tokio::sync::broadcast::Sender<ProtocolMessage>,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     let msg = ProtocolMessage::LobbyChangeEvent(LobbyChangeEvent {
         team_state_a: build_team_states(team_a, &players),
         team_state_b: build_team_states(team_b, &players),
     });
-    match broadcast_tx.send(msg) {
+    match broadcast_tx.send((players.keys().cloned().collect(), msg)) {
         Ok(_) => Ok(()),
-        Err(e) => Err(MessageHandlerError::Broadcast(e)),
+        Err(e) => Err(MessageHandlerError::Broadcast(Box::new(e))),
     }
 }
 
@@ -482,7 +513,7 @@ fn status_response(code: u32, message: &str, data: Option<Data>) -> ProtocolMess
 pub enum MessageHandlerError {
     Network(QuinnetError),
     Protocol(ActionExecutionError),
-    Broadcast(tokio::sync::broadcast::error::SendError<ProtocolMessage>),
+    Broadcast(Box<tokio::sync::broadcast::error::SendError<(Vec<ClientId>, ProtocolMessage)>>),
 }
 
 impl Display for MessageHandlerError {

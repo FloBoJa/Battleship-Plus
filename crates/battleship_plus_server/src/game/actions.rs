@@ -104,6 +104,8 @@ impl Action {
                     }
                 };
 
+                game.unready_players();
+
                 Ok(())
             }
             Action::SetReady { player_id, request } => {
