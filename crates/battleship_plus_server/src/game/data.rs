@@ -29,6 +29,12 @@ impl Default for Game {
 }
 
 impl Game {
+    pub(crate) fn unready_players(&mut self) {
+        self.players
+            .iter_mut()
+            .for_each(|(_, player)| player.is_ready = false);
+    }
+
     pub fn new(board_size: u32, team_a_limit: u32, team_b_limit: u32) -> Self {
         Game {
             players: Default::default(),
