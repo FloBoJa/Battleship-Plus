@@ -31,28 +31,62 @@ pub struct NetworkingPlugin;
 impl Plugin for NetworkingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(QuinnetClientPlugin::default())
+            .add_event::<ConfigReceivedEvent>()
             .add_event::<messages::EventMessage>()
             .add_event::<ResponseReceivedEvent>()
-            .init_resource::<CurrentServer>()
             .add_startup_system(set_up_advertisement_listener)
-            .add_system(clean_up_servers)
             .add_system(listen_for_messages)
+            .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
             .add_system(receive_advertisements.run_in_state(GameState::Unconnected))
-            .add_system(process_server_configurations.run_in_state(GameState::Unconnected));
+            .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
+            .add_enter_system(GameState::Joining, join_server)
+            .add_enter_system(GameState::Unconnected, try_leave_server);
     }
 }
 
-pub struct ResponseReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
+// Only happens for responses received from the current server.
+#[derive(Deref)]
+pub struct ResponseReceivedEvent(pub messages::StatusMessage);
 
-#[derive(Resource, Default)]
-pub struct CurrentServer(pub Option<ConnectionRecord>);
+// Happens for all servers, but only in the unconnected state.
+pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
 
-#[derive(Component, Debug)]
+#[derive(Resource, Deref)]
+pub struct CurrentServer(pub Entity);
+
+#[derive(Component, Clone, Debug)]
 pub struct ServerInformation {
     pub address: SocketAddr,
     pub name: String,
     pub config: Option<types::Config>,
     pub last_advertisement_received: Duration,
+}
+
+impl ServerInformation {
+    fn connect(&self, commands: &mut Commands, server: Entity, client: &mut ResMut<Client>) {
+        // Bind to UDPv4 if the server communicates on it.
+        let (local_address, server_scope) = match self.address {
+            SocketAddr::V4(_) => ("0.0.0.0".to_string(), None),
+            SocketAddr::V6(address) => ("[::]".to_string(), Some(address.scope_id())),
+        };
+
+        let connection_configuration = ConnectionConfiguration::new(
+            self.address.ip().to_string(),
+            server_scope,
+            self.address.port(),
+            local_address,
+            0,
+        );
+
+        let certificate_mode =
+            CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
+        let connection_id = client.open_connection(connection_configuration, certificate_mode);
+
+        commands
+            .get_entity(server)
+            .expect("The server entity must be the parent of this component")
+            .insert(Connection(connection_id));
+    }
 }
 
 #[derive(Component)]
@@ -244,129 +278,134 @@ fn process_advertisement(
             )
             .into(),
         };
-        request_config(server_address, commands, client);
 
-        commands.spawn(ServerInformation {
+        let server_information = ServerInformation {
             address: server_address,
             name: advertisement.display_name.clone(),
             config: None,
             last_advertisement_received: time.elapsed(),
-        });
+        };
+        let server = commands.spawn(server_information.clone()).id();
+
+        request_config(commands, server, &server_information, client);
     }
 }
 
-#[derive(Component, Clone)]
-pub struct ConnectionRecord {
-    pub connection_id: ConnectionId,
-    pub server_address: SocketAddr,
-}
+#[derive(Component, Clone, Deref)]
+pub struct Connection(ConnectionId);
 
 fn request_config(
-    server_address: SocketAddr,
     commands: &mut Commands,
+    server: Entity,
+    server_information: &ServerInformation,
     client: &mut ResMut<Client>,
 ) {
-    // Bind to UDPv4 if the server communicates on it.
-    let (local_address, server_scope) = match server_address {
-        SocketAddr::V4(_) => ("0.0.0.0".to_string(), None),
-        SocketAddr::V6(server_address) => ("[::]".to_string(), Some(server_address.scope_id())),
-    };
-
-    let connection_configuration = ConnectionConfiguration::new(
-        server_address.ip().to_string(),
-        server_scope,
-        server_address.port(),
-        local_address,
-        0,
-    );
-
-    let certificate_mode =
-        CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
-    let connection_id = client.open_connection(connection_configuration, certificate_mode);
-
-    commands.spawn(ConnectionRecord {
-        connection_id,
-        server_address,
-    });
-
-    let message = ProtocolMessage::ServerConfigRequest(messages::ServerConfigRequest {});
+    server_information.connect(commands, server, client);
+    let message = messages::ServerConfigRequest {}.into();
 
     if let Err(error) = client.connection().send_message(message) {
-        warn!("Failed to send server configuration request to {server_address}: {error}");
+        warn!(
+            "Failed to send server configuration request to {}: {error}",
+            server_information.address
+        );
     }
 }
 
 fn listen_for_messages(
-    mut response_events: EventWriter<ResponseReceivedEvent>,
-    mut game_events: EventWriter<messages::EventMessage>,
-    current_server: Res<CurrentServer>,
+    servers: Query<(Entity, &ServerInformation, &Connection)>,
+    current_server: Option<Res<CurrentServer>>,
     mut client: ResMut<Client>,
-    connection_records: Query<&ConnectionRecord>,
+    mut response_events: EventWriter<ResponseReceivedEvent>,
+    mut config_response_events: EventWriter<ConfigReceivedEvent>,
+    mut game_events: EventWriter<messages::EventMessage>,
 ) {
-    for (connection_id, connection) in client.connections_mut() {
-        if !connection.is_connected() {
-            continue;
-        }
-
-        let sender = match connection_records
-            .iter()
-            .find(|record| &record.connection_id == connection_id)
-        {
-            Some(record) => record.server_address,
-            None => {
-                warn!("Received data over unknown connection");
-                continue;
+    match current_server {
+        None => {
+            for (_, server_information, connection) in servers.iter() {
+                listen_for_messages_from(
+                    server_information,
+                    connection,
+                    &mut client,
+                    None,
+                    Some(&mut config_response_events),
+                    None,
+                );
             }
-        };
-
-        loop {
-            match connection.receive_message() {
-                Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => {
-                    debug!("Received reponse from {sender}: {status_message:?}");
-                    response_events.send(ResponseReceivedEvent(status_message, sender));
-                }
-                Ok(Some(Some(other_message))) => {
-                    match &current_server.0 {
-                        None => {
-                            warn!("Received non-status message before joining a server from {sender}: {other_message:?}");
-                            continue;
-                        }
-                        Some(current_connection) if sender == current_connection.server_address => {
-                            // Carry on
-                        }
-                        Some(_other_connection) => {
-                            warn!("Received non-status message from unjoined server at {sender}: {other_message:?}");
-                            continue;
-                        }
-                    };
-                    match EventMessage::try_from(other_message.clone()) {
-                        Ok(game_event) => game_events.send(game_event),
-                        Err(()) => warn!(
-                            "Received non-event message without status code: {other_message:?}"
-                        ),
-                    }
-                }
-                Ok(Some(None)) => {
-                    // A keep-alive message
-                }
-                Ok(None) => {
-                    // Nothing or an incomplete message, retry later
-                    break;
-                }
-                Err(QuinnetError::ChannelClosed) => {}
-                Err(error) => {
-                    warn!("Unexpected error occurred while receiving packet: {error}");
-                }
-            };
+        }
+        Some(server) => {
+            let server_information = servers
+                .get_component::<ServerInformation>(server.0)
+                .expect("CurrentServer always has a ServerInformation");
+            let connection = servers
+                .get_component::<Connection>(server.0)
+                .expect("CurrentServer always has a connection component");
+            listen_for_messages_from(
+                server_information,
+                connection,
+                &mut client,
+                Some(&mut response_events),
+                None,
+                Some(&mut game_events),
+            );
         }
     }
 }
 
-fn process_server_configurations(
-    mut events: EventReader<ResponseReceivedEvent>,
-    mut servers: Query<&mut ServerInformation>,
+fn listen_for_messages_from(
+    server_information: &ServerInformation,
+    Connection(connection_id): &Connection,
+    client: &mut ResMut<Client>,
+    mut response_events: Option<&mut EventWriter<ResponseReceivedEvent>>,
+    mut config_response_events: Option<&mut EventWriter<ConfigReceivedEvent>>,
+    mut game_events: Option<&mut EventWriter<messages::EventMessage>>,
 ) {
-    for ResponseReceivedEvent(
+    let sender = server_information.address;
+    let connection = client
+        .get_connection_mut_by_id(*connection_id)
+        .expect("Connection components correspond to actual connections");
+    loop {
+        match connection.receive_message() {
+            Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => {
+                debug!("Received reponse from {sender}: {status_message:?}");
+                if let Some(response_events) = &mut response_events {
+                    response_events.send(ResponseReceivedEvent(status_message.clone()));
+                }
+                if let Some(config_response_events) = &mut config_response_events {
+                    config_response_events.send(ConfigReceivedEvent(status_message, sender));
+                }
+            }
+            Ok(Some(Some(other_message))) => match EventMessage::try_from(other_message.clone()) {
+                Ok(game_event) => {
+                    if let Some(game_events) = &mut game_events {
+                        game_events.send(game_event)
+                    }
+                }
+                Err(()) => {
+                    warn!("Received non-event message without status code: {other_message:?}")
+                }
+            },
+            Ok(Some(None)) => {
+                // A keep-alive message
+            }
+            Ok(None) => {
+                // Nothing or an incomplete message, retry later
+                break;
+            }
+            Err(QuinnetError::ChannelClosed) => {}
+            Err(error) => {
+                warn!("Unexpected error occurred while receiving packet: {error}");
+            }
+        };
+    }
+}
+
+fn process_server_configurations(
+    mut commands: Commands,
+    mut events: EventReader<ConfigReceivedEvent>,
+    mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
+    mut client: ResMut<Client>,
+) {
+    for ConfigReceivedEvent(
         messages::StatusMessage {
             code,
             message,
@@ -375,6 +414,19 @@ fn process_server_configurations(
         sender,
     ) in events.iter()
     {
+        let (entity, mut server, connection) = match servers
+            .iter_mut()
+            .find(|(_, server, _)| &server.address == sender)
+        {
+            Some(server) => server,
+            None => continue,
+        };
+        trace!("Received some response after config request during discovery, closing connection.");
+        if let Err(error) = client.close_connection(**connection) {
+            warn!("Failed to close connection properly: {error}");
+        }
+        commands.entity(entity).remove::<Connection>();
+
         if code / 100 != 2 {
             if message.is_empty() {
                 warn!("Received error code {code} from server at {sender}");
@@ -396,10 +448,6 @@ fn process_server_configurations(
             }
             None => continue,
         };
-        let mut server = match servers.iter_mut().find(|server| &server.address == sender) {
-            Some(server) => server,
-            None => continue,
-        };
         if response.config.is_none() {
             if message.is_empty() {
                 warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server");
@@ -409,6 +457,7 @@ fn process_server_configurations(
             }
             continue;
         }
+
         server.config = response.config.to_owned();
     }
 }
@@ -417,11 +466,79 @@ fn clean_up_servers(
     mut commands: Commands,
     time: Res<Time>,
     servers: Query<(Entity, &ServerInformation)>,
+    connections: Query<(Entity, &Connection)>,
+    mut client: ResMut<Client>,
 ) {
     servers
         .iter()
         .filter(|(_, server)| {
             time.elapsed() - server.last_advertisement_received > Duration::from_secs(10)
         })
-        .for_each(|(entity, _)| commands.entity(entity).despawn_recursive());
+        .for_each(|(entity, _)| {
+            if let Ok(connection) = connections.get_component::<Connection>(entity) {
+                if let Err(error) = client.close_connection(**connection) {
+                    warn!("Failed to close connection properly: {error}");
+                }
+            }
+            commands.entity(entity).despawn_recursive()
+        });
+}
+
+fn join_server(
+    mut commands: Commands,
+    server: Option<Res<CurrentServer>>,
+    server_information: Query<(Entity, &ServerInformation)>,
+    connections: Query<(Entity, &Connection)>,
+    mut client: ResMut<Client>,
+    user_name: Res<crate::lobby::UserName>,
+) {
+    info!("Joining server");
+    let server = server.expect("There must always exist a CurrentServer in GameState::Joining");
+    let server_information = server_information
+        .get_component::<ServerInformation>(**server)
+        .expect("CurrentServer always has a ServerInformation component");
+
+    // Close all connections when joining a server
+    for (entity, connection) in connections.iter() {
+        if let Err(error) = client.close_connection(**connection) {
+            warn!("Failed to close connection properly: {error}");
+        }
+        commands.entity(entity).remove::<Connection>();
+    }
+
+    server_information.connect(&mut commands, **server, &mut client);
+
+    // From now on, the default connection can be used.
+    let connection = client
+        .get_connection()
+        .expect("This connection was just requested");
+
+    let message = messages::JoinRequest {
+        username: user_name.clone(),
+    };
+    if let Err(error) = connection.send_message(message.into()) {
+        warn!("Could not send join request: {error}");
+        commands.insert_resource(NextState(GameState::Unconnected));
+    }
+}
+
+// Leaving the CurrentServer, if there is one.
+fn try_leave_server(
+    mut commands: Commands,
+    server: Option<Res<CurrentServer>>,
+    connections: Query<(Entity, &Connection)>,
+    mut client: ResMut<Client>,
+) {
+    let server = match server {
+        Some(server) => server,
+        None => return,
+    };
+    info!("Leaving server");
+    let connection = connections
+        .get_component::<Connection>(**server)
+        .expect("There must always exist a connection component for the current server");
+    if let Err(error) = client.close_connection(**connection) {
+        warn!("Failed to close connection properly: {error}");
+    }
+    commands.entity(**server).remove::<Connection>();
 }
