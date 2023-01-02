@@ -29,12 +29,6 @@ impl Default for Game {
 }
 
 impl Game {
-    pub(crate) fn unready_players(&mut self) {
-        self.players
-            .iter_mut()
-            .for_each(|(_, player)| player.is_ready = false);
-    }
-
     pub fn new(board_size: u32, team_a_limit: u32, team_b_limit: u32) -> Self {
         Game {
             players: Default::default(),
@@ -60,6 +54,27 @@ impl Game {
 
     pub fn get_state(&self) -> GameState {
         self.state
+    }
+
+    pub(crate) fn unready_players(&mut self) {
+        self.players
+            .iter_mut()
+            .for_each(|(_, player)| player.is_ready = false);
+    }
+
+    /// Removes a player from the game.
+    /// Returns True when the game should be aborted.
+    pub(crate) fn remove_player(&mut self, player_id: PlayerID) -> bool {
+        if let Some(_) = self.players.remove(&player_id) {
+            match self.state {
+                GameState::Lobby => false,
+                GameState::Preparation => true,
+                GameState::InGame => true,
+                GameState::End => false,
+            }
+        } else {
+            false
+        }
     }
 }
 

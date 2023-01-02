@@ -113,6 +113,7 @@ pub struct Endpoint {
     payloads_receiver: mpsc::Receiver<ClientPayload>,
     close_sender: broadcast::Sender<()>,
 
+    pub(crate) internal_receiver_closed: bool,
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
 }
 
@@ -187,33 +188,33 @@ impl Endpoint {
     }
 
     #[cfg(feature = "no_bevy")]
-    pub async fn receive_payload_waiting(&mut self) -> Option<ClientPayload> {
-        let payload = self.payloads_receiver.recv().await;
-
-        // ensure internal client management is up to date
-        self.update();
-
-        payload
-    }
-
-    #[cfg(feature = "no_bevy")]
-    fn update(&mut self) {
-        while let Ok(message) = self.internal_receiver.try_recv() {
-            match message {
-                InternalAsyncMessage::ClientConnected(connection) => {
-                    let id = connection.client_id;
-                    self.clients.insert(id, connection);
+    pub async fn next_event(&mut self) -> EndpointEvent {
+        tokio::select! {
+            biased;
+            message = self.internal_receiver.recv(), if !self.internal_receiver_closed => {
+                match message {
+                    Some(InternalAsyncMessage::ClientConnected(connection)) => {
+                        let id = connection.client_id;
+                        self.clients.insert(id, connection);
+                        EndpointEvent::Connect(id)
+                    },
+                    Some(InternalAsyncMessage::ClientLostConnection(client_id)) => {
+                        self.clients.remove(&client_id);
+                        EndpointEvent::Disconnect(client_id)
+                    },
+                    None => {
+                        self.internal_receiver_closed = true;
+                        EndpointEvent::SocketClosed
+                    }
                 }
-                InternalAsyncMessage::ClientLostConnection(client_id) => {
-                    self.clients.remove(&client_id);
+            },
+            payload = self.payloads_receiver.recv() => {
+                match payload {
+                    Some(p) => EndpointEvent::Payload(Box::new(p)),
+                    None => EndpointEvent::NoMorePayloads,
                 }
             }
         }
-    }
-
-    #[cfg(not(feature = "no_bevy"))]
-    pub async fn receive_payload_waiting(&mut self) -> Option<ClientPayload> {
-        self.payloads_receiver.recv().await
     }
 
     pub fn receive_payload(&mut self) -> Result<Option<ClientPayload>, QuinnetError> {
@@ -339,6 +340,7 @@ impl Server {
             payloads_receiver: from_clients_receiver,
             close_sender: endpoint_close_sender,
             internal_receiver: from_async_server,
+            internal_receiver_closed: false,
         });
 
         Ok(server_cert)
@@ -582,4 +584,14 @@ impl Plugin for QuinnetServerPlugin {
             ));
         }
     }
+}
+
+#[cfg(feature = "no_bevy")]
+#[derive(Debug)]
+pub enum EndpointEvent {
+    Payload(Box<ClientPayload>),
+    Connect(ClientId),
+    Disconnect(ClientId),
+    SocketClosed,
+    NoMorePayloads,
 }
