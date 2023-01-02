@@ -17,9 +17,9 @@ fn main() -> Result<()> {
         &[specification_directory.as_str()],
     )?;
 
-    let messages_rust_source_path =
-        String::from(std::env::var("OUT_DIR").expect("OUT_DIR is provided for build scripts"))
-            + "/battleshipplus.messages.rs";
+    let messages_rust_source_path = std::env::var("OUT_DIR")
+        .expect("OUT_DIR is provided for build scripts")
+        + "/battleshipplus.messages.rs";
 
     let messages_rust_source =
         fs::read_to_string(messages_rust_source_path.clone()).expect("Could not read rust source");
