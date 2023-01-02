@@ -126,7 +126,7 @@ impl AdvertisementReceiver {
 fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     let socket_v6 = match runtime.block_on(UdpSocket::bind("[::]:30303")) {
         Ok(socket) => {
-            join_multicast_v6("ff02::1", &socket);
+            join_multicast_v6("ff02:6261:7474:6c65:7368:6970:706c:7573", &socket);
             Some(socket)
         }
         Err(error) => {
