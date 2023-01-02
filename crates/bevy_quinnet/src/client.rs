@@ -196,7 +196,8 @@ impl Connection {
 
     /// Disconnect from the server on this connection. This does not send any message to the server, and simply closes all the connection's tasks locally.
     fn disconnect(&mut self) -> Result<(), QuinnetError> {
-        if self.is_connected() && self.close_sender.send(()).is_err() {
+        let close_send_result = self.close_sender.send(());
+        if self.is_connected() && close_send_result.is_err() {
             return Err(QuinnetError::ChannelClosed);
         }
         self.state = ConnectionState::Disconnected;
@@ -436,11 +437,18 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
         Ok(connection) => {
             info!("Connected to {}", connection.remote_address());
 
-            spawn_config
+            if let Err(error) = spawn_config
                 .to_sync_client
                 .send(InternalAsyncMessage::Connected)
                 .await
-                .expect("Failed to signal connection to sync client");
+            {
+                let message = format!("Failed to signal connection to sync client with error: {error}");
+                if spawn_config.close_receiver.is_empty() {
+                    // No close requested but internal channel closed.
+                    error!(message);
+                }
+                return;
+            }
 
             let (send, recv) = connection
                 .open_bi()
