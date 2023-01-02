@@ -102,7 +102,7 @@ impl Client {
     async fn join(connection: Connection, username: &str) -> Client {
         let (tx, rx) = match connection.open_bi().await {
             Ok(stream) => stream,
-            Err(e) => panic!("unable to open bidirectional stream"),
+            Err(e) => panic!("unable to open bidirectional stream: {e}"),
         };
 
         let mut reader = FramedRead::new(rx, BattleshipPlusCodec::default());
@@ -121,6 +121,7 @@ impl Client {
             ProtocolMessage::StatusMessage(StatusMessage {
                 code,
                 data: Some(Data::JoinResponse(JoinResponse { player_id })),
+                ..
             }) => {
                 assert_eq!(code, 200);
                 player_id
