@@ -593,7 +593,6 @@ mod actions_move {
         let ship = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 3,
@@ -659,7 +658,6 @@ mod actions_move {
         let ship = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 2,
                         action_points: 0,
@@ -780,7 +778,6 @@ mod actions_move {
         let ship1 = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -800,7 +797,6 @@ mod actions_move {
         let ship2 = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -855,7 +851,6 @@ mod actions_move {
         let ship1 = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -875,7 +870,6 @@ mod actions_move {
         let ship2 = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -1033,7 +1027,6 @@ mod actions_rotate {
         let ship = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 3,
@@ -1107,7 +1100,6 @@ mod actions_rotate {
         let ship = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 2,
                         action_points: 0,
@@ -1236,7 +1228,6 @@ mod actions_rotate {
         let ship = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -1280,7 +1271,6 @@ mod actions_rotate {
         let rotating_ship = Ship::Carrier {
             balancing: Arc::from(CarrierBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -1300,7 +1290,6 @@ mod actions_rotate {
         let ship_to_be_destroyed = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,
@@ -1321,7 +1310,6 @@ mod actions_rotate {
         let ship_to_stay_intact = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
                 common_balancing: Some(CommonBalancing {
-                    movement_speed: 2,
                     movement_costs: Some(Costs {
                         cooldown: 0,
                         action_points: 0,

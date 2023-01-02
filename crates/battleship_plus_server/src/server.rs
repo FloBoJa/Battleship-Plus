@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use tokio::macros::support::thread_rng_n;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
@@ -175,11 +175,19 @@ async fn endpoint_task(
         };
 
         let payload = tokio::select! {
+            biased;
             _ = cancel_rx.recv() => return,
             broadcast = broadcast_rx.recv() => {
                 if let Ok((ids, msg)) = broadcast {
-                    if let Err(e) = server.endpoint().send_group_message(ids.iter(), msg.clone()) {
-                        warn!("unable to broadcast {msg:?}: {e}");
+                    for id in ids {
+                        // At this point a data race might occur when two clients are disconnecting
+                        // and the server wants to broadcast a LobbyChangeEvent triggered by the first
+                        // disconnect. The following call will fail for the second client that disconnected.
+                        // It should be no problem ignoring this error.
+                        // TODO Refactor: find a better solution
+                        if let Err(e) = server.endpoint().send_message(id, msg.clone()) {
+                            trace!("failed to send broadcast to {id}: {e}.")
+                        }
                     }
                 }
                 continue;
@@ -206,7 +214,7 @@ async fn endpoint_task(
                                 game.team_b.iter().cloned(),
                                 game.players.clone(),
                                 &broadcast_tx).await {
-                                error!("unable to broadcast LobbyChangeEvent: {e}");
+                                error!("unable to broadcast LobbyChangeEvent: {e:#?}");
                             }
                         }
 

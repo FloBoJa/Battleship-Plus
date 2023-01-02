@@ -65,7 +65,10 @@ impl Game {
     /// Removes a player from the game.
     /// Returns True when the game should be aborted.
     pub(crate) fn remove_player(&mut self, player_id: PlayerID) -> bool {
-        if let Some(_) = self.players.remove(&player_id) {
+        if self.players.remove(&player_id).is_some() {
+            self.team_a.remove(&player_id);
+            self.team_b.remove(&player_id);
+
             match self.state {
                 GameState::Lobby => false,
                 GameState::Preparation => true,

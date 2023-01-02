@@ -107,7 +107,7 @@ impl Client {
     async fn join(connection: Connection, username: &str) -> Client {
         let (tx, rx) = match connection.open_bi().await {
             Ok(stream) => stream,
-            Err(e) => panic!("unable to open bidirectional stream"),
+            Err(e) => panic!("unable to open bidirectional stream: {e}"),
         };
 
         let mut reader = FramedRead::new(rx, BattleshipPlusCodec::default());
@@ -126,6 +126,7 @@ impl Client {
             ProtocolMessage::StatusMessage(StatusMessage {
                 code,
                 data: Some(Data::JoinResponse(JoinResponse { player_id })),
+                ..
             }) => {
                 assert_eq!(code, 200);
                 player_id
@@ -278,11 +279,11 @@ async fn lobby_e2e() {
     }
 
     // Fuzzy test the following
-    // TODO: player disconnect and reconnect and check player ready states
-    // TODO: player switch teams and check player ready states
-    // TODO: player set themselves ready and unready
+    // TODO Test: player disconnect and reconnect and check player ready states
+    // TODO Test: player switch teams and check player ready states
+    // TODO Test: player set themselves ready and unready
 
-    // TODO: check server state switch when a game can start
+    // TODO Test: check server state switch when a game can start
 
     todo!();
 
