@@ -6,10 +6,10 @@ use bevy::{
 use bevy_inspector_egui::WorldInspectorPlugin;
 use iyes_loopless::prelude::*;
 
-mod server_selection;
 mod game_state;
 mod lobby;
 mod networking;
+mod server_selection;
 
 use game_state::GameState;
 
