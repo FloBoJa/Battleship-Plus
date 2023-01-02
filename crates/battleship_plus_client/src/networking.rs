@@ -17,6 +17,7 @@ use battleship_plus_common::{
     messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement},
     types,
 };
+use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
 use bevy_quinnet::{
     client::{
         certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
@@ -34,6 +35,8 @@ impl Plugin for NetworkingPlugin {
             .add_event::<ConfigReceivedEvent>()
             .add_event::<messages::EventMessage>()
             .add_event::<ResponseReceivedEvent>()
+            .register_inspectable::<ServerInformation>()
+            .register_inspectable::<Connection>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_messages)
             .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
@@ -54,12 +57,30 @@ pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
 #[derive(Resource, Deref)]
 pub struct CurrentServer(pub Entity);
 
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone)]
 pub struct ServerInformation {
     pub address: SocketAddr,
     pub name: String,
     pub config: Option<types::Config>,
     pub last_advertisement_received: Duration,
+}
+
+impl Inspectable for ServerInformation {
+    type Attributes = ();
+
+    fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _: Self::Attributes,
+        context: &mut bevy_inspector_egui::Context,
+    ) -> bool {
+        let mut modified = false;
+        modified |= self.name.ui(ui, StringAttributes::default(), context);
+        ui.label(format!("Address: {}", self.address.to_string()));
+        modified |= self.last_advertisement_received.ui(ui, (), context);
+        ui.label(format!("Config: {:#?}", self.config));
+        modified
+    }
 }
 
 impl ServerInformation {
@@ -291,7 +312,7 @@ fn process_advertisement(
     }
 }
 
-#[derive(Component, Clone, Deref)]
+#[derive(Component, Clone, Inspectable, Deref)]
 pub struct Connection(ConnectionId);
 
 fn request_config(
