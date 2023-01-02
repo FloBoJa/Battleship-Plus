@@ -147,8 +147,12 @@ mod tests {
             assert_eq!(client_message, Some(sent_client_message));
         }
 
-        let sent_server_message =
-            ProtocolMessage::JoinResponse(messages::JoinResponse { player_id: 42 });
+        let sent_server_message: messages::ProtocolMessage = messages::StatusMessage {
+            code: 200,
+            data: Some(messages::JoinResponse { player_id: 42 }.into()),
+            message: String::default(),
+        }
+        .into();
         {
             let server = server_app.world.resource::<Server>();
             server
