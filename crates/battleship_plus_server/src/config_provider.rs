@@ -143,7 +143,9 @@ pub(crate) mod default {
                 enable_announcements_v6: true,
                 announcement_address_v4: SocketAddrV4::new(Ipv4Addr::BROADCAST, 30303),
                 announcement_address_v6: SocketAddrV6::new(
-                    Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                    Ipv6Addr::new(
+                        0xff02, 0x6261, 0x7474, 0x6c65, 0x7368, 0x6970, 0x706c, 0x7573,
+                    ),
                     30303,
                     0,
                     0,
