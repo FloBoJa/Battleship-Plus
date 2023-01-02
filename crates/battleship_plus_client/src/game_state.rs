@@ -1,3 +1,5 @@
+use bevy::prelude::*;
+
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub enum GameState {
     Unconnected,
@@ -7,3 +9,6 @@ pub enum GameState {
     // Placement,
     // Game,
 }
+
+#[derive(Resource)]
+pub struct PlayerId(pub u32);

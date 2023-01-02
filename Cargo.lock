@@ -209,6 +209,7 @@ dependencies = [
  "battleship_plus_common",
  "bevy",
  "bevy-inspector-egui",
+ "bevy_egui",
  "bevy_quinnet",
  "bytes",
  "egui",
