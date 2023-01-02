@@ -442,7 +442,8 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                 .send(InternalAsyncMessage::Connected)
                 .await
             {
-                let message = format!("Failed to signal connection to sync client with error: {error}");
+                let message =
+                    format!("Failed to signal connection to sync client with error: {error}");
                 if spawn_config.close_receiver.is_empty() {
                     // No close requested but internal channel closed.
                     error!(message);
