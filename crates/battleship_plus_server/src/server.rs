@@ -14,7 +14,7 @@ use battleship_plus_common::messages::{
 };
 use battleship_plus_common::types::{Config, PlayerLobbyState};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
-use bevy_quinnet::server::{ClientPayload, Endpoint, Server, ServerConfigurationData};
+use bevy_quinnet::server::{Endpoint, EndpointEvent, Server, ServerConfigurationData};
 use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;
@@ -173,7 +173,7 @@ async fn endpoint_task(
             lock = server.write() => lock,
         };
 
-        let payload: ClientPayload = tokio::select! {
+        let payload = tokio::select! {
             _ = cancel_rx.recv() => return,
             broadcast = broadcast_rx.recv() => {
                 if let Ok((ids, msg)) = broadcast {
@@ -183,10 +183,31 @@ async fn endpoint_task(
                 }
                 continue;
             },
-            p = server.endpoint_mut().receive_payload_waiting() => {
-                match p {
-                    Some(p) => p,
-                    None => return,
+            event = server.endpoint_mut().next_event() => {
+                match event {
+                    EndpointEvent::Payload(p) => {
+                        debug!("Client {} sent: {p:?}", p.client_id);
+                        p
+                    }
+                    EndpointEvent::Connect(client_id) => {
+                        info!("Client {client_id} connected");
+                        continue;
+                    }
+                    EndpointEvent::Disconnect(client_it) => {
+                        info!("Client {client_it} disconnected");
+                        if game.write().await.remove_player(client_it) {
+                            let _ = game_end_tx.send(());
+                        }
+                        continue;
+                    }
+                    EndpointEvent::SocketClosed => {
+                        debug!("Server socket closed");
+                        continue;
+                    }
+                    EndpointEvent::NoMorePayloads => {
+                        debug!("Endpoint task finished");
+                        return;
+                    }
                 }
             },
         };
@@ -208,10 +229,16 @@ async fn endpoint_task(
         .await
         {
             Ok(_) => {
-                debug!("handled message from {:?}", payload);
+                debug!(
+                    "handled message from client {}: {payload:?}",
+                    payload.client_id
+                );
             }
             Err(e) => {
-                warn!("unable to handle message {:?}: {e}", payload);
+                warn!(
+                    "unable to handle message from client {}: {payload:?}: {e}",
+                    payload.client_id
+                );
             }
         };
     }
