@@ -41,6 +41,7 @@ impl Plugin for NetworkingPlugin {
             .add_system(listen_for_messages)
             .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
             .add_system(receive_advertisements.run_in_state(GameState::Unconnected))
+            .add_system(request_server_configurations.run_in_state(GameState::Unconnected))
             .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
             .add_enter_system(GameState::Joining, join_server)
             .add_enter_system(GameState::Unconnected, try_leave_server);
@@ -61,6 +62,7 @@ pub struct CurrentServer(pub Entity);
 pub struct ServerInformation {
     pub address: SocketAddr,
     pub name: String,
+    pub config_requested: bool,
     pub config: Option<types::Config>,
     pub last_advertisement_received: Duration,
 }
@@ -304,31 +306,41 @@ fn process_advertisement(
             address: server_address,
             name: advertisement.display_name.clone(),
             config: None,
+            config_requested: false,
             last_advertisement_received: time.elapsed(),
         };
         let server = commands.spawn(server_information.clone()).id();
 
-        request_config(commands, server, &server_information, client);
+        // Connect to the server to request its configuration.
+        server_information.connect(commands, server, client);
     }
 }
 
 #[derive(Component, Clone, Inspectable, Deref)]
 pub struct Connection(ConnectionId);
 
-fn request_config(
-    commands: &mut Commands,
-    server: Entity,
-    server_information: &ServerInformation,
-    client: &mut ResMut<Client>,
+fn request_server_configurations(
+    mut servers: Query<(&mut ServerInformation, &Connection)>,
+    mut client: ResMut<Client>,
 ) {
-    server_information.connect(commands, server, client);
-    let message = messages::ServerConfigRequest {}.into();
+    let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
 
-    if let Err(error) = client.connection().send_message(message) {
-        warn!(
-            "Failed to send server configuration request to {}: {error}",
-            server_information.address
-        );
+    for (mut server_information, connection) in servers.iter_mut() {
+        if server_information.config_requested {
+            continue;
+        }
+
+        let connection = client
+            .get_connection_mut_by_id(**connection)
+            .expect("Connection components correspond to actual connections");
+        if let Err(error) = connection.send_message(message.clone()) {
+            warn!(
+                "Failed to send server configuration request to {}: {error}",
+                server_information.address
+            );
+        }
+
+        server_information.config_requested = true;
     }
 }
 
