@@ -10,6 +10,7 @@ use futures::sink::SinkExt;
 use futures_util::StreamExt;
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
 use serde::Deserialize;
+use tokio::sync::mpsc::Sender;
 use tokio::{
     runtime,
     sync::{
@@ -425,7 +426,8 @@ async fn handle_client_connection(
     let (to_client_sender, to_client_receiver) =
         mpsc::channel::<ProtocolMessage>(DEFAULT_MESSAGE_QUEUE_SIZE);
 
-    let to_sync_server_clone = to_sync_server.clone();
+    let to_sync_server_clone_for_sender_task = to_sync_server.clone();
+    let to_sync_server_clone_for_receiver_task = to_sync_server.clone();
     let close_sender_for_sender_task = client_close_sender.clone();
     let close_sender_for_receiver_task = client_close_sender.clone();
 
@@ -438,7 +440,7 @@ async fn handle_client_connection(
                     to_client_receiver,
                     client_close_receiver,
                     close_sender_for_sender_task,
-                    to_sync_server_clone,
+                    to_sync_server_clone_for_sender_task,
                 )
                 .await
             });
@@ -448,7 +450,9 @@ async fn handle_client_connection(
                     client_id,
                     recv_stream,
                     close_sender_for_receiver_task.subscribe(),
+                    close_sender_for_receiver_task,
                     from_clients_sender,
+                    to_sync_server_clone_for_receiver_task,
                 )
                 .await
             });
@@ -490,22 +494,24 @@ async fn client_sender_task(
                     if close_sender.send(()).is_err() {
                         error!("Failed to close all client streams & resources for client {}", client_id)
                     }
-                    to_sync_server.send(
-                        InternalAsyncMessage::ClientLostConnection(client_id))
-                        .await
-                        .expect("Failed to signal connection lost to sync server");
                 };
             }
         } => {}
     }
-    trace!("Sending half of stream closed for client: {}", client_id)
+    trace!("Sending half of stream closed for client: {}", client_id);
+    to_sync_server
+        .send(InternalAsyncMessage::ClientLostConnection(client_id))
+        .await
+        .expect("Failed to signal connection lost to sync server");
 }
 
 async fn client_receiver_task(
     client_id: ClientId,
     recv_stream: quinn::RecvStream,
     mut close_receiver: broadcast::Receiver<()>,
+    close_sender: broadcast::Sender<()>,
     from_clients_sender: mpsc::Sender<ClientPayload>,
+    to_sync_server: Sender<InternalAsyncMessage>,
 ) {
     tokio::select! {
         _ = close_receiver.recv() => {
@@ -528,7 +534,19 @@ async fn client_receiver_task(
             trace!("Receiving half of stream ended for client: {}", client_id)
         } => {}
     }
-    trace!("Receiving half of stream closed for client: {}", client_id)
+    trace!("Receiving half of stream closed for client: {}", client_id);
+    if close_sender.send(()).is_err() {
+        error!(
+            "Failed to close all client streams & resources for client {}",
+            client_id
+        );
+
+        // per default the writer task should notify the sync server but now we could not reach it
+        // so we notify the close on our own behalf.
+        let _ = to_sync_server
+            .send(InternalAsyncMessage::ClientLostConnection(client_id))
+            .await;
+    }
 }
 
 #[cfg(not(feature = "no_bevy"))]
