@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use bevy_egui::EguiPlugin;
+use bevy_egui::{EguiContext, EguiPlugin};
+use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
 
 use battleship_plus_common::messages;
@@ -14,19 +15,54 @@ impl Plugin for ServerSelectionPlugin {
         if !app.is_plugin_added::<EguiPlugin>() {
             app.add_plugin(EguiPlugin);
         }
-        app.add_system(join_any_server.run_in_state(GameState::Unconnected))
+        app.add_system(draw_selection_screen.run_in_state(GameState::Unconnected))
             .add_system(process_join_response.run_in_state(GameState::Joining));
     }
 }
 
-fn join_any_server(
+fn draw_selection_screen(
     mut commands: Commands,
+    mut egui_context: ResMut<EguiContext>,
     servers: Query<(Entity, &networking::ServerInformation)>,
 ) {
-    if let Some((entity, _)) = servers.iter().next() {
-        commands.insert_resource(networking::CurrentServer(entity));
-        commands.insert_resource(NextState(GameState::Joining));
-    }
+    egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
+        ui.vertical_centered(|ui| {
+            ui.set_max_width(600.0);
+            ui.heading("Server Selection");
+            TableBuilder::new(ui)
+                .striped(true)
+                .column(Column::at_least(Column::auto(), 250.0))
+                .column(Column::at_least(Column::auto(), 300.0))
+                .column(Column::at_least(Column::auto(), 100.0))
+                .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("Name");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Address");
+                    });
+                    header.col(|_| {});
+                })
+                .body(|mut body| {
+                    for (server, server_information) in servers.iter() {
+                        body.row(20.0, |mut row| {
+                            row.col(|ui| {
+                                ui.label(&server_information.name);
+                            });
+                            row.col(|ui| {
+                                ui.label(format!("{}", server_information.address));
+                            });
+                            row.col(|ui| {
+                                if ui.button("Join").clicked() {
+                                    commands.insert_resource(networking::CurrentServer(server));
+                                    commands.insert_resource(NextState(GameState::Joining));
+                                }
+                            });
+                        });
+                    }
+                });
+        });
+    });
 }
 
 fn process_join_response(
