@@ -76,7 +76,7 @@ impl Inspectable for ServerInformation {
     ) -> bool {
         let mut modified = false;
         modified |= self.name.ui(ui, StringAttributes::default(), context);
-        ui.label(format!("Address: {}", self.address.to_string()));
+        ui.label(format!("Address: {}", self.address));
         modified |= self.last_advertisement_received.ui(ui, (), context);
         ui.label(format!("Config: {:#?}", self.config));
         modified
