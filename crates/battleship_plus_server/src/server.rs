@@ -231,11 +231,12 @@ async fn handle_message(
         ProtocolMessage::ServerConfigRequest(_) => ep
             .send_message(
                 client_id,
-                status_with_protocol_message(
+                status_with_data(
                     200,
-                    ProtocolMessage::ServerConfigResponse(ServerConfigResponse {
+                    ServerConfigResponse {
                         config: Some(cfg.as_ref().clone()),
-                    }),
+                    }
+                    .into(),
                 ),
             )
             .map_err(MessageHandlerError::Network),
@@ -270,11 +271,12 @@ async fn handle_message(
 
             ep.send_message(
                 client_id,
-                status_with_protocol_message(
+                status_with_data(
                     200,
-                    ProtocolMessage::JoinResponse(JoinResponse {
+                    JoinResponse {
                         player_id: client_id,
-                    }),
+                    }
+                    .into(),
                 ),
             )
             .map_err(MessageHandlerError::Network)?;
@@ -299,10 +301,7 @@ async fn handle_message(
             } else {
                 ep.send_message(
                     client_id,
-                    status_with_protocol_message(
-                        200,
-                        ProtocolMessage::TeamSwitchResponse(TeamSwitchResponse {}),
-                    ),
+                    status_with_data(200, TeamSwitchResponse {}.into()),
                 )
                 .map_err(MessageHandlerError::Network)?;
 
@@ -330,10 +329,7 @@ async fn handle_message(
             } else {
                 ep.send_message(
                     client_id,
-                    status_with_protocol_message(
-                        200,
-                        ProtocolMessage::SetReadyStateResponse(SetReadyStateResponse {}),
-                    ),
+                    status_with_data(200, SetReadyStateResponse {}.into()),
                 )
                 .map_err(MessageHandlerError::Network)?;
 
@@ -498,45 +494,17 @@ fn action_validation_error_reply(
 }
 
 fn status_with_msg(code: u32, msg: &str) -> ProtocolMessage {
-    status_response(code, Some(Data::Message(msg.to_string())))
+    status_response(code, msg, None)
 }
 
-fn status_with_protocol_message(code: u32, msg: ProtocolMessage) -> ProtocolMessage {
-    match msg {
-        ProtocolMessage::SetReadyStateResponse(resp) => {
-            status_response(code, Some(Data::SetReadyStateResponse(resp)))
-        }
-        ProtocolMessage::JoinResponse(resp) => {
-            status_response(code, Some(Data::JoinResponse(resp)))
-        }
-
-        ProtocolMessage::TeamSwitchResponse(resp) => {
-            status_response(code, Some(Data::TeamSwitchResponse(resp)))
-        }
-
-        ProtocolMessage::ServerConfigResponse(resp) => {
-            status_response(code, Some(Data::ServerConfigResponse(resp)))
-        }
-
-        ProtocolMessage::PlacementResponse(resp) => {
-            status_response(code, Some(Data::PlacementResponse(resp)))
-        }
-
-        ProtocolMessage::ShipActionResponse(resp) => {
-            status_response(code, Some(Data::ShipActionResponse(resp)))
-        }
-
-        ProtocolMessage::ServerStateResponse(resp) => {
-            status_response(code, Some(Data::ServerStateResponse(resp)))
-        }
-
-        _ => panic!("{msg:?} is not expected to be sent by the server"),
-    }
+fn status_with_data(code: u32, data: Data) -> ProtocolMessage {
+    status_response(code, "", Some(data))
 }
 
-fn status_response(code: u32, data: Option<Data>) -> ProtocolMessage {
+fn status_response(code: u32, message: &str, data: Option<Data>) -> ProtocolMessage {
     ProtocolMessage::StatusMessage(StatusMessage {
         code, // bad request
+        message: message.to_string(),
         data,
     })
 }
