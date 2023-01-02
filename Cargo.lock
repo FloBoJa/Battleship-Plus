@@ -231,6 +231,7 @@ dependencies = [
  "bevy-inspector-egui",
  "bevy_quinnet",
  "bytes",
+ "egui",
  "futures",
  "iyes_loopless",
  "pnet_datalink",
