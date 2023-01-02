@@ -330,9 +330,14 @@ fn request_server_configurations(
             continue;
         }
 
-        let connection = client
-            .get_connection_mut_by_id(**connection)
-            .expect("Connection components correspond to actual connections");
+        let connection = match client.get_connection_mut_by_id(**connection) {
+            Some(connection) => connection,
+            None => {
+                debug!("Did not find connection {} represented by Connection component, it was probably just deleted.", **connection);
+                continue;
+            }
+        };
+
         if let Err(error) = connection.send_message(message.clone()) {
             warn!(
                 "Failed to send server configuration request to {}: {error}",
@@ -393,9 +398,13 @@ fn listen_for_messages_from(
     mut game_events: Option<&mut EventWriter<messages::EventMessage>>,
 ) {
     let sender = server_information.address;
-    let connection = client
-        .get_connection_mut_by_id(*connection_id)
-        .expect("Connection components correspond to actual connections");
+    let connection = match client.get_connection_mut_by_id(*connection_id) {
+        Some(connection) => connection,
+        None => {
+            debug!("Did not find connection {connection_id} represented by Connection component, it was probably just deleted.");
+            return;
+        }
+    };
     loop {
         match connection.receive_message() {
             Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => {
