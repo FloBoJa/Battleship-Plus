@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
-use quinn::{crypto, ClientConfig, Connection, Endpoint, RecvStream, SendStream};
+use quinn::{crypto, ClientConfig, Connection, Endpoint, RecvStream, SendStream, VarInt};
+use tokio::macros::support::thread_rng_n;
 use tokio::sync::Mutex;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -44,6 +45,10 @@ impl Client {
 
     async fn receive(&mut self) -> ProtocolMessage {
         Self::receive_msg_inner(&mut self.reader).await
+    }
+
+    async fn disconnect(self) {
+        self.connection.close(VarInt::from_u32(0), &[])
     }
 
     async fn connect(
@@ -199,7 +204,9 @@ async fn lobby_e2e() {
 
     let server_ctrl = spawn_server_task(cfg.clone());
 
-    const CLIENTS: usize = 10;
+    const DISCONNECTING_CLIENTS: usize = 2;
+    let client_count: usize =
+        (cfg.game_config().team_size_a + cfg.game_config().team_size_a) as usize;
 
     let client_config = Arc::new(
         rustls::ClientConfig::builder()
@@ -209,9 +216,9 @@ async fn lobby_e2e() {
     );
 
     // create clients and connect to socket
-    let mut clients = Vec::with_capacity(CLIENTS);
-    for i in 0..CLIENTS {
-        clients.push(if i < CLIENTS / 2 {
+    let mut clients = Vec::with_capacity(client_count);
+    for i in 0..client_count + DISCONNECTING_CLIENTS {
+        clients.push(if i < client_count / 2 {
             Client::connect_ipv6(
                 cfg.clone(),
                 client_config.clone(),
@@ -227,11 +234,11 @@ async fn lobby_e2e() {
             .await
         });
     }
+    assert_eq!(clients.len(), client_count + DISCONNECTING_CLIENTS);
 
-    assert_eq!(clients.len(), CLIENTS);
-
+    // check for all remaining LobbyChangeEvents
     for (i, c) in clients.iter_mut().enumerate() {
-        for j in (2 + i)..(CLIENTS - i - 1) {
+        for j in (2 + i)..=(client_count + DISCONNECTING_CLIENTS) {
             let msg = c.receive().await;
 
             match msg {
@@ -240,6 +247,31 @@ async fn lobby_e2e() {
                     team_state_b,
                 }) => {
                     assert_eq!(team_state_a.len() + team_state_b.len(), j);
+                }
+                _ => panic!("Expected LobbyChangeEvent, got {msg:#?}"),
+            }
+        }
+    }
+
+    // disconnect some clients
+    for _ in 0..DISCONNECTING_CLIENTS {
+        clients
+            .remove(thread_rng_n(clients.len() as u32) as usize)
+            .disconnect()
+            .await;
+    }
+
+    // check for all LobbyChangeEvents
+    for c in clients.iter_mut() {
+        for j in (0..DISCONNECTING_CLIENTS).rev() {
+            let msg = c.receive().await;
+
+            match msg {
+                ProtocolMessage::LobbyChangeEvent(LobbyChangeEvent {
+                    team_state_a,
+                    team_state_b,
+                }) => {
+                    assert_eq!(team_state_a.len() + team_state_b.len(), client_count + j);
                 }
                 _ => panic!("Expected LobbyChangeEvent, got {msg:#?}"),
             }
