@@ -86,9 +86,9 @@ impl Action {
         &self,
         game: &mut RwLockWriteGuard<Game>,
     ) -> Result<(), ActionExecutionError> {
-        // TODO: implement actions below
-        // TODO: add tests for all actions
-        // TODO: refactor :3
+        // TODO Implementation: implement actions below
+        // TODO Implementation: add tests for all actions
+        // TODO Refactor: refactor :3
 
         match self {
             Action::TeamSwitch { player_id } => {
@@ -117,7 +117,7 @@ impl Action {
                 }
                 Ok(())
             }
-            // TODO: Action::PlaceShips { .. } => {}
+            // TODO Implementation: Action::PlaceShips { .. } => {}
             Action::Move {
                 ship_id,
                 properties,
@@ -141,7 +141,7 @@ impl Action {
                 game.players.insert(player_id, player);
 
                 let _ /*destroyed_ships*/ = game.ships.destroy_colliding_ships_in_envelope(&trajectory);
-                // TODO: find a way to propagate destroyed ships
+                // TODO Implementation: find a way to propagate destroyed ships
 
                 Ok(())
             }
@@ -168,7 +168,7 @@ impl Action {
                 game.players.insert(player_id, player);
 
                 let _ /*destroyed_ships*/ = game.ships.destroy_colliding_ships_in_envelope(&trajectory);
-                // TODO: find a way to propagate destroyed ships
+                // TODO Implementation: find a way to propagate destroyed ships
 
                 Ok(())
             }
@@ -200,16 +200,16 @@ impl Action {
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
-            // TODO: Action::ScoutPlane { .. } => {}
-            // TODO: Action::PredatorMissile { .. } => {}
-            // TODO: Action::EngineBoost { .. } => {}
-            // TODO: Action::Torpedo { .. } => {}
-            // TODO: Action::MultiMissile { .. } => {}
+            // TODO Implementation: Action::ScoutPlane { .. } => {}
+            // TODO Implementation: Action::PredatorMissile { .. } => {}
+            // TODO Implementation: Action::EngineBoost { .. } => {}
+            // TODO Implementation: Action::Torpedo { .. } => {}
+            // TODO Implementation: Action::MultiMissile { .. } => {}
             Action::None => Ok(()),
             _ => todo!(),
         }
 
-        // TODO: find a good way to return Action Results
+        // TODO Implementation: find a good way to return Action Results
     }
 }
 
