@@ -4,6 +4,7 @@ use bevy::{
     prelude::*,
     window::PresentMode,
 };
+use bevy_inspector_egui::WorldInspectorPlugin;
 use iyes_loopless::prelude::*;
 
 mod game_state;
@@ -28,6 +29,7 @@ fn main() {
             ..default()
         }))
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        .add_plugin(WorldInspectorPlugin::default())
         .add_loopless_state(GameState::Unconnected)
         .add_plugin(networking::NetworkingPlugin)
         .add_startup_system(fps_counter)
