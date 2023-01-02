@@ -114,6 +114,7 @@ pub struct Endpoint {
     payloads_receiver: mpsc::Receiver<ClientPayload>,
     close_sender: broadcast::Sender<()>,
 
+    #[cfg(feature = "no_bevy")]
     pub(crate) internal_receiver_closed: bool,
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
 }
@@ -341,6 +342,7 @@ impl Server {
             payloads_receiver: from_clients_receiver,
             close_sender: endpoint_close_sender,
             internal_receiver: from_async_server,
+            #[cfg(feature = "no_bevy")]
             internal_receiver_closed: false,
         });
 
