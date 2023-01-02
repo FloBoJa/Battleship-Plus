@@ -20,6 +20,7 @@ use bevy_quinnet::shared::{ClientId, QuinnetError};
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
 use crate::game::data::{Game, Player, PlayerID};
+use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
 
 pub fn spawn_server_task(cfg: Arc<dyn ConfigProvider + Send + Sync>) -> TaskControl {
@@ -195,9 +196,20 @@ async fn endpoint_task(
                     }
                     EndpointEvent::Disconnect(client_it) => {
                         info!("Client {client_it} disconnected");
-                        if game.write().await.remove_player(client_it) {
+                        let mut game = game.write().await;
+                        if game.remove_player(client_it) {
                             let _ = game_end_tx.send(());
                         }
+                        if matches!(game.state, GameState::Lobby) {
+                            if let Err(e) = broadcast_lobby_change_event(
+                                game.team_a.iter().cloned(),
+                                game.team_b.iter().cloned(),
+                                game.players.clone(),
+                                &broadcast_tx).await {
+                                error!("unable to broadcast LobbyChangeEvent: {e}");
+                            }
+                        }
+
                         continue;
                     }
                     EndpointEvent::SocketClosed => {
