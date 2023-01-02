@@ -7,6 +7,7 @@ edition = "2021"
 battleship_plus_common = { path = "../battleship_plus_common" }
 bevy = { version = "0.9", default_features = false, features = ["x11", "bevy_winit", "render"] }
 bevy_quinnet = { path = "../bevy_quinnet" }
+bevy_egui = "0.18"
 egui = "0.20"
 bevy-inspector-egui = "0.15.0"
 pnet_datalink = "0.31"
