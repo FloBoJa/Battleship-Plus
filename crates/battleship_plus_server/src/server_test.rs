@@ -6,17 +6,17 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
 use quinn::{crypto, ClientConfig, Connection, Endpoint, RecvStream, SendStream, VarInt};
-use tokio::macros::support::thread_rng_n;
 use tokio::sync::Mutex;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::codec::BattleshipPlusCodec;
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    JoinRequest, JoinResponse, LobbyChangeEvent, ProtocolMessage, SetReadyStateRequest,
-    SetReadyStateResponse, StatusMessage, TeamSwitchRequest, TeamSwitchResponse,
+    JoinRequest, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
+    SetReadyStateRequest, SetReadyStateResponse, StatusMessage, TeamSwitchRequest,
+    TeamSwitchResponse,
 };
-use battleship_plus_common::types::PlayerLobbyState;
+use battleship_plus_common::types::{Coordinate, PlayerLobbyState};
 use bevy_quinnet::client::certificate::SkipServerVerification;
 
 use crate::config_provider::{default_config_provider, ConfigProvider};
@@ -125,6 +125,27 @@ impl Client {
         }
     }
 
+    async fn check_preparation_start_broadcast(
+        broadcast_receiver: impl Iterator<Item = &mut Client>,
+    ) -> HashMap<PlayerID, Coordinate> {
+        let mut quadrant_assignments: HashMap<u32, Coordinate> = HashMap::new();
+
+        for c in broadcast_receiver {
+            let msg = c.receive().await;
+            match msg {
+                ProtocolMessage::PlacementPhase(PlacementPhase {
+                    corner: Some(corner),
+                }) => {
+                    assert!(!quadrant_assignments.values().any(|c| c.clone() == corner));
+                    quadrant_assignments.insert(c.state.player_id, corner);
+                }
+                _ => panic!("expected PlacementPhase with corner, got {msg:#?}"),
+            }
+        }
+
+        quadrant_assignments
+    }
+
     async fn disconnect(self) {
         self.connection.close(VarInt::from_u32(0), &[])
     }
@@ -136,7 +157,7 @@ impl Client {
     ) -> Connection {
         let mut ep = Endpoint::client(bind_addr).expect("unable to create Endpoint on {addr}");
         ep.set_default_client_config(ClientConfig::new(client_config));
-        ep.connect(addr.into(), &addr.ip().to_string())
+        ep.connect(addr, &addr.ip().to_string())
             .expect("unable to connect to server")
             .await
             .expect("unable to connect to server")
@@ -282,7 +303,7 @@ async fn lobby_e2e() {
 
     let server_ctrl = spawn_server_task(cfg.clone());
 
-    const DISCONNECTING_CLIENTS: usize = 2;
+    const DISCONNECTING_CLIENTS: usize = 4;
     let client_count: usize =
         (cfg.game_config().team_size_a + cfg.game_config().team_size_a) as usize;
 
@@ -331,16 +352,26 @@ async fn lobby_e2e() {
         }
     }
 
+    let mut team_a = Vec::new();
+    let mut team_b = Vec::new();
+
+    for c in clients {
+        match c.team {
+            Team::A => team_a.push(c),
+            Team::B => team_b.push(c),
+        }
+    }
+
     // disconnect some clients
-    for _ in 0..DISCONNECTING_CLIENTS {
-        clients
-            .remove(thread_rng_n(clients.len() as u32) as usize)
-            .disconnect()
-            .await;
+    while team_a.len() > cfg.game_config().team_size_a as usize {
+        team_a.pop().unwrap().disconnect().await;
+    }
+    while team_b.len() > cfg.game_config().team_size_b as usize {
+        team_b.pop().unwrap().disconnect().await;
     }
 
     // check for all LobbyChangeEvents
-    for c in clients.iter_mut() {
+    for c in team_a.iter_mut().chain(team_b.iter_mut()) {
         for j in (0..DISCONNECTING_CLIENTS).rev() {
             let msg = c.receive().await;
 
@@ -356,18 +387,11 @@ async fn lobby_e2e() {
         }
     }
 
-    let mut team_a = Vec::new();
-    let mut team_b = Vec::new();
-
-    for c in clients {
-        match c.team {
-            Team::A => team_a.push(c),
-            Team::B => team_b.push(c),
-        }
-    }
-
     let team_a_count = team_a.len();
     let team_b_count = team_b.len();
+
+    assert_eq!(team_a_count, cfg.game_config().team_size_a as usize);
+    assert_eq!(team_b_count, cfg.game_config().team_size_b as usize);
 
     // switch one client
     team_a.first_mut().unwrap().switch_team().await;
@@ -423,10 +447,7 @@ async fn lobby_e2e() {
         .await;
     assert_map.insert(*ids.first().unwrap(), true);
     Client::set_ready_check_broadcasts(clients.values_mut(), assert_map.clone()).await;
-
-    // TODO Test: check server state switch when a game can start
-
-    todo!();
+    Client::check_preparation_start_broadcast(clients.values_mut()).await;
 
     server_ctrl.stop().await;
 }
