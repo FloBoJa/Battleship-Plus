@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,12 +13,14 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use battleship_plus_common::codec::BattleshipPlusCodec;
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    JoinRequest, JoinResponse, LobbyChangeEvent, ProtocolMessage, StatusMessage,
+    JoinRequest, JoinResponse, LobbyChangeEvent, ProtocolMessage, SetReadyStateRequest,
+    SetReadyStateResponse, StatusMessage, TeamSwitchRequest, TeamSwitchResponse,
 };
 use battleship_plus_common::types::PlayerLobbyState;
 use bevy_quinnet::client::certificate::SkipServerVerification;
 
 use crate::config_provider::{default_config_provider, ConfigProvider};
+use crate::game::data::PlayerID;
 use crate::server::spawn_server_task;
 
 type TestLock = Arc<Mutex<()>>;
@@ -45,6 +48,81 @@ impl Client {
 
     async fn receive(&mut self) -> ProtocolMessage {
         Self::receive_msg_inner(&mut self.reader).await
+    }
+
+    async fn switch_team(&mut self) {
+        self.send(TeamSwitchRequest::default().into()).await;
+        let resp = self.receive().await;
+        match resp {
+            ProtocolMessage::StatusMessage(StatusMessage {
+                code,
+                data: Some(Data::TeamSwitchResponse(TeamSwitchResponse {})),
+                ..
+            }) => {
+                assert_eq!(code, 200);
+                self.team = match self.team {
+                    Team::A => Team::B,
+                    Team::B => Team::A,
+                };
+            }
+            _ => panic!("Expected TeamSwitchResponse, got {resp:#?}"),
+        }
+    }
+
+    async fn switch_team_check_broadcasts(
+        broadcast_receiver: impl Iterator<Item = &mut Client>,
+        assert_team_a_count: usize,
+        assert_team_b_count: usize,
+    ) {
+        for c in broadcast_receiver {
+            let msg = c.receive().await;
+            match msg {
+                ProtocolMessage::LobbyChangeEvent(LobbyChangeEvent {
+                    team_state_a,
+                    team_state_b,
+                }) => {
+                    assert_eq!(team_state_a.len(), assert_team_a_count);
+                    assert_eq!(team_state_b.len(), assert_team_b_count);
+                }
+                _ => panic!("expected LobbyChangeEvent, got {msg:#?}"),
+            }
+        }
+    }
+
+    async fn set_ready(&mut self, ready_state: bool) {
+        self.send(SetReadyStateRequest { ready_state }.into()).await;
+        let resp = self.receive().await;
+        match resp {
+            ProtocolMessage::StatusMessage(StatusMessage {
+                code,
+                data: Some(Data::SetReadyStateResponse(SetReadyStateResponse {})),
+                ..
+            }) => {
+                assert_eq!(code, 200);
+                self.state.ready = ready_state;
+            }
+            _ => panic!("Expected SetReadyStateResponse, got {resp:#?}"),
+        }
+    }
+
+    async fn set_ready_check_broadcasts(
+        broadcast_receiver: impl Iterator<Item = &mut Client>,
+        assert_map: HashMap<PlayerID, bool>,
+    ) {
+        for c in broadcast_receiver {
+            let msg = c.receive().await;
+            match msg {
+                ProtocolMessage::LobbyChangeEvent(LobbyChangeEvent {
+                    team_state_a,
+                    team_state_b,
+                }) => {
+                    for state in team_state_a.iter().chain(team_state_b.iter()) {
+                        assert_eq!(state.ready, *assert_map.get(&state.player_id).unwrap());
+                    }
+                }
+                _ => panic!("expected LobbyChangeEvent, got {msg:#?}"),
+            }
+        }
     }
 
     async fn disconnect(self) {
@@ -278,10 +356,73 @@ async fn lobby_e2e() {
         }
     }
 
-    // Fuzzy test the following
-    // TODO Test: player disconnect and reconnect and check player ready states
-    // TODO Test: player switch teams and check player ready states
-    // TODO Test: player set themselves ready and unready
+    let mut team_a = Vec::new();
+    let mut team_b = Vec::new();
+
+    for c in clients {
+        match c.team {
+            Team::A => team_a.push(c),
+            Team::B => team_b.push(c),
+        }
+    }
+
+    let team_a_count = team_a.len();
+    let team_b_count = team_b.len();
+
+    // switch one client
+    team_a.first_mut().unwrap().switch_team().await;
+    Client::switch_team_check_broadcasts(
+        team_a.iter_mut().chain(team_b.iter_mut()),
+        team_a_count - 1,
+        team_b_count + 1,
+    )
+    .await;
+
+    // switch client back
+    team_a.first_mut().unwrap().switch_team().await;
+    Client::switch_team_check_broadcasts(
+        team_a.iter_mut().chain(team_b.iter_mut()),
+        team_a_count,
+        team_b_count,
+    )
+    .await;
+
+    let mut clients = HashMap::with_capacity(client_count);
+    for cc in [team_a, team_b] {
+        for c in cc {
+            clients.insert(c.state.player_id, c);
+        }
+    }
+
+    let mut assert_map = clients.values().fold(HashMap::new(), |mut map, p| {
+        map.insert(p.state.player_id, p.state.ready);
+        map
+    });
+
+    let ids: Vec<_> = assert_map.keys().cloned().collect();
+    for id in ids.iter().skip(1) {
+        // set all clients (except one) ready -> unready -> ready
+        clients.get_mut(id).unwrap().set_ready(true).await;
+        assert_map.insert(*id, true);
+        Client::set_ready_check_broadcasts(clients.values_mut(), assert_map.clone()).await;
+
+        clients.get_mut(id).unwrap().set_ready(false).await;
+        assert_map.insert(*id, false);
+        Client::set_ready_check_broadcasts(clients.values_mut(), assert_map.clone()).await;
+
+        clients.get_mut(id).unwrap().set_ready(true).await;
+        assert_map.insert(*id, true);
+        Client::set_ready_check_broadcasts(clients.values_mut(), assert_map.clone()).await;
+    }
+
+    // set last client ready
+    clients
+        .get_mut(ids.first().unwrap())
+        .unwrap()
+        .set_ready(true)
+        .await;
+    assert_map.insert(*ids.first().unwrap(), true);
+    Client::set_ready_check_broadcasts(clients.values_mut(), assert_map.clone()).await;
 
     // TODO Test: check server state switch when a game can start
 
@@ -289,3 +430,8 @@ async fn lobby_e2e() {
 
     server_ctrl.stop().await;
 }
+
+// TODO Implement: Fuzzy test
+// TODO Test: player disconnect and reconnect and check player ready states
+// TODO Test: player switch teams and check player ready states
+// TODO Test: player set themselves ready and unready
