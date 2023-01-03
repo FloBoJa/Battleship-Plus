@@ -10,7 +10,6 @@ use futures::sink::SinkExt;
 use futures_util::StreamExt;
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
 use serde::Deserialize;
-use tokio::sync::mpsc::Sender;
 use tokio::{
     runtime,
     sync::{
@@ -501,10 +500,12 @@ async fn client_sender_task(
         } => {}
     }
     trace!("Sending half of stream closed for client: {}", client_id);
-    to_sync_server
+    if let Err(e) = to_sync_server
         .send(InternalAsyncMessage::ClientLostConnection(client_id))
         .await
-        .expect("Failed to signal connection lost to sync server");
+    {
+        debug!("Failed to signal connection lost to sync server: {e}")
+    }
 }
 
 async fn client_receiver_task(
@@ -513,7 +514,7 @@ async fn client_receiver_task(
     mut close_receiver: broadcast::Receiver<()>,
     close_sender: broadcast::Sender<()>,
     from_clients_sender: mpsc::Sender<ClientPayload>,
-    to_sync_server: Sender<InternalAsyncMessage>,
+    to_sync_server: mpsc::Sender<InternalAsyncMessage>,
 ) {
     tokio::select! {
         _ = close_receiver.recv() => {

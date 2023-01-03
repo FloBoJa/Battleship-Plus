@@ -82,15 +82,14 @@ impl Game {
         let tile_offset = (self.board_size - initial_game_length) / 2;
 
         (0..quadrants_per_row)
-            .map(|x| {
-                (0..quadrants_per_row).map(|y| {
+            .flat_map(|x| {
+                (0..quadrants_per_row).map(move |y| {
                     (
                         tile_offset + (x * quadrant_size),
                         tile_offset + (y * quadrant_size),
                     )
                 })
             })
-            .flatten()
             .collect()
     }
 

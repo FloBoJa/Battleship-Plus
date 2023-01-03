@@ -189,7 +189,9 @@ async fn endpoint_task(
             _ = cancel_rx.recv() => return,
             broadcast = broadcast_rx.recv() => {
                 if let Ok((ids, msg)) = broadcast {
-                    for id in ids {
+                    debug!("broadcast to {ids:?}: {msg:?}");
+
+                    for id in ids.clone() {
                         // At this point a data race might occur when two clients are disconnecting
                         // and the server wants to broadcast a LobbyChangeEvent triggered by the first
                         // disconnect. The following call will fail for the second client that disconnected.
@@ -401,14 +403,10 @@ async fn handle_message(
 
                 if g.can_start() {
                     g.state = GameState::Preparation;
+                    let quadrants = g.quadrants();
 
-                    broadcast_game_start(
-                        cfg.clone(),
-                        ep,
-                        g.players.values_mut().collect(),
-                        g.quadrants(),
-                    )
-                    .await?;
+                    broadcast_game_start(g.players.values_mut().collect(), quadrants, broadcast_tx)
+                        .await?;
                 }
 
                 Ok(())
@@ -498,10 +496,9 @@ async fn broadcast_lobby_change_event(
 }
 
 async fn broadcast_game_start(
-    cfg: Arc<Config>,
-    ep: &mut Endpoint,
     players: Vec<&mut Player>,
     mut quadrants: Vec<(u32, u32)>,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     if players.len() > quadrants.len() {
         panic!("board has less quadrants than players in the game");
@@ -512,17 +509,21 @@ async fn broadcast_game_start(
     for p in players {
         p.quadrant = Some(quadrants.pop().unwrap());
 
-        ep.send_message(
-            p.id,
-            PlacementPhase {
-                corner: Some(Coordinate {
-                    x: p.quadrant.unwrap().0,
-                    y: p.quadrant.unwrap().1,
-                }),
-            }
-            .into(),
-        )
-        .map_err(MessageHandlerError::Network)?;
+        // This function does not send the messages directly through the endpoint struct.
+        // Instead it queues them in the broadcast channel.
+        // Doing so will ensure that this broadcast will be sent in order with other broadcasts.
+        broadcast_tx
+            .send((
+                vec![p.id],
+                PlacementPhase {
+                    corner: Some(Coordinate {
+                        x: p.quadrant.unwrap().0,
+                        y: p.quadrant.unwrap().1,
+                    }),
+                }
+                .into(),
+            ))
+            .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
     }
 
     Ok(())
