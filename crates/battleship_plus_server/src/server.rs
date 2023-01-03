@@ -342,7 +342,7 @@ async fn handle_message(
             };
 
             let mut g = game.write().await;
-            let state = game.write().await.get_state();
+            let state = g.get_state();
             if let Err(e) = state.execute_action(action, &mut g) {
                 action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
@@ -370,7 +370,7 @@ async fn handle_message(
             };
 
             let mut g = game.write().await;
-            let state = game.write().await.get_state();
+            let state = g.get_state();
             if let Err(e) = state.execute_action(action, &mut g) {
                 action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
