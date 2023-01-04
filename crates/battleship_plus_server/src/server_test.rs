@@ -296,7 +296,7 @@ impl Client {
 
 #[tokio::test]
 async fn lobby_e2e() {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
 
     let _lock = TEST_LOCK.lock().await;
     let cfg = default_config_provider();

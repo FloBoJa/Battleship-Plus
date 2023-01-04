@@ -368,9 +368,10 @@ fn configure_client(
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(SkipServerVerification::new())
                 .with_no_client_auth();
-            if cfg!(debug_assertions) {
-                crypto.key_log = Arc::new(KeyLogFile::new());
+            if let Some(file) = option_env!("SSLKEYLOGFILE") {
+                warn!("SSL Key log file is active: {file}");
             }
+            crypto.key_log = Arc::new(KeyLogFile::new());
 
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
@@ -391,9 +392,10 @@ fn configure_client(
                     store_file,
                 ))
                 .with_no_client_auth();
-            if cfg!(debug_assertions) {
-                crypto.key_log = Arc::new(KeyLogFile::new());
+            if let Some(file) = option_env!("SSLKEYLOGFILE") {
+                warn!("SSL Key log file is active: {file}");
             }
+            crypto.key_log = Arc::new(KeyLogFile::new());
 
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
