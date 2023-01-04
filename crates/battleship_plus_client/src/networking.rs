@@ -40,7 +40,9 @@ impl Plugin for NetworkingPlugin {
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_messages)
             .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
-            .add_system(receive_advertisements.run_in_state(GameState::Unconnected))
+            // Process advertisements even during the game, just to keep the async runtime busy.
+            // It seems to shut down otherwise, inhibiting the QUIC keep-alive mechanism.
+            .add_system(receive_advertisements)
             .add_system(request_server_configurations.run_in_state(GameState::Unconnected))
             .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
             .add_enter_system(GameState::Joining, join_server)
