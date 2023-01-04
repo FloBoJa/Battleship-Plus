@@ -15,6 +15,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:bullseye-slim
 
+ENV RUST_LOG=info
+
 WORKDIR /battleship_plus
 
 COPY --from=builder /usr/local/cargo/bin/battleship_plus_server server
