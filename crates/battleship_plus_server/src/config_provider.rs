@@ -18,7 +18,7 @@ pub trait ConfigProvider {
     fn server_config(&self) -> Arc<ServerConfig>;
 }
 
-mod default {
+pub(crate) mod default {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
     use std::sync::Arc;
     use std::time::Duration;
@@ -67,7 +67,6 @@ mod default {
                         shoot_range: 6,
                         shoot_damage: 20,
                         movement_costs: costs(0, 1),
-                        movement_speed: 1,
                         ability_costs: costs(2, 5),
                         vision_range: 8,
                         initial_health: 300,
@@ -81,7 +80,6 @@ mod default {
                         shoot_range: 10,
                         shoot_damage: 33,
                         movement_costs: costs(0, 1),
-                        movement_speed: 1,
                         ability_costs: costs(2, 5),
                         vision_range: 12,
                         initial_health: 200,
@@ -96,7 +94,6 @@ mod default {
                         shoot_range: 8,
                         shoot_damage: 25,
                         movement_costs: costs(0, 1),
-                        movement_speed: 2,
                         ability_costs: costs(2, 5),
                         vision_range: 10,
                         initial_health: 100,
@@ -109,7 +106,6 @@ mod default {
                         shoot_range: 16,
                         shoot_damage: 33,
                         movement_costs: costs(0, 1),
-                        movement_speed: 1,
                         ability_costs: costs(2, 8),
                         vision_range: 32,
                         initial_health: 100,
@@ -123,7 +119,6 @@ mod default {
                         shoot_range: 12,
                         shoot_damage: 33,
                         movement_costs: costs(0, 2),
-                        movement_speed: 1,
                         ability_costs: costs(2, 5),
                         vision_range: 24,
                         initial_health: 100,
@@ -142,13 +137,15 @@ mod default {
 
         fn server_config(&self) -> Arc<ServerConfig> {
             Arc::from(ServerConfig {
-                game_address_v4: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 30303),
-                game_address_v6: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 30303, 0, 0),
+                game_address_v4: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 30305),
+                game_address_v6: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 30305, 0, 0),
                 enable_announcements_v4: true,
                 enable_announcements_v6: true,
                 announcement_address_v4: SocketAddrV4::new(Ipv4Addr::BROADCAST, 30303),
                 announcement_address_v6: SocketAddrV6::new(
-                    Ipv6Addr::new(0xff03, 0, 0, 0, 0, 0, 0, 1),
+                    Ipv6Addr::new(
+                        0xff02, 0x6261, 0x7474, 0x6c65, 0x7368, 0x6970, 0x706c, 0x7573,
+                    ),
                     30303,
                     0,
                     0,
@@ -159,6 +156,6 @@ mod default {
     }
 }
 
-pub fn default_config_provider() -> Arc<dyn ConfigProvider> {
+pub fn default_config_provider() -> Arc<dyn ConfigProvider + Send + Sync> {
     Arc::from(default::DefaultGameConfig)
 }

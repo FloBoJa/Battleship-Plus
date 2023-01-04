@@ -5,6 +5,16 @@ edition = "2021"
 
 [dependencies]
 battleship_plus_common = { path = "../battleship_plus_common" }
-bevy = "0.9"
-bevy_quinnet = "0.2"
-bevy-inspector-egui = "0.14"
+bevy = { version = "0.9", default_features = false, features = ["x11", "bevy_winit", "render"] }
+bevy_quinnet = { path = "../bevy_quinnet" }
+egui = "0.20"
+bevy-inspector-egui = "0.15.0"
+pnet_datalink = "0.31"
+tokio-util = { version = "0.7", default_features = false, features = ["net"] }
+tokio = { version = "1", default_features = false, features = ["net"] }
+futures = { version = "0.3", default_features = false, features = ["std"] }
+bytes = "1.3"
+iyes_loopless = { version = "0.9", features = ["states"] }
+
+[features]
+wayland = ["bevy/wayland"]
