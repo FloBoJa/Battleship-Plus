@@ -1,19 +1,31 @@
 use log::info;
-use tokio::signal;
 
-use crate::server_advertisement::start_announcement_timer;
+use crate::server::spawn_server_task;
+use crate::server_advertisement::spawn_timer_task;
 
 mod config_provider;
+mod game;
+mod server;
 mod server_advertisement;
+mod tasks;
+
+#[cfg(test)]
+mod server_test;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    pretty_env_logger::init();
+
     info!("Battleship Plus server startup");
 
     let cfg = config_provider::default_config_provider();
 
-    start_announcement_timer(cfg.as_ref()).await;
+    let announcement_ctrl = spawn_timer_task(cfg.as_ref()).await;
 
-    signal::ctrl_c().await.unwrap();
+    let server_ctrl = spawn_server_task(cfg.clone());
+    server_ctrl.wait().await;
+
+    if let Some(ctrl) = announcement_ctrl {
+        ctrl.stop().await;
+    }
 }

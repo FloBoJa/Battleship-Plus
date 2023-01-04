@@ -1,17 +1,29 @@
 use std::borrow::Borrow;
 use std::net::{IpAddr, SocketAddr};
 
-use log::{debug, warn};
+use futures::SinkExt;
+use log::{trace, warn};
 use tokio::net::UdpSocket;
 use tokio::time;
+use tokio_util::udp::UdpFramed;
 
-use battleship_plus_common::PROTOCOL_VERSION;
+use battleship_plus_common::{
+    codec::BattleshipPlusCodec,
+    messages::{self, packet_payload::ProtocolMessage},
+};
 
 use crate::config_provider::ConfigProvider;
+use crate::tasks::{upgrade_oneshot, TaskControl};
 
-pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
-    if !cfg.server_config().enable_announcements_v4 && cfg.server_config().enable_announcements_v6 {
-        return;
+/// Starts broadcasting game announcements at a fixed interval.
+/// When a task is started by this call, it returns a Channel to signal the task to stop and a JoinHandle.
+pub(crate) async fn spawn_timer_task(cfg: &dyn ConfigProvider) -> Option<TaskControl> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut stop = upgrade_oneshot(rx);
+
+    if !cfg.server_config().enable_announcements_v4 && !cfg.server_config().enable_announcements_v6
+    {
+        return None;
     }
 
     let sock_v4;
@@ -52,9 +64,12 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
     let announce_v4 = cfg.server_config().announcement_address_v4;
     let announce_v6 = cfg.server_config().announcement_address_v6;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         loop {
-            timer.tick().await;
+            tokio::select! {
+                _ = stop.recv() => return,
+                _ = timer.tick() => {}
+            }
 
             if sock_v4.as_ref().is_some() {
                 match dispatch_announcement(
@@ -65,7 +80,7 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
                 )
                 .await
                 {
-                    Ok(_) => debug!("IPv4 advertisement dispatched"),
+                    Ok(_) => trace!("IPv4 advertisement dispatched"),
                     Err(e) => warn!("unable to dispatch IPv4 advertisement: {}", e),
                 };
             }
@@ -79,12 +94,14 @@ pub(crate) async fn start_announcement_timer(cfg: &dyn ConfigProvider) {
                 )
                 .await
                 {
-                    Ok(_) => debug!("IPv6 advertisement dispatched"),
+                    Ok(_) => trace!("IPv6 advertisement dispatched"),
                     Err(e) => warn!("unable to dispatch IPv6 advertisement: {}", e),
                 };
             }
         }
     });
+
+    Some(TaskControl::new(tx, handle))
 }
 
 pub(crate) async fn dispatch_announcement(
@@ -93,22 +110,15 @@ pub(crate) async fn dispatch_announcement(
     display_name: &str,
     dst: SocketAddr,
 ) -> Result<(), String> {
-    let inner_message =
-        battleship_plus_common::messages::packet_payload::ProtocolMessage::ServerAdvertisement(
-            battleship_plus_common::messages::ServerAdvertisement {
-                port: port as u32,
-                display_name: String::from(display_name),
-            },
-        );
+    let message = ProtocolMessage::ServerAdvertisement(messages::ServerAdvertisement {
+        port: port as u32,
+        display_name: String::from(display_name),
+    });
 
-    let msg = match battleship_plus_common::messages::Message::new(PROTOCOL_VERSION, inner_message)
-    {
-        Ok(msg) => msg,
-        Err(e) => return Err(format!("unable to encode advertisement message: {}", e)),
-    };
+    let mut socket = UdpFramed::new(socket, BattleshipPlusCodec::default());
 
-    match socket.send_to(msg.encode().as_slice(), dst).await {
+    match socket.send((message, dst)).await {
         Ok(_) => Ok(()),
-        Err(e) => Err(format!("unable to send advertisement message: {}", e)),
+        Err(e) => Err(format!("unable to send advertisement message: {e}")),
     }
 }
