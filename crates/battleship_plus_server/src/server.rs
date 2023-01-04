@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use log::{debug, error, info, trace, warn};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tokio::macros::support::thread_rng_n;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::messages::status_message::Data;
@@ -152,10 +154,16 @@ pub async fn server_task(
                 })
                 .collect();
 
+            info!("New game initialized");
+
             tokio::select! {
                 _ = game_end_rx.recv() => {},
                 _ = stop.recv() => return,
             }
+
+            // TODO: find a better way to wait for queues
+            // let queues run out
+            tokio::time::sleep(Duration::from_secs(3)).await;
 
             for h in handles {
                 h.1.send(())
@@ -405,8 +413,13 @@ async fn handle_message(
                     g.state = GameState::Preparation;
                     let quadrants = g.quadrants();
 
-                    broadcast_game_start(g.players.values_mut().collect(), quadrants, broadcast_tx)
-                        .await?;
+                    broadcast_game_start(
+                        g.players.values_mut().collect(),
+                        quadrants,
+                        broadcast_tx,
+                        game_end_tx,
+                    )
+                    .await?;
                 }
 
                 Ok(())
@@ -496,9 +509,10 @@ async fn broadcast_lobby_change_event(
 }
 
 async fn broadcast_game_start(
-    players: Vec<&mut Player>,
+    mut players: Vec<&mut Player>,
     mut quadrants: Vec<(u32, u32)>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+    game_end_tx: &UnboundedSender<()>,
 ) -> Result<(), MessageHandlerError> {
     if players.len() > quadrants.len() {
         panic!("board has less quadrants than players in the game");
@@ -506,9 +520,14 @@ async fn broadcast_game_start(
 
     quadrants.shuffle(&mut thread_rng());
 
-    for p in players {
-        p.quadrant = Some(quadrants.pop().unwrap());
+    for p in players.iter_mut() {
+        let quadrant = quadrants.pop().unwrap();
+        debug!(
+            "Player {: >4} ==> Quadrant ({: >4}, {: >4})",
+            p.id, quadrant.0, quadrant.1
+        );
 
+        p.quadrant = Some(quadrant);
         // This function does not send the messages directly through the endpoint struct.
         // Instead it queues them in the broadcast channel.
         // Doing so will ensure that this broadcast will be sent in order with other broadcasts.
@@ -525,6 +544,18 @@ async fn broadcast_game_start(
             ))
             .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
     }
+
+    info!("All players are ready and the game preparation phase can start");
+
+    // TODO: remove not implemented message
+    broadcast_tx.send((players.iter().map(|p| p.id).collect(), StatusMessage {
+        code: 555,
+        message: "Thanks for trying our lobby. Maybe next time you come around there is a preparation phase for you.. Who knows? :)\n\nThe server will reset soon...".to_string(),
+        data: None,
+    }.into()))
+        .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
+
+    game_end_tx.send(()).expect("unable to end game");
 
     Ok(())
 }
