@@ -128,10 +128,10 @@ pub(crate) mod default {
                 }),
                 ship_set_team_a: default_ship_set(),
                 ship_set_team_b: default_ship_set(),
-                board_size: 128,
+                board_size: 422,
                 action_point_gain: 1,
-                team_size_a: 2,
-                team_size_b: 2,
+                team_size_a: 5,
+                team_size_b: 5,
             })
         }
 
