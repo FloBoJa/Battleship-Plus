@@ -4,15 +4,17 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use log::{debug, error, info, trace, warn};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use tokio::macros::support::thread_rng_n;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    JoinResponse, LobbyChangeEvent, ProtocolMessage, ServerConfigResponse, SetReadyStateRequest,
-    SetReadyStateResponse, StatusMessage, TeamSwitchResponse,
+    JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage, ServerConfigResponse,
+    SetReadyStateRequest, SetReadyStateResponse, StatusMessage, TeamSwitchResponse,
 };
-use battleship_plus_common::types::{Config, PlayerLobbyState};
+use battleship_plus_common::types::{Config, Coordinate, PlayerLobbyState};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::server::{Endpoint, EndpointEvent, Server, ServerConfigurationData};
 use bevy_quinnet::shared::{ClientId, QuinnetError};
@@ -108,52 +110,60 @@ pub async fn server_task(
     info!("Endpoints initialized");
 
     loop {
-        let game = Arc::new(RwLock::new(Game::new(
+        let game = Game::new(
             cfg.game_config().board_size,
             cfg.game_config().team_size_a,
             cfg.game_config().team_size_b,
-        )));
-        let (game_end_tx, mut game_end_rx) = mpsc::unbounded_channel();
+        );
 
-        let (broadcast_tx, broadcast_rx): BroadcastChannel = tokio::sync::broadcast::channel(128);
+        // check game config
+        if let Err(e) = game.check_game_config() {
+            error!("Game config check failed: {e}");
+        } else {
+            let game = Arc::new(RwLock::new(game));
+            let (game_end_tx, mut game_end_rx) = mpsc::unbounded_channel();
 
-        let servers: Vec<_> = [server6.clone(), server4.clone()]
-            .iter()
-            .filter(|e| e.is_some())
-            .map(|s| s.as_ref().unwrap().clone())
-            .collect();
+            let (broadcast_tx, broadcast_rx): BroadcastChannel =
+                tokio::sync::broadcast::channel(128);
 
-        let handles: Vec<_> = servers
-            .iter()
-            .map(|server| {
-                let (cancel_tx, cancel_rx) = mpsc::unbounded_channel();
+            let servers: Vec<_> = [server6.clone(), server4.clone()]
+                .iter()
+                .filter(|e| e.is_some())
+                .map(|s| s.as_ref().unwrap().clone())
+                .collect();
 
-                (
-                    tokio::spawn(endpoint_task(
-                        cfg.game_config(),
-                        server.clone(),
-                        broadcast_tx.clone(),
-                        broadcast_rx.resubscribe(),
-                        game.clone(),
-                        game_end_tx.clone(),
-                        cancel_rx,
-                    )),
-                    cancel_tx,
-                )
-            })
-            .collect();
+            let handles: Vec<_> = servers
+                .iter()
+                .map(|server| {
+                    let (cancel_tx, cancel_rx) = mpsc::unbounded_channel();
 
-        tokio::select! {
-            _ = game_end_rx.recv() => {},
-            _ = stop.recv() => return,
-        }
+                    (
+                        tokio::spawn(endpoint_task(
+                            cfg.game_config(),
+                            server.clone(),
+                            broadcast_tx.clone(),
+                            broadcast_rx.resubscribe(),
+                            game.clone(),
+                            game_end_tx.clone(),
+                            cancel_rx,
+                        )),
+                        cancel_tx,
+                    )
+                })
+                .collect();
 
-        for h in handles {
-            h.1.send(())
-                .expect("unable to notify endpoint tasks to cancel");
+            tokio::select! {
+                _ = game_end_rx.recv() => {},
+                _ = stop.recv() => return,
+            }
 
-            if let Err(e) = h.0.await {
-                error!("server task finished with an error {e}");
+            for h in handles {
+                h.1.send(())
+                    .expect("unable to notify endpoint tasks to cancel");
+
+                if let Err(e) = h.0.await {
+                    error!("server task finished with an error {e}");
+                }
             }
         }
     }
@@ -179,7 +189,9 @@ async fn endpoint_task(
             _ = cancel_rx.recv() => return,
             broadcast = broadcast_rx.recv() => {
                 if let Ok((ids, msg)) = broadcast {
-                    for id in ids {
+                    debug!("broadcast to {ids:?}: {msg:?}");
+
+                    for id in ids.clone() {
                         // At this point a data race might occur when two clients are disconnecting
                         // and the server wants to broadcast a LobbyChangeEvent triggered by the first
                         // disconnect. The following call will fail for the second client that disconnected.
@@ -310,6 +322,7 @@ async fn handle_message(
                     name: props.username.clone(),
                     action_points: 0,
                     is_ready: false,
+                    quadrant: None,
                 },
             );
 
@@ -342,7 +355,7 @@ async fn handle_message(
             };
 
             let mut g = game.write().await;
-            let state = game.write().await.get_state();
+            let state = g.get_state();
             if let Err(e) = state.execute_action(action, &mut g) {
                 action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
@@ -370,7 +383,7 @@ async fn handle_message(
             };
 
             let mut g = game.write().await;
-            let state = game.write().await.get_state();
+            let state = g.get_state();
             if let Err(e) = state.execute_action(action, &mut g) {
                 action_validation_error_reply(ep, client_id, e, game_end_tx)
             } else {
@@ -386,7 +399,17 @@ async fn handle_message(
                     g.players.clone(),
                     broadcast_tx,
                 )
-                .await
+                .await?;
+
+                if g.can_start() {
+                    g.state = GameState::Preparation;
+                    let quadrants = g.quadrants();
+
+                    broadcast_game_start(g.players.values_mut().collect(), quadrants, broadcast_tx)
+                        .await?;
+                }
+
+                Ok(())
             }
         }
 
@@ -470,6 +493,40 @@ async fn broadcast_lobby_change_event(
         Ok(_) => Ok(()),
         Err(e) => Err(MessageHandlerError::Broadcast(Box::new(e))),
     }
+}
+
+async fn broadcast_game_start(
+    players: Vec<&mut Player>,
+    mut quadrants: Vec<(u32, u32)>,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+) -> Result<(), MessageHandlerError> {
+    if players.len() > quadrants.len() {
+        panic!("board has less quadrants than players in the game");
+    }
+
+    quadrants.shuffle(&mut thread_rng());
+
+    for p in players {
+        p.quadrant = Some(quadrants.pop().unwrap());
+
+        // This function does not send the messages directly through the endpoint struct.
+        // Instead it queues them in the broadcast channel.
+        // Doing so will ensure that this broadcast will be sent in order with other broadcasts.
+        broadcast_tx
+            .send((
+                vec![p.id],
+                PlacementPhase {
+                    corner: Some(Coordinate {
+                        x: p.quadrant.unwrap().0,
+                        y: p.quadrant.unwrap().1,
+                    }),
+                }
+                .into(),
+            ))
+            .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
+    }
+
+    Ok(())
 }
 
 fn build_team_states(
