@@ -40,6 +40,7 @@ fn draw_selection_screen(
     mut ui_state: ResMut<UiState>,
     keyboard: Res<Input<KeyCode>>,
     state: Res<CurrentState<GameState>>,
+    mut client: ResMut<bevy_quinnet::client::Client>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
@@ -78,32 +79,30 @@ fn draw_selection_screen(
                     }
                 });
             ui.separator();
-            ui.label("Join other server:");
+            ui.label("Add other server:");
             let socket_address = &mut ui_state.server_address;
             let address_text_edit = ui.text_edit_singleline(socket_address);
             if state.is_changed() {
                 address_text_edit.request_focus();
             }
-            let join_button = ui.button("Join");
-            let popup_id = ui.make_persistent_id("join_button_popup");
+            let add_server_button = ui.button("Add");
+            let popup_id = ui.make_persistent_id("add_button_popup");
             let confirmed_with_keyboard =
                 address_text_edit.lost_focus() && keyboard.pressed(KeyCode::Return);
-            if join_button.clicked() || confirmed_with_keyboard {
+            if add_server_button.clicked() || confirmed_with_keyboard {
                 match networking::ServerInformation::from_str(&socket_address) {
                     Ok(server_information) => {
-                        let entity = match servers
+                        if servers
                             .iter()
                             .find(|(_, other_server_information)| {
                                 server_information.address == other_server_information.address
                             })
-                            .map(|(entity, _)| entity)
+                            .is_none()
                         {
-                            Some(entity) => entity,
                             // Only add server if it does not exist already.
-                            None => commands.spawn(server_information).id(),
-                        };
-                        commands.insert_resource(networking::CurrentServer(entity));
-                        commands.insert_resource(NextState(GameState::Joining));
+                            let entity = commands.spawn(server_information.clone()).id();
+                            server_information.connect(&mut commands, entity, &mut client);
+                        }
                     }
                     Err(error) => {
                         ui_state.error_message = error;
@@ -113,10 +112,16 @@ fn draw_selection_screen(
             }
 
             let above = egui::AboveOrBelow::Above;
-            egui::popup::popup_above_or_below_widget(ui, popup_id, &join_button, above, |ui| {
-                ui.set_min_width(200.0);
-                ui.label(ui_state.error_message.clone());
-            });
+            egui::popup::popup_above_or_below_widget(
+                ui,
+                popup_id,
+                &add_server_button,
+                above,
+                |ui| {
+                    ui.set_min_width(200.0);
+                    ui.label(ui_state.error_message.clone());
+                },
+            );
         });
     });
 }

@@ -53,10 +53,10 @@ pub static DEFAULT_KNOWN_HOSTS_FILE: Lazy<ProtectedString> =
 pub type ConnectionId = u64;
 
 /// Connection event raised when the client just connected to the server. Raised in the CoreStage::PreUpdate stage.
-pub struct ConnectionEvent(ConnectionId);
+pub struct ConnectionEvent(pub ConnectionId);
 
 /// ConnectionLost event raised when the client is considered disconnected from the server. Raised in the CoreStage::PreUpdate stage.
-pub struct ConnectionLostEvent(ConnectionId);
+pub struct ConnectionLostEvent(pub ConnectionId);
 
 /// ConnectionErrorEvent event raised when the client failed to connect to the server.
 pub struct ConnectionErrorEvent(pub ConnectionId, pub String);
