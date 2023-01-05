@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
+use rustls::KeyLogFile;
 use serde::Deserialize;
 use tokio::{
     runtime,
@@ -307,10 +308,17 @@ impl Server {
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
-        let mut server_config = ServerConfig::with_single_cert(
-            server_cert.cert_chain.clone(),
-            server_cert.priv_key.clone(),
-        )?;
+        let mut server_crypto = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())
+            .unwrap();
+        if let Some(file) = option_env!("SSLKEYLOGFILE") {
+            warn!("SSL Key log file is active: {file}");
+        }
+        server_crypto.key_log = Arc::new(KeyLogFile::new());
+
+        let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
             .keep_alive_interval(Some(Duration::from_secs(DEFAULT_KEEP_ALIVE_INTERVAL_S)));
