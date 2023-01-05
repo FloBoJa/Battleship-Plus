@@ -39,6 +39,8 @@ impl Plugin for NetworkingPlugin {
             .register_inspectable::<Connection>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_messages)
+            .add_system(handle_certificate_errors)
+            .add_system(confirm_security_levels)
             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 clean_up_servers.run_in_state(GameState::Unconnected),
@@ -67,6 +69,64 @@ pub struct CurrentServer(pub Entity);
 const ADVERTISEMENT_LIFETIME: Duration = Duration::from_secs(10);
 const CONFIGURATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[derive(Clone, PartialEq, Debug)]
+pub enum Empirical<T> {
+    Unconfirmed(T),
+    Confirmed(T),
+}
+
+impl<T> std::ops::Deref for Empirical<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Empirical::Unconfirmed(value) => value,
+            Empirical::Confirmed(value) => value,
+        }
+    }
+}
+
+impl<T: Copy> Empirical<T> {
+    fn confirm(&self) -> Empirical<T> {
+        match self {
+            Empirical::Unconfirmed(value) => Empirical::Confirmed(*value),
+            Empirical::Confirmed(value) => Empirical::Confirmed(*value),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Copy)]
+pub enum SecurityLevel {
+    ConnectionFailed,
+    NoVerification,
+    SelfSigned,
+    AuthoritySigned,
+}
+
+impl SecurityLevel {
+    fn next_weakest(&self) -> SecurityLevel {
+        match self {
+            SecurityLevel::AuthoritySigned => SecurityLevel::SelfSigned,
+            SecurityLevel::SelfSigned => SecurityLevel::NoVerification,
+            SecurityLevel::NoVerification => SecurityLevel::ConnectionFailed,
+            SecurityLevel::ConnectionFailed => SecurityLevel::ConnectionFailed,
+        }
+    }
+
+    fn get_verification_mode(&self) -> CertificateVerificationMode {
+        match self {
+            SecurityLevel::AuthoritySigned => {
+                CertificateVerificationMode::SignedByCertificateAuthority
+            }
+            SecurityLevel::SelfSigned => {
+                CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default())
+            }
+            SecurityLevel::NoVerification => CertificateVerificationMode::SkipVerification,
+            SecurityLevel::ConnectionFailed => CertificateVerificationMode::SkipVerification,
+        }
+    }
+}
+
 #[derive(Component, Clone)]
 pub struct ServerInformation {
     pub host: Option<String>,
@@ -74,6 +134,7 @@ pub struct ServerInformation {
     pub name: String,
     pub config_last_requested: Option<Duration>,
     pub config: Option<types::Config>,
+    pub security: Empirical<SecurityLevel>,
     pub remove_at: Duration,
 }
 
@@ -90,6 +151,7 @@ impl Inspectable for ServerInformation {
         modified |= self.name.ui(ui, StringAttributes::default(), context);
         ui.label(format!("Address: {}", self.address));
         modified |= self.remove_at.ui(ui, (), context);
+        ui.label(format!("Security: {:#?}", self.security));
         ui.label(format!("Config: {:#?}", self.config));
         modified
     }
@@ -140,12 +202,13 @@ fn construct_server_information(
         name: host,
         config_last_requested: None,
         config: None,
+        security: Empirical::Unconfirmed(SecurityLevel::AuthoritySigned),
         remove_at: Duration::MAX,
     })
 }
 
 impl ServerInformation {
-    fn connect(&self, commands: &mut Commands, server: Entity, client: &mut ResMut<Client>) {
+    pub fn connect(&self, commands: &mut Commands, server: Entity, client: &mut ResMut<Client>) {
         // Bind to UDPv4 if the server communicates on it.
         let (local_address, server_scope) = match self.address {
             SocketAddr::V4(_) => ("0.0.0.0".to_string(), None),
@@ -165,14 +228,62 @@ impl ServerInformation {
             0,
         );
 
-        let certificate_mode =
-            CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
-        let connection_id = client.open_connection(connection_configuration, certificate_mode);
+        let connection_id = client.open_connection(
+            connection_configuration,
+            self.security.get_verification_mode(),
+        );
 
         commands
             .get_entity(server)
             .expect("The server entity must be the parent of this component")
             .insert(Connection(connection_id));
+    }
+}
+
+fn handle_certificate_errors(
+    mut events: EventReader<bevy_quinnet::client::ConnectionErrorEvent>,
+    mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
+    mut commands: Commands,
+    mut client: ResMut<Client>,
+) {
+    for bevy_quinnet::client::ConnectionErrorEvent(connection_id, message) in events.iter() {
+        if let Some((entity, mut server_information, _)) = servers
+            .iter_mut()
+            .find(|(_, _, Connection(server_connection_id))| connection_id == server_connection_id)
+        {
+            match server_information.security {
+                // Ignore errors on connections with confirmed security level.
+                Empirical::Confirmed(_) => continue,
+                Empirical::Unconfirmed(SecurityLevel::ConnectionFailed) => {
+                    commands.entity(entity).remove::<Connection>();
+                }
+                Empirical::Unconfirmed(_) => {
+                    trace!(
+                        "Got error with security level {:?} for connection {connection_id}, \
+                            trying with weaker level. Error was: {}",
+                        *server_information.security,
+                        message
+                    );
+                    server_information.security =
+                        Empirical::Unconfirmed(server_information.security.next_weakest());
+                    server_information.connect(&mut commands, entity, &mut client);
+                }
+            }
+        }
+    }
+}
+
+fn confirm_security_levels(
+    mut events: EventReader<bevy_quinnet::client::ConnectionEvent>,
+    mut servers: Query<(&mut ServerInformation, &Connection)>,
+) {
+    for bevy_quinnet::client::ConnectionEvent(connection_id) in events.iter() {
+        if let Some((mut server_information, _)) = servers
+            .iter_mut()
+            .find(|(_, Connection(server_connection_id))| connection_id == server_connection_id)
+        {
+            server_information.security = server_information.security.confirm();
+        }
     }
 }
 
@@ -372,6 +483,7 @@ fn process_advertisement(
             name: advertisement.display_name.clone(),
             config: None,
             config_last_requested: None,
+            security: Empirical::Unconfirmed(SecurityLevel::AuthoritySigned),
             remove_at: time.elapsed() + ADVERTISEMENT_LIFETIME,
         };
         let server = commands.spawn(server_information.clone()).id();
@@ -519,11 +631,14 @@ fn listen_for_messages_from(
                     // Only send a ConfigReceivedEvent for the current server if the status message
                     // actually contains a configuration.
                     let mut send_config_response_event = !is_current_server;
-                    if let Some(messages::status_message::Data::ServerConfigResponse(_)) = status_message.data {
+                    if let Some(messages::status_message::Data::ServerConfigResponse(_)) =
+                        status_message.data
+                    {
                         send_config_response_event = true;
                     }
                     if send_config_response_event {
-                        config_response_events.send(ConfigReceivedEvent(status_message, *connection_id));
+                        config_response_events
+                            .send(ConfigReceivedEvent(status_message, *connection_id));
                     }
                 }
             }
@@ -643,7 +758,10 @@ fn clean_up_servers(
                 .map_or(true, |current_server| *entity != ***current_server)
         })
         .for_each(|(entity, server_information)| {
-            trace!("Closing connection to {} after timeout.", server_information.address);
+            trace!(
+                "Closing connection to {} after timeout.",
+                server_information.address
+            );
             if let Ok(connection) = connections.get_component::<Connection>(entity) {
                 if let Err(error) = client.close_connection(**connection) {
                     warn!("Failed to close connection properly: {error}");
@@ -703,12 +821,11 @@ fn try_leave_server(
         None => return,
     };
     info!("Leaving server");
-    let connection = connections
-        .get_component::<Connection>(**server)
-        .expect("There must always exist a connection component for the current server");
-    if let Err(error) = client.close_connection(**connection) {
-        warn!("Failed to close connection properly: {error}");
+    if let Ok(connection) = connections.get_component::<Connection>(**server) {
+        if let Err(error) = client.close_connection(**connection) {
+            warn!("Failed to close connection properly: {error}");
+        }
+        commands.entity(**server).remove::<Connection>();
     }
-    commands.entity(**server).remove::<Connection>();
     commands.remove_resource::<CurrentServer>();
 }
