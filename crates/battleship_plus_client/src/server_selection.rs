@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPlugin};
+use bevy_quinnet::client::ConnectionErrorEvent;
 use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
+use std::str::FromStr;
 
 use battleship_plus_common::messages;
 
@@ -15,15 +17,29 @@ impl Plugin for ServerSelectionPlugin {
         if !app.is_plugin_added::<EguiPlugin>() {
             app.add_plugin(EguiPlugin);
         }
-        app.add_system(draw_selection_screen.run_in_state(GameState::Unconnected))
-            .add_system(process_join_response.run_in_state(GameState::Joining));
+        app.init_resource::<UiState>()
+            .add_system(draw_selection_screen.run_in_state(GameState::Unconnected))
+            .add_system(draw_joining_screen.run_in_state(GameState::Joining))
+            .add_system(process_join_response.run_in_state(GameState::Joining))
+            .add_system(process_connection_errors.run_in_state(GameState::Joining))
+            .add_system(draw_joining_failed_screen.run_in_state(GameState::JoiningFailed));
     }
+}
+
+#[derive(Resource, Default)]
+struct UiState {
+    server_address: String,
+    error_message: String,
+    connection_errored: bool,
 }
 
 fn draw_selection_screen(
     mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
     servers: Query<(Entity, &networking::ServerInformation)>,
+    mut ui_state: ResMut<UiState>,
+    keyboard: Res<Input<KeyCode>>,
+    state: Res<CurrentState<GameState>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
@@ -61,6 +77,101 @@ fn draw_selection_screen(
                         });
                     }
                 });
+            ui.separator();
+            ui.label("Join other server:");
+            let socket_address = &mut ui_state.server_address;
+            let address_text_edit = ui.text_edit_singleline(socket_address);
+            if state.is_changed() {
+                address_text_edit.request_focus();
+            }
+            let join_button = ui.button("Join");
+            let popup_id = ui.make_persistent_id("join_button_popup");
+            let confirmed_with_keyboard =
+                address_text_edit.lost_focus() && keyboard.pressed(KeyCode::Return);
+            if join_button.clicked() || confirmed_with_keyboard {
+                match networking::ServerInformation::from_str(&socket_address) {
+                    Ok(server_information) => {
+                        let entity = match servers
+                            .iter()
+                            .find(|(_, other_server_information)| {
+                                server_information.address == other_server_information.address
+                            })
+                            .map(|(entity, _)| entity)
+                        {
+                            Some(entity) => entity,
+                            // Only add server if it does not exist already.
+                            None => commands.spawn(server_information).id(),
+                        };
+                        commands.insert_resource(networking::CurrentServer(entity));
+                        commands.insert_resource(NextState(GameState::Joining));
+                    }
+                    Err(error) => {
+                        ui_state.error_message = error;
+                        ui.memory().toggle_popup(popup_id);
+                    }
+                }
+            }
+
+            let above = egui::AboveOrBelow::Above;
+            egui::popup::popup_above_or_below_widget(ui, popup_id, &join_button, above, |ui| {
+                ui.set_min_width(200.0);
+                ui.label(ui_state.error_message.clone());
+            });
+        });
+    });
+}
+
+fn draw_joining_screen(mut egui_context: ResMut<EguiContext>) {
+    egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
+        ui.vertical_centered(|ui| {
+            ui.label("Joining...");
+        });
+    });
+}
+
+fn process_connection_errors(
+    mut commands: Commands,
+    mut ui_state: ResMut<UiState>,
+    current_server: Option<Res<networking::CurrentServer>>,
+    connections: Query<(Entity, &networking::Connection)>,
+    mut connection_error_events: EventReader<bevy_quinnet::client::ConnectionErrorEvent>,
+) {
+    if !ui_state.connection_errored {
+        if let Some(current_server) = current_server {
+            if let Ok(networking::Connection(current_connection_id)) =
+                connections.get_component::<networking::Connection>(current_server.0)
+            {
+                if let Some(ConnectionErrorEvent(_, error)) =
+                    connection_error_events
+                        .iter()
+                        .find(|ConnectionErrorEvent(connection_id, _)| {
+                            connection_id == current_connection_id
+                        })
+                {
+                    error!("{error}");
+                    ui_state.error_message = error.clone();
+                    ui_state.connection_errored = true;
+                    commands.insert_resource(NextState(GameState::JoiningFailed));
+                }
+            }
+        }
+    }
+}
+
+fn draw_joining_failed_screen(
+    mut commands: Commands,
+    mut egui_context: ResMut<EguiContext>,
+    mut ui_state: ResMut<UiState>,
+) {
+    egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
+        ui.vertical_centered(|ui| {
+            ui.colored_label(egui::Color32::RED, ui_state.error_message.clone());
+            let back_button = ui.button("Back to server selection");
+            back_button.request_focus();
+            if back_button.clicked() {
+                ui_state.connection_errored = false;
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
         });
     });
 }

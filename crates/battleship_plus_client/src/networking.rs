@@ -1,5 +1,5 @@
 use std::{
-    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
     str::FromStr,
     sync::mpsc,
     time::Duration,
@@ -46,6 +46,7 @@ impl Plugin for NetworkingPlugin {
             .add_system(request_server_configurations.run_in_state(GameState::Unconnected))
             .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
             .add_enter_system(GameState::Joining, join_server)
+            .add_enter_system(GameState::JoiningFailed, try_leave_server)
             .add_enter_system(GameState::Unconnected, try_leave_server);
     }
 }
@@ -60,13 +61,16 @@ pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
 #[derive(Resource, Deref)]
 pub struct CurrentServer(pub Entity);
 
+const ADVERTISEMENT_LIFETIME: Duration = Duration::from_secs(10);
+
 #[derive(Component, Clone)]
 pub struct ServerInformation {
+    pub host: Option<String>,
     pub address: SocketAddr,
     pub name: String,
     pub config_requested: bool,
     pub config: Option<types::Config>,
-    pub last_advertisement_received: Duration,
+    pub remove_at: Duration,
 }
 
 impl Inspectable for ServerInformation {
@@ -81,10 +85,59 @@ impl Inspectable for ServerInformation {
         let mut modified = false;
         modified |= self.name.ui(ui, StringAttributes::default(), context);
         ui.label(format!("Address: {}", self.address));
-        modified |= self.last_advertisement_received.ui(ui, (), context);
+        modified |= self.remove_at.ui(ui, (), context);
         ui.label(format!("Config: {:#?}", self.config));
         modified
     }
+}
+
+impl FromStr for ServerInformation {
+    type Err = String;
+
+    fn from_str(address_string: &str) -> Result<Self, Self::Err> {
+        match address_string.to_socket_addrs() {
+            Ok(mut addresses) => {
+                let ipv6_address = addresses.clone().find(|address| address.is_ipv6());
+                if let Some(address) = ipv6_address {
+                    // Use IPv6 address if there is one.
+                    construct_server_information(address_string, address)
+                } else if let Some(address) = addresses.next() {
+                    construct_server_information(address_string, address)
+                } else {
+                    Err(format!("Host name resolution did not yield anything, try an IP address or a different server."))
+                }
+            }
+            Err(error) => Err(format!("Could not resolve host name: {error}")),
+        }
+    }
+}
+
+// Helper function for ServerInformation::from_str()
+fn construct_server_information(
+    address_string: &str,
+    address: SocketAddr,
+) -> Result<ServerInformation, String> {
+    debug!("Parsed {address_string} into: {address}");
+    if address.port() == 0 {
+        return Err("Missing a port, specify it like this: \"example.org:1337\"".to_string());
+    }
+    let port_separator_index = address_string
+        .rfind(':')
+        .expect("Socket addresses with a port contain a \":\"");
+    let mut host = address_string[..port_separator_index].to_string();
+    // Remove IPv6 address brackets.
+    if !host.is_empty() && host.starts_with('[') && host.ends_with(']') {
+        host.remove(host.len() - 1);
+        host.remove(0);
+    }
+    Ok(ServerInformation {
+        host: Some(host.clone()),
+        address,
+        name: host,
+        config_requested: false,
+        config: None,
+        remove_at: Duration::MAX,
+    })
 }
 
 impl ServerInformation {
@@ -95,8 +148,13 @@ impl ServerInformation {
             SocketAddr::V6(address) => ("[::]".to_string(), Some(address.scope_id())),
         };
 
+        let server_host = match &self.host {
+            Some(host) => host.clone(),
+            None => self.address.ip().to_string(),
+        };
+
         let connection_configuration = ConnectionConfiguration::new(
-            self.address.ip().to_string(),
+            server_host,
             server_scope,
             self.address.port(),
             local_address,
@@ -289,7 +347,7 @@ fn process_advertisement(
         server.address.ip() == sender.ip() && server.address.port() == advertisement.port as u16
     }) {
         server.name = advertisement.display_name.clone();
-        server.last_advertisement_received = time.elapsed();
+        server.remove_at = time.elapsed() + ADVERTISEMENT_LIFETIME;
     } else {
         let server_address = match sender {
             SocketAddr::V4(sender) => {
@@ -305,11 +363,12 @@ fn process_advertisement(
         };
 
         let server_information = ServerInformation {
+            host: None,
             address: server_address,
             name: advertisement.display_name.clone(),
             config: None,
             config_requested: false,
-            last_advertisement_received: time.elapsed(),
+            remove_at: time.elapsed() + ADVERTISEMENT_LIFETIME,
         };
         let server = commands.spawn(server_information.clone()).id();
 
@@ -319,7 +378,7 @@ fn process_advertisement(
 }
 
 #[derive(Component, Clone, Inspectable, Deref)]
-pub struct Connection(ConnectionId);
+pub struct Connection(pub ConnectionId);
 
 fn request_server_configurations(
     mut servers: Query<(&mut ServerInformation, &Connection)>,
@@ -435,7 +494,9 @@ fn listen_for_messages_from(
                 // Nothing or an incomplete message, retry later
                 break;
             }
-            Err(QuinnetError::ChannelClosed) => {}
+            Err(QuinnetError::ChannelClosed) => {
+                break;
+            }
             Err(error) => {
                 warn!("Unexpected error occurred while receiving packet: {error}");
             }
@@ -515,9 +576,7 @@ fn clean_up_servers(
 ) {
     servers
         .iter()
-        .filter(|(_, server)| {
-            time.elapsed() - server.last_advertisement_received > Duration::from_secs(10)
-        })
+        .filter(|(_, server)| server.remove_at <= time.elapsed())
         .for_each(|(entity, _)| {
             if let Ok(connection) = connections.get_component::<Connection>(entity) {
                 if let Err(error) = client.close_connection(**connection) {
@@ -585,4 +644,5 @@ fn try_leave_server(
         warn!("Failed to close connection properly: {error}");
     }
     commands.entity(**server).remove::<Connection>();
+    commands.remove_resource::<CurrentServer>();
 }
