@@ -39,12 +39,15 @@ impl Plugin for NetworkingPlugin {
             .register_inspectable::<Connection>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_messages)
-            .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                clean_up_servers.run_in_state(GameState::Unconnected),
+            )
             // Process advertisements even during the game, just to keep the async runtime busy.
             // It seems to shut down otherwise, inhibiting the QUIC keep-alive mechanism.
             .add_system(receive_advertisements)
-            .add_system(request_server_configurations.run_in_state(GameState::Unconnected))
-            .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
+            .add_system(request_server_configurations)
+            .add_system(process_server_configurations)
             .add_enter_system(GameState::Joining, join_server)
             .add_enter_system(GameState::JoiningFailed, try_leave_server)
             .add_enter_system(GameState::Unconnected, try_leave_server);
@@ -56,19 +59,20 @@ impl Plugin for NetworkingPlugin {
 pub struct ResponseReceivedEvent(pub messages::StatusMessage);
 
 // Happens for all servers, but only in the unconnected state.
-pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
+pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub ConnectionId);
 
 #[derive(Resource, Deref)]
 pub struct CurrentServer(pub Entity);
 
 const ADVERTISEMENT_LIFETIME: Duration = Duration::from_secs(10);
+const CONFIGURATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Component, Clone)]
 pub struct ServerInformation {
     pub host: Option<String>,
     pub address: SocketAddr,
     pub name: String,
-    pub config_requested: bool,
+    pub config_last_requested: Option<Duration>,
     pub config: Option<types::Config>,
     pub remove_at: Duration,
 }
@@ -134,7 +138,7 @@ fn construct_server_information(
         host: Some(host.clone()),
         address,
         name: host,
-        config_requested: false,
+        config_last_requested: None,
         config: None,
         remove_at: Duration::MAX,
     })
@@ -367,7 +371,7 @@ fn process_advertisement(
             address: server_address,
             name: advertisement.display_name.clone(),
             config: None,
-            config_requested: false,
+            config_last_requested: None,
             remove_at: time.elapsed() + ADVERTISEMENT_LIFETIME,
         };
         let server = commands.spawn(server_information.clone()).id();
@@ -381,33 +385,68 @@ fn process_advertisement(
 pub struct Connection(pub ConnectionId);
 
 fn request_server_configurations(
-    mut servers: Query<(&mut ServerInformation, &Connection)>,
+    mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
     mut client: ResMut<Client>,
+    time: Res<Time>,
+    current_server: Option<Res<CurrentServer>>,
 ) {
-    let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
-
-    for (mut server_information, connection) in servers.iter_mut() {
-        if server_information.config_requested {
-            continue;
-        }
-
-        let connection = match client.get_connection_mut_by_id(**connection) {
-            Some(connection) => connection,
-            None => {
-                debug!("Did not find connection {} represented by Connection component, it was probably just deleted.", **connection);
-                continue;
+    match current_server {
+        None => {
+            for (_, mut server_information, connection) in servers.iter_mut() {
+                request_server_configurations_from(
+                    &mut server_information,
+                    &connection,
+                    &mut client,
+                    &time,
+                );
             }
-        };
-
-        if let Err(error) = connection.send_message(message.clone()) {
-            warn!(
-                "Failed to send server configuration request to {}: {error}",
-                server_information.address
+        }
+        Some(server) => {
+            let (mut server_information, connection) = servers
+                .iter_mut()
+                .find(|(entity, _, _)| *entity == **server)
+                .map(|(_, server_information, connection)| (server_information, connection))
+                .expect("CurrentServer always has ServerInformation and Connection components");
+            request_server_configurations_from(
+                &mut server_information,
+                connection,
+                &mut client,
+                &time,
             );
         }
-
-        server_information.config_requested = true;
     }
+}
+
+fn request_server_configurations_from(
+    server_information: &mut ServerInformation,
+    connection: &Connection,
+    client: &mut ResMut<Client>,
+    time: &Res<Time>,
+) {
+    if let Some(config_last_requested) = server_information.config_last_requested {
+        if time.elapsed() <= config_last_requested + CONFIGURATION_REQUEST_TIMEOUT {
+            return;
+        }
+    }
+
+    let connection = match client.get_connection_mut_by_id(**connection) {
+        Some(connection) => connection,
+        None => {
+            debug!("Did not find connection {} represented by Connection component, it was probably just deleted.", **connection);
+            return;
+        }
+    };
+
+    let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
+
+    if let Err(error) = connection.send_message(message.clone()) {
+        warn!(
+            "Failed to send server configuration request to {}: {error}",
+            server_information.address
+        );
+    }
+
+    server_information.config_last_requested = Some(time.elapsed());
 }
 
 fn listen_for_messages(
@@ -428,23 +467,25 @@ fn listen_for_messages(
                     None,
                     Some(&mut config_response_events),
                     None,
+                    false,
                 );
             }
         }
         Some(server) => {
             let server_information = servers
-                .get_component::<ServerInformation>(server.0)
+                .get_component::<ServerInformation>(**server)
                 .expect("CurrentServer always has a ServerInformation");
             let connection = servers
-                .get_component::<Connection>(server.0)
+                .get_component::<Connection>(**server)
                 .expect("CurrentServer always has a connection component");
             listen_for_messages_from(
                 server_information,
                 connection,
                 &mut client,
                 Some(&mut response_events),
-                None,
+                Some(&mut config_response_events),
                 Some(&mut game_events),
+                true,
             );
         }
     }
@@ -457,6 +498,7 @@ fn listen_for_messages_from(
     mut response_events: Option<&mut EventWriter<ResponseReceivedEvent>>,
     mut config_response_events: Option<&mut EventWriter<ConfigReceivedEvent>>,
     mut game_events: Option<&mut EventWriter<messages::EventMessage>>,
+    is_current_server: bool,
 ) {
     let sender = server_information.address;
     let connection = match client.get_connection_mut_by_id(*connection_id) {
@@ -474,7 +516,15 @@ fn listen_for_messages_from(
                     response_events.send(ResponseReceivedEvent(status_message.clone()));
                 }
                 if let Some(config_response_events) = &mut config_response_events {
-                    config_response_events.send(ConfigReceivedEvent(status_message, sender));
+                    // Only send a ConfigReceivedEvent for the current server if the status message
+                    // actually contains a configuration.
+                    let mut send_config_response_event = !is_current_server;
+                    if let Some(messages::status_message::Data::ServerConfigResponse(_)) = status_message.data {
+                        send_config_response_event = true;
+                    }
+                    if send_config_response_event {
+                        config_response_events.send(ConfigReceivedEvent(status_message, *connection_id));
+                    }
                 }
             }
             Ok(Some(Some(other_message))) => match EventMessage::try_from(other_message.clone()) {
@@ -509,6 +559,7 @@ fn process_server_configurations(
     mut events: EventReader<ConfigReceivedEvent>,
     mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
     mut client: ResMut<Client>,
+    current_server: Option<Res<CurrentServer>>,
 ) {
     for ConfigReceivedEvent(
         messages::StatusMessage {
@@ -521,16 +572,24 @@ fn process_server_configurations(
     {
         let (entity, mut server, connection) = match servers
             .iter_mut()
-            .find(|(_, server, _)| &server.address == sender)
+            .find(|(_, _, Connection(connection_id))| connection_id == sender)
         {
             Some(server) => server,
             None => continue,
         };
-        trace!("Received some response after config request during discovery, closing connection.");
-        if let Err(error) = client.close_connection(**connection) {
-            warn!("Failed to close connection properly: {error}");
+
+        let mut close_connection = true;
+        if let Some(current_server) = &current_server {
+            close_connection = entity != ***current_server;
         }
-        commands.entity(entity).remove::<Connection>();
+
+        if close_connection {
+            trace!("Received some response after config request during discovery, closing connection {}.", **connection);
+            if let Err(error) = client.close_connection(**connection) {
+                warn!("Failed to close connection properly: {error}");
+            }
+            commands.entity(entity).remove::<Connection>();
+        }
 
         if code / 100 != 2 {
             if message.is_empty() {
@@ -570,6 +629,7 @@ fn process_server_configurations(
 fn clean_up_servers(
     mut commands: Commands,
     time: Res<Time>,
+    current_server: Option<Res<CurrentServer>>,
     servers: Query<(Entity, &ServerInformation)>,
     connections: Query<(Entity, &Connection)>,
     mut client: ResMut<Client>,
@@ -577,7 +637,13 @@ fn clean_up_servers(
     servers
         .iter()
         .filter(|(_, server)| server.remove_at <= time.elapsed())
-        .for_each(|(entity, _)| {
+        .filter(|(entity, _)| {
+            current_server
+                .as_ref()
+                .map_or(true, |current_server| *entity != ***current_server)
+        })
+        .for_each(|(entity, server_information)| {
+            trace!("Closing connection to {} after timeout.", server_information.address);
             if let Ok(connection) = connections.get_component::<Connection>(entity) {
                 if let Err(error) = client.close_connection(**connection) {
                     warn!("Failed to close connection properly: {error}");
