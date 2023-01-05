@@ -4,7 +4,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         apt-get update \
         && DEBIAN_FRONTEND=noninteractive \
             apt-get install --no-install-recommends --assume-yes \
-              tcpdump
+              tcpdump expect
 
 RUN mkdir /data
 WORKDIR /battleship_plus

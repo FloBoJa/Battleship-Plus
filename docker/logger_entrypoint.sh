@@ -12,4 +12,6 @@ cd /data || exit
 
 SSLKEYLOGFILE="/data/tls-$(date +%F_%H-%M).keylog" \
 RUST_LOG=debug \
-    /battleship_plus/server
+    unbuffer /battleship_plus/server 2>&1 \
+      | tee \
+      >(split -d -b 268435456 - "battleship_plus-$(date +%F_%H-%M).log")
