@@ -376,7 +376,7 @@ fn configure_client(
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
         CertificateVerificationMode::SignedByCertificateAuthority => {
-            if cfg!(debug_assertions) && std::env::var("SSLKEYLOGFILE").is_ok() {
+            if std::env::var("SSLKEYLOGFILE").is_ok() {
                 warn!("Logging keys is currently not supported for CertificateVerificationMode::SignedByCertificateAuthority");
             }
             Ok(ClientConfig::with_native_roots())

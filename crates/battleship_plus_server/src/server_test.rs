@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -171,7 +172,10 @@ impl Client {
         let connection = Self::connect(
             SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into(),
             SocketAddrV4::new(
-                Ipv4Addr::LOCALHOST,
+                match option_env!("TEST_CLIENT_IP4") {
+                    Some(ip_str) => Ipv4Addr::from_str(ip_str).expect("unable to parse IPv4"),
+                    None => Ipv4Addr::LOCALHOST,
+                },
                 cfg.server_config().game_address_v4.port(),
             )
             .into(),
@@ -190,7 +194,10 @@ impl Client {
         let connection = Self::connect(
             SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0).into(),
             SocketAddrV6::new(
-                Ipv6Addr::LOCALHOST,
+                match option_env!("TEST_CLIENT_IP6") {
+                    Some(ip_str) => Ipv6Addr::from_str(ip_str).expect("unable to parse IPv6"),
+                    None => Ipv6Addr::LOCALHOST,
+                },
                 cfg.server_config().game_address_v6.port(),
                 0,
                 0,
