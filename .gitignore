@@ -20,3 +20,4 @@ target/
 **/certificate6.pem
 **/key4.pem
 **/key6.pem
+/res/server_tls.keylog
