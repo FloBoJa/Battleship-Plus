@@ -58,6 +58,9 @@ pub struct ConnectionEvent(ConnectionId);
 /// ConnectionLost event raised when the client is considered disconnected from the server. Raised in the CoreStage::PreUpdate stage.
 pub struct ConnectionLostEvent(ConnectionId);
 
+/// ConnectionErrorEvent event raised when the client failed to connect to the server.
+pub struct ConnectionErrorEvent(pub ConnectionId, pub String);
+
 /// Configuration of the client, used when connecting to a server
 #[derive(Debug, Deserialize, Clone)]
 pub struct ConnectionConfiguration {
@@ -131,6 +134,7 @@ pub(crate) enum InternalAsyncMessage {
         status: CertVerificationStatus,
         cert_info: CertVerificationInfo,
     },
+    ConnectionError(String),
 }
 
 #[derive(Debug)]
@@ -408,32 +412,100 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
 
     info!("Trying to connect to server on: {} ...", server_adr_str);
 
-    let mut server_addr: SocketAddr = server_adr_str
-        .to_socket_addrs()
-        .expect("Failed to parse server address")
-        .next()
-        .expect("Failed to resolve server address");
-
-    // Specify scope, if appropriate and provided.
-    if let SocketAddr::V6(server_addr) = &mut server_addr {
-        if let Some(scope) = config.server_scope {
-            server_addr.set_scope_id(scope);
+    let mut server_addresses = match server_adr_str.to_socket_addrs() {
+        Ok(server_addresses) => server_addresses,
+        Err(error) => {
+            spawn_config
+                .to_sync_client
+                .send(InternalAsyncMessage::ConnectionError(format!(
+                    "Failed to parse server address: {error}"
+                )))
+                .await
+                .expect("Failed to signal connection error to sync client");
+            return;
         }
-    }
+    };
 
-    let client_cfg = configure_client(spawn_config.cert_mode, spawn_config.to_sync_client.clone())
-        .expect("Failed to configure client");
+    let server_address =
+        // Prefer IPv6 addresses, if available.
+        if let Some(mut server_address) = server_addresses.clone().find_map(|socket_address| {if let SocketAddr::V6(socket_address) = socket_address {Some(socket_address)} else {None}}) {
+            // Specify scope, if provided.
+            if let Some(scope) = config.server_scope {
+                server_address.set_scope_id(scope);
+            }
+            SocketAddr::V6(server_address)
+        } else {
+            match server_addresses.next() {
+                Some(server_address) => server_address,
+                None => {
+                    spawn_config
+                        .to_sync_client
+                        .send(InternalAsyncMessage::ConnectionError(format!(
+                            "Failed to resolve server address"
+                        )))
+                        .await
+                        .expect("Failed to signal connection error to sync client");
+                    return;
+                }
+            }
+        };
 
-    let mut endpoint = Endpoint::client(local_bind_adr.parse().unwrap())
-        .expect("Failed to create client endpoint");
+    let configuration_result =
+        configure_client(spawn_config.cert_mode, spawn_config.to_sync_client.clone())
+            .map_err(|x| format!("{x}"));
+    let client_cfg = match configuration_result {
+        Ok(client_cfg) => client_cfg,
+        Err(error) => {
+            spawn_config
+                .to_sync_client
+                .send(InternalAsyncMessage::ConnectionError(format!(
+                    "Failed to configure client: {error}"
+                )))
+                .await
+                .expect("Failed to signal connection error to sync client");
+            return;
+        }
+    };
+
+    let mut endpoint = match Endpoint::client(local_bind_adr.parse().unwrap()) {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            spawn_config
+                .to_sync_client
+                .send(InternalAsyncMessage::ConnectionError(format!(
+                    "Failed to create client endpoint: {error}"
+                )))
+                .await
+                .expect("Failed to signal connection error to sync client");
+            return;
+        }
+    };
     endpoint.set_default_client_config(client_cfg);
 
-    let connection = endpoint
-        .connect(server_addr, &srv_host) // TODO Clean: error handling
-        .expect("Failed to connect: configuration error")
-        .await;
+    let connection = match endpoint.connect(server_address, &srv_host) {
+        Ok(connection) => connection.await,
+        Err(error) => {
+            spawn_config
+                .to_sync_client
+                .send(InternalAsyncMessage::ConnectionError(format!(
+                    "Failed to connect: {error}"
+                )))
+                .await
+                .expect("Failed to signal connection error to sync client");
+            return;
+        }
+    };
+
     match connection {
-        Err(e) => error!("Error while connecting: {}", e),
+        Err(error) => {
+            spawn_config
+                .to_sync_client
+                .send(InternalAsyncMessage::ConnectionError(format!(
+                    "Error while connecting: {error}"
+                )))
+                .await
+                .expect("Failed to signal connection error to sync client");
+        }
         Ok(connection) => {
             info!("Connected to {}", connection.remote_address());
 
@@ -442,19 +514,27 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                 .send(InternalAsyncMessage::Connected)
                 .await
             {
-                let message =
-                    format!("Failed to signal connection to sync client with error: {error}");
                 if spawn_config.close_receiver.is_empty() {
                     // No close requested but internal channel closed.
-                    error!(message);
+                    error!("Failed to signal connection to sync client with error: {error}");
                 }
                 return;
             }
 
-            let (send, recv) = connection
-                .open_bi()
-                .await
-                .expect("Failed to open bidirectional stream");
+            let (send, recv) = match connection.open_bi().await {
+                Ok(stream) => stream,
+                Err(error) => {
+                    spawn_config
+                        .to_sync_client
+                        .send(InternalAsyncMessage::ConnectionError(format!(
+                            "Failed to open bidirectional stream: {error}"
+                        )))
+                        .await
+                        .expect("Failed to signal connection error to sync client");
+                    return;
+                }
+            };
+
             let mut frame_send = FramedWrite::new(send, BattleshipPlusCodec::default());
 
             let close_sender_clone = spawn_config.close_sender.clone();
@@ -509,12 +589,14 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
 // Receive messages from the async client tasks and update the sync client.
 fn update_sync_client(
     mut connection_events: EventWriter<ConnectionEvent>,
+    mut connection_error_events: EventWriter<ConnectionErrorEvent>,
     mut connection_lost_events: EventWriter<ConnectionLostEvent>,
     mut certificate_interaction_events: EventWriter<CertInteractionEvent>,
     mut cert_trust_update_events: EventWriter<CertTrustUpdateEvent>,
     mut cert_connection_abort_events: EventWriter<CertConnectionAbortEvent>,
     mut client: ResMut<Client>,
 ) {
+    let mut errored_connections = Vec::new();
     for (connection_id, mut connection) in &mut client.connections {
         while let Ok(message) = connection.internal_receiver.try_recv() {
             match message {
@@ -551,7 +633,19 @@ fn update_sync_client(
                         cert_info,
                     });
                 }
+                InternalAsyncMessage::ConnectionError(message) => {
+                    connection_error_events.send(ConnectionErrorEvent(*connection_id, message));
+                    errored_connections.push(*connection_id);
+                }
             }
+        }
+    }
+
+    // Close errored connections.
+    for connection_id in errored_connections {
+        trace!("Closing errored connection {connection_id}");
+        if let Err(error) = client.close_connection(connection_id) {
+            warn!("Could not properly close errored connection {connection_id}: {error}");
         }
     }
 }
@@ -575,6 +669,7 @@ impl Plugin for QuinnetClientPlugin {
             .add_event::<CertInteractionEvent>()
             .add_event::<CertTrustUpdateEvent>()
             .add_event::<CertConnectionAbortEvent>()
+            .add_event::<ConnectionErrorEvent>()
             // StartupStage::PreStartup so that resources created in commands are available to default startup_systems
             .add_startup_system_to_stage(StartupStage::PreStartup, create_client)
             .add_system_to_stage(CoreStage::PreUpdate, update_sync_client);

@@ -4,6 +4,7 @@ use bevy::prelude::*;
 pub enum GameState {
     Unconnected,
     Joining,
+    JoiningFailed,
     Lobby,
     // TODO:
     // Placement,
