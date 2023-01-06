@@ -161,14 +161,36 @@ impl FromStr for ServerInformation {
     type Err = String;
 
     fn from_str(address_string: &str) -> Result<Self, Self::Err> {
+        let port_separator_index = address_string.rfind(':');
+        if port_separator_index.is_none() {
+            return Err("Missing a port, specify it like this: \"example.org:1337\"".to_string());
+        }
+        let port_separator_index = port_separator_index.unwrap();
+        if port_separator_index == address_string.len() - 1 {
+            return Err("Found empty port, specify it like this: \"example.org:1337\"".to_string());
+        }
+        if !address_string[(port_separator_index + 1)..]
+            .trim_matches(char::is_numeric)
+            .is_empty()
+        {
+            return Err(
+                "Found non-numerical port, specify it like this: \"example.org:1337\"".to_string(),
+            );
+        }
+        if address_string[(port_separator_index + 1)..]
+            .parse::<u16>()
+            .is_err()
+        {
+            return Err("Port was too large, maximum value is 65535".to_string());
+        }
         match address_string.to_socket_addrs() {
             Ok(mut addresses) => {
                 let ipv6_address = addresses.clone().find(|address| address.is_ipv6());
                 if let Some(address) = ipv6_address {
                     // Use IPv6 address if there is one.
-                    construct_server_information(address_string, address)
+                    Ok(construct_server_information(address_string, address))
                 } else if let Some(address) = addresses.next() {
-                    construct_server_information(address_string, address)
+                    Ok(construct_server_information(address_string, address))
                 } else {
                     Err("Host name resolution did not yield anything, try an IP address or a different server.".to_string())
                 }
@@ -179,14 +201,8 @@ impl FromStr for ServerInformation {
 }
 
 // Helper function for ServerInformation::from_str()
-fn construct_server_information(
-    address_string: &str,
-    address: SocketAddr,
-) -> Result<ServerInformation, String> {
+fn construct_server_information(address_string: &str, address: SocketAddr) -> ServerInformation {
     debug!("Parsed {address_string} into: {address}");
-    if address.port() == 0 {
-        return Err("Missing a port, specify it like this: \"example.org:1337\"".to_string());
-    }
     let port_separator_index = address_string
         .rfind(':')
         .expect("Socket addresses with a port contain a \":\"");
@@ -196,7 +212,7 @@ fn construct_server_information(
         host.remove(host.len() - 1);
         host.remove(0);
     }
-    Ok(ServerInformation {
+    ServerInformation {
         host: Some(host.clone()),
         address,
         name: host,
@@ -204,7 +220,7 @@ fn construct_server_information(
         config: None,
         security: Empirical::Unconfirmed(SecurityLevel::AuthoritySigned),
         remove_at: Duration::MAX,
-    })
+    }
 }
 
 impl ServerInformation {
