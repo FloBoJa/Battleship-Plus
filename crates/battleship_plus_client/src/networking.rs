@@ -170,7 +170,7 @@ impl FromStr for ServerInformation {
                 } else if let Some(address) = addresses.next() {
                     construct_server_information(address_string, address)
                 } else {
-                    Err(format!("Host name resolution did not yield anything, try an IP address or a different server."))
+                    Err("Host name resolution did not yield anything, try an IP address or a different server.".to_string())
                 }
             }
             Err(error) => Err(format!("Could not resolve host name: {error}")),
@@ -507,7 +507,7 @@ fn request_server_configurations(
             for (_, mut server_information, connection) in servers.iter_mut() {
                 request_server_configurations_from(
                     &mut server_information,
-                    &connection,
+                    connection,
                     &mut client,
                     &time,
                 );
@@ -551,7 +551,7 @@ fn request_server_configurations_from(
 
     let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
 
-    if let Err(error) = connection.send_message(message.clone()) {
+    if let Err(error) = connection.send_message(message) {
         warn!(
             "Failed to send server configuration request to {}: {error}",
             server_information.address
