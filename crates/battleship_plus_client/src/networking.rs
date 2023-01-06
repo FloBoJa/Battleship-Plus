@@ -40,7 +40,10 @@ impl Plugin for NetworkingPlugin {
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_messages)
             .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
-            .add_system(receive_advertisements.run_in_state(GameState::Unconnected))
+            // Process advertisements even during the game, just to keep the async runtime busy.
+            // It seems to shut down otherwise, inhibiting the QUIC keep-alive mechanism.
+            .add_system(receive_advertisements)
+            .add_system(request_server_configurations.run_in_state(GameState::Unconnected))
             .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
             .add_enter_system(GameState::Joining, join_server)
             .add_enter_system(GameState::Unconnected, try_leave_server);
@@ -61,6 +64,7 @@ pub struct CurrentServer(pub Entity);
 pub struct ServerInformation {
     pub address: SocketAddr,
     pub name: String,
+    pub config_requested: bool,
     pub config: Option<types::Config>,
     pub last_advertisement_received: Duration,
 }
@@ -126,7 +130,7 @@ impl AdvertisementReceiver {
 fn set_up_advertisement_listener(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     let socket_v6 = match runtime.block_on(UdpSocket::bind("[::]:30303")) {
         Ok(socket) => {
-            join_multicast_v6("ff02::1", &socket);
+            join_multicast_v6("ff02:6261:7474:6c65:7368:6970:706c:7573", &socket);
             Some(socket)
         }
         Err(error) => {
@@ -304,31 +308,46 @@ fn process_advertisement(
             address: server_address,
             name: advertisement.display_name.clone(),
             config: None,
+            config_requested: false,
             last_advertisement_received: time.elapsed(),
         };
         let server = commands.spawn(server_information.clone()).id();
 
-        request_config(commands, server, &server_information, client);
+        // Connect to the server to request its configuration.
+        server_information.connect(commands, server, client);
     }
 }
 
 #[derive(Component, Clone, Inspectable, Deref)]
 pub struct Connection(ConnectionId);
 
-fn request_config(
-    commands: &mut Commands,
-    server: Entity,
-    server_information: &ServerInformation,
-    client: &mut ResMut<Client>,
+fn request_server_configurations(
+    mut servers: Query<(&mut ServerInformation, &Connection)>,
+    mut client: ResMut<Client>,
 ) {
-    server_information.connect(commands, server, client);
-    let message = messages::ServerConfigRequest {}.into();
+    let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
 
-    if let Err(error) = client.connection().send_message(message) {
-        warn!(
-            "Failed to send server configuration request to {}: {error}",
-            server_information.address
-        );
+    for (mut server_information, connection) in servers.iter_mut() {
+        if server_information.config_requested {
+            continue;
+        }
+
+        let connection = match client.get_connection_mut_by_id(**connection) {
+            Some(connection) => connection,
+            None => {
+                debug!("Did not find connection {} represented by Connection component, it was probably just deleted.", **connection);
+                continue;
+            }
+        };
+
+        if let Err(error) = connection.send_message(message.clone()) {
+            warn!(
+                "Failed to send server configuration request to {}: {error}",
+                server_information.address
+            );
+        }
+
+        server_information.config_requested = true;
     }
 }
 
@@ -381,9 +400,13 @@ fn listen_for_messages_from(
     mut game_events: Option<&mut EventWriter<messages::EventMessage>>,
 ) {
     let sender = server_information.address;
-    let connection = client
-        .get_connection_mut_by_id(*connection_id)
-        .expect("Connection components correspond to actual connections");
+    let connection = match client.get_connection_mut_by_id(*connection_id) {
+        Some(connection) => connection,
+        None => {
+            debug!("Did not find connection {connection_id} represented by Connection component, it was probably just deleted.");
+            return;
+        }
+    };
     loop {
         match connection.receive_message() {
             Ok(Some(Some(ProtocolMessage::StatusMessage(status_message)))) => {
