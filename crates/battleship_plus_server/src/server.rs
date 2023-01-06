@@ -46,12 +46,15 @@ pub async fn server_task(
 
     let addr6 = cfg.server_config().game_address_v6;
     let addr4 = cfg.server_config().game_address_v4;
-    let ascii_host: String = cfg
-        .game_config()
-        .server_name
-        .chars()
-        .filter(|c| c.is_ascii())
-        .collect();
+    let ascii_host = match cfg.server_config().server_domain {
+        None => cfg
+            .game_config()
+            .server_name
+            .chars()
+            .filter(|c| c.is_ascii())
+            .collect::<String>(),
+        Some(domain) => String::from(domain),
+    };
 
     let mut server6 = Server::new_standalone();
     let server6 = match server6.start_endpoint(
