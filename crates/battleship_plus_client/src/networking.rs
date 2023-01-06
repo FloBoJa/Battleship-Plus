@@ -1,5 +1,5 @@
 use std::{
-    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
     str::FromStr,
     sync::mpsc,
     time::Duration,
@@ -39,13 +39,19 @@ impl Plugin for NetworkingPlugin {
             .register_inspectable::<Connection>()
             .add_startup_system(set_up_advertisement_listener)
             .add_system(listen_for_messages)
-            .add_system(clean_up_servers.run_in_state(GameState::Unconnected))
+            .add_system(handle_certificate_errors)
+            .add_system(confirm_security_levels)
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                clean_up_servers.run_in_state(GameState::Unconnected),
+            )
             // Process advertisements even during the game, just to keep the async runtime busy.
             // It seems to shut down otherwise, inhibiting the QUIC keep-alive mechanism.
             .add_system(receive_advertisements)
-            .add_system(request_server_configurations.run_in_state(GameState::Unconnected))
-            .add_system(process_server_configurations.run_in_state(GameState::Unconnected))
+            .add_system(request_server_configurations)
+            .add_system(process_server_configurations)
             .add_enter_system(GameState::Joining, join_server)
+            .add_enter_system(GameState::JoiningFailed, try_leave_server)
             .add_enter_system(GameState::Unconnected, try_leave_server);
     }
 }
@@ -55,18 +61,81 @@ impl Plugin for NetworkingPlugin {
 pub struct ResponseReceivedEvent(pub messages::StatusMessage);
 
 // Happens for all servers, but only in the unconnected state.
-pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub SocketAddr);
+pub struct ConfigReceivedEvent(pub messages::StatusMessage, pub ConnectionId);
 
 #[derive(Resource, Deref)]
 pub struct CurrentServer(pub Entity);
 
+const ADVERTISEMENT_LIFETIME: Duration = Duration::from_secs(10);
+const CONFIGURATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum Empirical<T> {
+    Unconfirmed(T),
+    Confirmed(T),
+}
+
+impl<T> std::ops::Deref for Empirical<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Empirical::Unconfirmed(value) => value,
+            Empirical::Confirmed(value) => value,
+        }
+    }
+}
+
+impl<T: Copy> Empirical<T> {
+    fn confirm(&self) -> Empirical<T> {
+        match self {
+            Empirical::Unconfirmed(value) => Empirical::Confirmed(*value),
+            Empirical::Confirmed(value) => Empirical::Confirmed(*value),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Copy)]
+pub enum SecurityLevel {
+    ConnectionFailed,
+    NoVerification,
+    SelfSigned,
+    AuthoritySigned,
+}
+
+impl SecurityLevel {
+    fn next_weakest(&self) -> SecurityLevel {
+        match self {
+            SecurityLevel::AuthoritySigned => SecurityLevel::SelfSigned,
+            SecurityLevel::SelfSigned => SecurityLevel::NoVerification,
+            SecurityLevel::NoVerification => SecurityLevel::ConnectionFailed,
+            SecurityLevel::ConnectionFailed => SecurityLevel::ConnectionFailed,
+        }
+    }
+
+    fn get_verification_mode(&self) -> CertificateVerificationMode {
+        match self {
+            SecurityLevel::AuthoritySigned => {
+                CertificateVerificationMode::SignedByCertificateAuthority
+            }
+            SecurityLevel::SelfSigned => {
+                CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default())
+            }
+            SecurityLevel::NoVerification => CertificateVerificationMode::SkipVerification,
+            SecurityLevel::ConnectionFailed => CertificateVerificationMode::SkipVerification,
+        }
+    }
+}
+
 #[derive(Component, Clone)]
 pub struct ServerInformation {
+    pub host: Option<String>,
     pub address: SocketAddr,
     pub name: String,
-    pub config_requested: bool,
+    pub config_last_requested: Option<Duration>,
     pub config: Option<types::Config>,
-    pub last_advertisement_received: Duration,
+    pub security: Empirical<SecurityLevel>,
+    pub remove_at: Duration,
 }
 
 impl Inspectable for ServerInformation {
@@ -81,36 +150,156 @@ impl Inspectable for ServerInformation {
         let mut modified = false;
         modified |= self.name.ui(ui, StringAttributes::default(), context);
         ui.label(format!("Address: {}", self.address));
-        modified |= self.last_advertisement_received.ui(ui, (), context);
+        modified |= self.remove_at.ui(ui, (), context);
+        ui.label(format!("Security: {:#?}", self.security));
         ui.label(format!("Config: {:#?}", self.config));
         modified
     }
 }
 
+impl FromStr for ServerInformation {
+    type Err = String;
+
+    fn from_str(address_string: &str) -> Result<Self, Self::Err> {
+        let port_separator_index = address_string.rfind(':');
+        if port_separator_index.is_none() {
+            return Err("Missing a port, specify it like this: \"example.org:1337\"".to_string());
+        }
+        let port_separator_index = port_separator_index.unwrap();
+        if port_separator_index == address_string.len() - 1 {
+            return Err("Found empty port, specify it like this: \"example.org:1337\"".to_string());
+        }
+        if !address_string[(port_separator_index + 1)..]
+            .trim_matches(char::is_numeric)
+            .is_empty()
+        {
+            return Err(
+                "Found non-numerical port, specify it like this: \"example.org:1337\"".to_string(),
+            );
+        }
+        if address_string[(port_separator_index + 1)..]
+            .parse::<u16>()
+            .is_err()
+        {
+            return Err("Port was too large, maximum value is 65535".to_string());
+        }
+        match address_string.to_socket_addrs() {
+            Ok(mut addresses) => {
+                let ipv6_address = addresses.clone().find(|address| address.is_ipv6());
+                if let Some(address) = ipv6_address {
+                    // Use IPv6 address if there is one.
+                    Ok(construct_server_information(address_string, address))
+                } else if let Some(address) = addresses.next() {
+                    Ok(construct_server_information(address_string, address))
+                } else {
+                    Err("Host name resolution did not yield anything, try an IP address or a different server.".to_string())
+                }
+            }
+            Err(error) => Err(format!("Could not resolve host name: {error}")),
+        }
+    }
+}
+
+// Helper function for ServerInformation::from_str()
+fn construct_server_information(address_string: &str, address: SocketAddr) -> ServerInformation {
+    debug!("Parsed {address_string} into: {address}");
+    let port_separator_index = address_string
+        .rfind(':')
+        .expect("Socket addresses with a port contain a \":\"");
+    let mut host = address_string[..port_separator_index].to_string();
+    // Remove IPv6 address brackets.
+    if !host.is_empty() && host.starts_with('[') && host.ends_with(']') {
+        host.remove(host.len() - 1);
+        host.remove(0);
+    }
+    ServerInformation {
+        host: Some(host.clone()),
+        address,
+        name: host,
+        config_last_requested: None,
+        config: None,
+        security: Empirical::Unconfirmed(SecurityLevel::AuthoritySigned),
+        remove_at: Duration::MAX,
+    }
+}
+
 impl ServerInformation {
-    fn connect(&self, commands: &mut Commands, server: Entity, client: &mut ResMut<Client>) {
+    pub fn connect(&self, commands: &mut Commands, server: Entity, client: &mut ResMut<Client>) {
         // Bind to UDPv4 if the server communicates on it.
         let (local_address, server_scope) = match self.address {
             SocketAddr::V4(_) => ("0.0.0.0".to_string(), None),
             SocketAddr::V6(address) => ("[::]".to_string(), Some(address.scope_id())),
         };
 
+        let server_host = match &self.host {
+            Some(host) => host.clone(),
+            None => self.address.ip().to_string(),
+        };
+
         let connection_configuration = ConnectionConfiguration::new(
-            self.address.ip().to_string(),
+            server_host,
             server_scope,
             self.address.port(),
             local_address,
             0,
         );
 
-        let certificate_mode =
-            CertificateVerificationMode::TrustOnFirstUse(TrustOnFirstUseConfig::default());
-        let connection_id = client.open_connection(connection_configuration, certificate_mode);
+        let connection_id = client.open_connection(
+            connection_configuration,
+            self.security.get_verification_mode(),
+        );
 
         commands
             .get_entity(server)
             .expect("The server entity must be the parent of this component")
             .insert(Connection(connection_id));
+    }
+}
+
+fn handle_certificate_errors(
+    mut events: EventReader<bevy_quinnet::client::ConnectionErrorEvent>,
+    mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
+    mut commands: Commands,
+    mut client: ResMut<Client>,
+) {
+    for bevy_quinnet::client::ConnectionErrorEvent(connection_id, message) in events.iter() {
+        if let Some((entity, mut server_information, _)) = servers
+            .iter_mut()
+            .find(|(_, _, Connection(server_connection_id))| connection_id == server_connection_id)
+        {
+            match server_information.security {
+                // Ignore errors on connections with confirmed security level.
+                Empirical::Confirmed(_) => continue,
+                Empirical::Unconfirmed(SecurityLevel::ConnectionFailed) => {
+                    commands.entity(entity).remove::<Connection>();
+                }
+                Empirical::Unconfirmed(_) => {
+                    trace!(
+                        "Got error with security level {:?} for connection {connection_id}, \
+                            trying with weaker level. Error was: {}",
+                        *server_information.security,
+                        message
+                    );
+                    server_information.security =
+                        Empirical::Unconfirmed(server_information.security.next_weakest());
+                    server_information.connect(&mut commands, entity, &mut client);
+                }
+            }
+        }
+    }
+}
+
+fn confirm_security_levels(
+    mut events: EventReader<bevy_quinnet::client::ConnectionEvent>,
+    mut servers: Query<(&mut ServerInformation, &Connection)>,
+) {
+    for bevy_quinnet::client::ConnectionEvent(connection_id) in events.iter() {
+        if let Some((mut server_information, _)) = servers
+            .iter_mut()
+            .find(|(_, Connection(server_connection_id))| connection_id == server_connection_id)
+        {
+            server_information.security = server_information.security.confirm();
+        }
     }
 }
 
@@ -289,7 +478,7 @@ fn process_advertisement(
         server.address.ip() == sender.ip() && server.address.port() == advertisement.port as u16
     }) {
         server.name = advertisement.display_name.clone();
-        server.last_advertisement_received = time.elapsed();
+        server.remove_at = time.elapsed() + ADVERTISEMENT_LIFETIME;
     } else {
         let server_address = match sender {
             SocketAddr::V4(sender) => {
@@ -305,11 +494,13 @@ fn process_advertisement(
         };
 
         let server_information = ServerInformation {
+            host: None,
             address: server_address,
             name: advertisement.display_name.clone(),
             config: None,
-            config_requested: false,
-            last_advertisement_received: time.elapsed(),
+            config_last_requested: None,
+            security: Empirical::Unconfirmed(SecurityLevel::AuthoritySigned),
+            remove_at: time.elapsed() + ADVERTISEMENT_LIFETIME,
         };
         let server = commands.spawn(server_information.clone()).id();
 
@@ -319,36 +510,71 @@ fn process_advertisement(
 }
 
 #[derive(Component, Clone, Inspectable, Deref)]
-pub struct Connection(ConnectionId);
+pub struct Connection(pub ConnectionId);
 
 fn request_server_configurations(
-    mut servers: Query<(&mut ServerInformation, &Connection)>,
+    mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
     mut client: ResMut<Client>,
+    time: Res<Time>,
+    current_server: Option<Res<CurrentServer>>,
 ) {
-    let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
-
-    for (mut server_information, connection) in servers.iter_mut() {
-        if server_information.config_requested {
-            continue;
-        }
-
-        let connection = match client.get_connection_mut_by_id(**connection) {
-            Some(connection) => connection,
-            None => {
-                debug!("Did not find connection {} represented by Connection component, it was probably just deleted.", **connection);
-                continue;
+    match current_server {
+        None => {
+            for (_, mut server_information, connection) in servers.iter_mut() {
+                request_server_configurations_from(
+                    &mut server_information,
+                    connection,
+                    &mut client,
+                    &time,
+                );
             }
-        };
-
-        if let Err(error) = connection.send_message(message.clone()) {
-            warn!(
-                "Failed to send server configuration request to {}: {error}",
-                server_information.address
+        }
+        Some(server) => {
+            let (mut server_information, connection) = servers
+                .iter_mut()
+                .find(|(entity, _, _)| *entity == **server)
+                .map(|(_, server_information, connection)| (server_information, connection))
+                .expect("CurrentServer always has ServerInformation and Connection components");
+            request_server_configurations_from(
+                &mut server_information,
+                connection,
+                &mut client,
+                &time,
             );
         }
-
-        server_information.config_requested = true;
     }
+}
+
+fn request_server_configurations_from(
+    server_information: &mut ServerInformation,
+    connection: &Connection,
+    client: &mut ResMut<Client>,
+    time: &Res<Time>,
+) {
+    if let Some(config_last_requested) = server_information.config_last_requested {
+        if time.elapsed() <= config_last_requested + CONFIGURATION_REQUEST_TIMEOUT {
+            return;
+        }
+    }
+
+    let connection = match client.get_connection_mut_by_id(**connection) {
+        Some(connection) => connection,
+        None => {
+            debug!("Did not find connection {} represented by Connection component, it was probably just deleted.", **connection);
+            return;
+        }
+    };
+
+    let message: messages::ProtocolMessage = messages::ServerConfigRequest {}.into();
+
+    if let Err(error) = connection.send_message(message) {
+        warn!(
+            "Failed to send server configuration request to {}: {error}",
+            server_information.address
+        );
+    }
+
+    server_information.config_last_requested = Some(time.elapsed());
 }
 
 fn listen_for_messages(
@@ -369,23 +595,25 @@ fn listen_for_messages(
                     None,
                     Some(&mut config_response_events),
                     None,
+                    false,
                 );
             }
         }
         Some(server) => {
             let server_information = servers
-                .get_component::<ServerInformation>(server.0)
+                .get_component::<ServerInformation>(**server)
                 .expect("CurrentServer always has a ServerInformation");
             let connection = servers
-                .get_component::<Connection>(server.0)
+                .get_component::<Connection>(**server)
                 .expect("CurrentServer always has a connection component");
             listen_for_messages_from(
                 server_information,
                 connection,
                 &mut client,
                 Some(&mut response_events),
-                None,
+                Some(&mut config_response_events),
                 Some(&mut game_events),
+                true,
             );
         }
     }
@@ -398,6 +626,7 @@ fn listen_for_messages_from(
     mut response_events: Option<&mut EventWriter<ResponseReceivedEvent>>,
     mut config_response_events: Option<&mut EventWriter<ConfigReceivedEvent>>,
     mut game_events: Option<&mut EventWriter<messages::EventMessage>>,
+    is_current_server: bool,
 ) {
     let sender = server_information.address;
     let connection = match client.get_connection_mut_by_id(*connection_id) {
@@ -415,7 +644,18 @@ fn listen_for_messages_from(
                     response_events.send(ResponseReceivedEvent(status_message.clone()));
                 }
                 if let Some(config_response_events) = &mut config_response_events {
-                    config_response_events.send(ConfigReceivedEvent(status_message, sender));
+                    // Only send a ConfigReceivedEvent for the current server if the status message
+                    // actually contains a configuration.
+                    let mut send_config_response_event = !is_current_server;
+                    if let Some(messages::status_message::Data::ServerConfigResponse(_)) =
+                        status_message.data
+                    {
+                        send_config_response_event = true;
+                    }
+                    if send_config_response_event {
+                        config_response_events
+                            .send(ConfigReceivedEvent(status_message, *connection_id));
+                    }
                 }
             }
             Ok(Some(Some(other_message))) => match EventMessage::try_from(other_message.clone()) {
@@ -435,7 +675,9 @@ fn listen_for_messages_from(
                 // Nothing or an incomplete message, retry later
                 break;
             }
-            Err(QuinnetError::ChannelClosed) => {}
+            Err(QuinnetError::ChannelClosed) => {
+                break;
+            }
             Err(error) => {
                 warn!("Unexpected error occurred while receiving packet: {error}");
             }
@@ -448,6 +690,7 @@ fn process_server_configurations(
     mut events: EventReader<ConfigReceivedEvent>,
     mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
     mut client: ResMut<Client>,
+    current_server: Option<Res<CurrentServer>>,
 ) {
     for ConfigReceivedEvent(
         messages::StatusMessage {
@@ -460,16 +703,24 @@ fn process_server_configurations(
     {
         let (entity, mut server, connection) = match servers
             .iter_mut()
-            .find(|(_, server, _)| &server.address == sender)
+            .find(|(_, _, Connection(connection_id))| connection_id == sender)
         {
             Some(server) => server,
             None => continue,
         };
-        trace!("Received some response after config request during discovery, closing connection.");
-        if let Err(error) = client.close_connection(**connection) {
-            warn!("Failed to close connection properly: {error}");
+
+        let mut close_connection = true;
+        if let Some(current_server) = &current_server {
+            close_connection = entity != ***current_server;
         }
-        commands.entity(entity).remove::<Connection>();
+
+        if close_connection {
+            trace!("Received some response after config request during discovery, closing connection {}.", **connection);
+            if let Err(error) = client.close_connection(**connection) {
+                warn!("Failed to close connection properly: {error}");
+            }
+            commands.entity(entity).remove::<Connection>();
+        }
 
         if code / 100 != 2 {
             if message.is_empty() {
@@ -509,16 +760,24 @@ fn process_server_configurations(
 fn clean_up_servers(
     mut commands: Commands,
     time: Res<Time>,
+    current_server: Option<Res<CurrentServer>>,
     servers: Query<(Entity, &ServerInformation)>,
     connections: Query<(Entity, &Connection)>,
     mut client: ResMut<Client>,
 ) {
     servers
         .iter()
-        .filter(|(_, server)| {
-            time.elapsed() - server.last_advertisement_received > Duration::from_secs(10)
+        .filter(|(_, server)| server.remove_at <= time.elapsed())
+        .filter(|(entity, _)| {
+            current_server
+                .as_ref()
+                .map_or(true, |current_server| *entity != ***current_server)
         })
-        .for_each(|(entity, _)| {
+        .for_each(|(entity, server_information)| {
+            trace!(
+                "Closing connection to {} after timeout.",
+                server_information.address
+            );
             if let Ok(connection) = connections.get_component::<Connection>(entity) {
                 if let Err(error) = client.close_connection(**connection) {
                     warn!("Failed to close connection properly: {error}");
@@ -578,11 +837,11 @@ fn try_leave_server(
         None => return,
     };
     info!("Leaving server");
-    let connection = connections
-        .get_component::<Connection>(**server)
-        .expect("There must always exist a connection component for the current server");
-    if let Err(error) = client.close_connection(**connection) {
-        warn!("Failed to close connection properly: {error}");
+    if let Ok(connection) = connections.get_component::<Connection>(**server) {
+        if let Err(error) = client.close_connection(**connection) {
+            warn!("Failed to close connection properly: {error}");
+        }
+        commands.entity(**server).remove::<Connection>();
     }
-    commands.entity(**server).remove::<Connection>();
+    commands.remove_resource::<CurrentServer>();
 }
