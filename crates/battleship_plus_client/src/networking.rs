@@ -551,6 +551,10 @@ fn request_server_configurations_from(
     client: &mut ResMut<Client>,
     time: &Res<Time>,
 ) {
+    if server_information.config.is_some() {
+        return;
+    }
+
     if let Some(config_last_requested) = server_information.config_last_requested {
         if time.elapsed() <= config_last_requested + CONFIGURATION_REQUEST_TIMEOUT {
             return;
