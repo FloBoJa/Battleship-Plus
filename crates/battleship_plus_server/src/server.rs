@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage, ServerConfigResponse,
-    SetReadyStateRequest, SetReadyStateResponse, StatusMessage, TeamSwitchResponse,
+    SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage, TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Config, Coordinate, PlayerLobbyState};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
@@ -291,7 +291,7 @@ async fn handle_message(
             .send_message(
                 client_id,
                 status_with_data(
-                    200,
+                    StatusCode::Ok,
                     ServerConfigResponse {
                         config: Some(cfg.as_ref().clone()),
                     }
@@ -305,12 +305,18 @@ async fn handle_message(
             {
                 let g = game.read().await;
                 if g.players.contains_key(&client_id) {
-                    ep.send_message(client_id, status_with_msg(400, "you joined already"))
-                        .map_err(MessageHandlerError::Network)?;
+                    ep.send_message(
+                        client_id,
+                        status_with_msg(StatusCode::BadRequest, "you joined already"),
+                    )
+                    .map_err(MessageHandlerError::Network)?;
                 }
                 if g.players.values().any(|p| p.name == props.username) {
-                    ep.send_message(client_id, status_with_msg(441, "username is already taken"))
-                        .map_err(MessageHandlerError::Network)?;
+                    ep.send_message(
+                        client_id,
+                        status_with_msg(StatusCode::UsernameIsTaken, "username is already taken"),
+                    )
+                    .map_err(MessageHandlerError::Network)?;
                 }
             }
 
@@ -332,7 +338,7 @@ async fn handle_message(
             ep.send_message(
                 client_id,
                 status_with_data(
-                    200,
+                    StatusCode::Ok,
                     JoinResponse {
                         player_id: client_id,
                     }
@@ -361,7 +367,7 @@ async fn handle_message(
             } else {
                 ep.send_message(
                     client_id,
-                    status_with_data(200, TeamSwitchResponse {}.into()),
+                    status_with_data(StatusCode::Ok, TeamSwitchResponse {}.into()),
                 )
                 .map_err(MessageHandlerError::Network)?;
 
@@ -389,7 +395,7 @@ async fn handle_message(
             } else {
                 ep.send_message(
                     client_id,
-                    status_with_data(200, SetReadyStateResponse {}.into()),
+                    status_with_data(StatusCode::Ok, SetReadyStateResponse {}.into()),
                 )
                 .map_err(MessageHandlerError::Network)?;
 
@@ -445,7 +451,10 @@ async fn handle_message(
             warn!("Client {} sent a client-bound message {:?}", client_id, msg);
             ep.send_message(
                 client_id,
-                status_with_msg(400, "unable to process client-bound messages"),
+                status_with_msg(
+                    StatusCode::BadRequest,
+                    "unable to process client-bound messages",
+                ),
             )
             .map_err(MessageHandlerError::Network)?;
             ep.disconnect_client(client_id)
@@ -556,38 +565,38 @@ fn action_validation_error_reply(
         ActionExecutionError::Validation(e) => match e {
             ActionValidationError::NonExistentPlayer { id } =>
                 ep.send_message(client_id,
-                                status_with_msg(400, format!("player id {id} does not exist").as_str()))
+                                status_with_msg(StatusCode::BadRequest, format!("player id {id} does not exist").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::NonExistentShip { id } =>
                 ep.send_message(client_id,
-                                status_with_msg(400, format!("ship ({}, {}) does not exist", id.0, id.1).as_str()))
+                                status_with_msg(StatusCode::BadRequest, format!("ship ({}, {}) does not exist", id.0, id.1).as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Cooldown { remaining_rounds } =>
                 ep.send_message(client_id,
-                                status_with_msg(471, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
+                                status_with_msg(StatusCode::InsufficientResources, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::InsufficientPoints { required } =>
                 ep.send_message(client_id,
-                                status_with_msg(471, format!("insufficient action points for requested action ({required})").as_str()))
+                                status_with_msg(StatusCode::InsufficientResources, format!("insufficient action points for requested action ({required})").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Unreachable =>
                 ep.send_message(client_id,
-                                status_with_msg(472, "request target is unreachable".to_string().as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "request target is unreachable".to_string().as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::OutOfMap =>
                 ep.send_message(client_id,
-                                status_with_msg(472, "request target is out of map".to_string().as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "request target is out of map".to_string().as_str()))
                     .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {
             ep.send_message(client_id,
-                            status_with_msg(400, format!("request not allowed in {state}").as_str()))
+                            status_with_msg(StatusCode::BadRequest, format!("request not allowed in {state}").as_str()))
                 .map_err(MessageHandlerError::Network)?;
             ep.disconnect_client(client_id)
                 .map_err(MessageHandlerError::Network)
         }
         ActionExecutionError::InconsistentState(s) => {
-            if let Err(e) = ep.broadcast_message(status_with_msg(500, format!("server detected an inconsistent state: {s}").as_str())) {
+            if let Err(e) = ep.broadcast_message(status_with_msg(StatusCode::ServerError, format!("server detected an inconsistent state: {s}").as_str())) {
                 error!("detected inconsistent state: {e}");
             }
 
@@ -597,20 +606,21 @@ fn action_validation_error_reply(
     }
 }
 
-fn status_with_msg(code: u32, msg: &str) -> ProtocolMessage {
+fn status_with_msg(code: StatusCode, msg: &str) -> ProtocolMessage {
     status_response(code, msg, None)
 }
 
-fn status_with_data(code: u32, data: Data) -> ProtocolMessage {
+fn status_with_data(code: StatusCode, data: Data) -> ProtocolMessage {
     status_response(code, "", Some(data))
 }
 
-fn status_response(code: u32, message: &str, data: Option<Data>) -> ProtocolMessage {
-    ProtocolMessage::StatusMessage(StatusMessage {
-        code, // bad request
+fn status_response(code: StatusCode, message: &str, data: Option<Data>) -> ProtocolMessage {
+    StatusMessage {
+        code: code.into(),
         message: message.to_string(),
         data,
-    })
+    }
+    .into()
 }
 
 #[derive(Debug)]
