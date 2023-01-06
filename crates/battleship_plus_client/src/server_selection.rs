@@ -18,6 +18,7 @@ impl Plugin for ServerSelectionPlugin {
             app.add_plugin(EguiPlugin);
         }
         app.init_resource::<UiState>()
+            .add_startup_system(setup_egui_font)
             .add_system(draw_selection_screen.run_in_state(GameState::Unconnected))
             .add_system(draw_joining_screen.run_in_state(GameState::Joining))
             .add_system(process_join_response.run_in_state(GameState::Joining))
@@ -33,6 +34,31 @@ struct UiState {
     connection_errored: bool,
 }
 
+fn setup_egui_font(mut egui_context: ResMut<EguiContext>) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "emoji".to_string(),
+        egui::FontData::from_static(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/NotoEmoji-Regular.ttf"
+        ))),
+    );
+    fonts.font_data.insert(
+        "symbols".to_string(),
+        egui::FontData::from_static(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/u2400.ttf"
+        ))),
+    );
+    let font_definitions = fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap();
+    font_definitions.push("emoji".to_string());
+    font_definitions.push("symbols".to_string());
+    egui_context.ctx_mut().set_fonts(fonts);
+}
+
 fn draw_selection_screen(
     mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
@@ -44,12 +70,13 @@ fn draw_selection_screen(
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
-            ui.set_max_width(600.0);
+            ui.set_max_width(750.0);
             ui.heading("Server Selection");
             TableBuilder::new(ui)
                 .striped(true)
                 .column(Column::at_least(Column::auto(), 250.0))
                 .column(Column::at_least(Column::auto(), 300.0))
+                .column(Column::at_least(Column::auto(), 100.0))
                 .column(Column::at_least(Column::auto(), 100.0))
                 .header(20.0, |mut header| {
                     header.col(|ui| {
@@ -57,6 +84,9 @@ fn draw_selection_screen(
                     });
                     header.col(|ui| {
                         ui.strong("Address");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Status");
                     });
                     header.col(|_| {});
                 })
@@ -70,7 +100,44 @@ fn draw_selection_screen(
                                 ui.label(format!("{}", server_information.address));
                             });
                             row.col(|ui| {
-                                if ui.button("Join").clicked() {
+                                use egui::Color32;
+                                use networking::{Empirical::*, SecurityLevel::*};
+                                match server_information.security {
+                                    Confirmed(AuthoritySigned) => {
+                                        ui.colored_label(Color32::GREEN, "\u{2713} (CA-signed)")
+                                    }
+                                    Confirmed(SelfSigned) => {
+                                        ui.colored_label(Color32::YELLOW, "\u{2713} (self-signed)")
+                                    }
+                                    Confirmed(NoVerification) => {
+                                        ui.colored_label(Color32::RED, "\u{2713} (unsigned)")
+                                    }
+                                    Confirmed(ConnectionFailed) => {
+                                        ui.colored_label(Color32::LIGHT_GRAY, "\u{2717} (failed)")
+                                    }
+                                    Unconfirmed(AuthoritySigned) => {
+                                        ui.colored_label(Color32::GREEN, "...\u{1F4DE} (CA-signed)")
+                                    }
+                                    Unconfirmed(SelfSigned) => {
+                                        ui.colored_label(Color32::YELLOW, "...\u{1F4DE} (self-signed)")
+                                    }
+                                    Unconfirmed(NoVerification) => {
+                                        ui.colored_label(Color32::RED, "...\u{1F4DE} (unsigned)")
+                                    }
+                                    Unconfirmed(ConnectionFailed) => {
+                                        ui.colored_label(Color32::LIGHT_GRAY, "\u{2717} (failed)")
+                                    }
+                                };
+                            });
+                            row.col(|ui| {
+                                let mut enabled = true;
+                                if let networking::Empirical::Unconfirmed(_) = server_information.security {
+                                    enabled = false;
+                                } else if let networking::Empirical::Confirmed(networking::SecurityLevel::ConnectionFailed) = server_information.security {
+                                    enabled = false;
+                                }
+                                let join_button = ui.add_enabled(enabled, egui::Button::new("Join"));
+                                if join_button.clicked() {
                                     commands.insert_resource(networking::CurrentServer(server));
                                     commands.insert_resource(NextState(GameState::Joining));
                                 }
