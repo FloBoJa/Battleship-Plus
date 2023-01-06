@@ -5,7 +5,7 @@ use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
 use std::str::FromStr;
 
-use battleship_plus_common::messages;
+use battleship_plus_common::messages::{self, StatusCode};
 
 use crate::game_state::{GameState, PlayerId};
 use crate::networking;
@@ -209,7 +209,7 @@ fn process_connection_errors(
     mut ui_state: ResMut<UiState>,
     current_server: Option<Res<networking::CurrentServer>>,
     connections: Query<(Entity, &networking::Connection)>,
-    mut connection_error_events: EventReader<bevy_quinnet::client::ConnectionErrorEvent>,
+    mut connection_error_events: EventReader<ConnectionErrorEvent>,
 ) {
     if !ui_state.connection_errored {
         if let Some(current_server) = current_server {
@@ -261,74 +261,84 @@ fn process_join_response(
         data,
     }) in events.iter()
     {
+        let original_code = code;
+        let code = StatusCode::from_i32(*code);
         match code {
-            code if code / 100 == 2 => match data {
-                Some(messages::status_message::Data::JoinResponse(messages::JoinResponse {
-                    player_id,
-                })) => {
-                    debug!("Join successful, got player ID {player_id}");
-                    commands.insert_resource(NextState(GameState::Lobby));
-                    commands.insert_resource(PlayerId(*player_id));
-                }
-                Some(_other_response) => {
-                    // ignore
-                }
-                None => {
-                    if message.is_empty() {
-                        warn!("No data in response after JoinRequest but status code 2XX");
-                    } else {
-                        warn!("No data in response after JoinRequest but status code 2XX with message: {message}");
-                    }
-                    // ignore
-                }
-            },
-            441 => {
+            Some(StatusCode::Ok) => process_join_response_data(&mut commands, message, data),
+            Some(StatusCode::OkWithWarning) => {
                 if message.is_empty() {
-                    warn!(
-                        "User name was taken, this should not happen \
-                           and might indicate an error in the server"
-                    );
+                    warn!("Received OK response to join request with warning but without message");
                 } else {
-                    warn!(
-                        "User name was taken, this should not happen \
-                           and might indicate an error in the server. \
-                           The following message was included: {message}"
-                    );
+                    warn!("Received OK response to join request with warning: {message}");
+                }
+                process_join_response_data(&mut commands, message, data)
+            }
+            Some(StatusCode::UsernameIsTaken) => {
+                error!("User name is taken, disconnecting");
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            Some(StatusCode::LobbyIsFull) => {
+                info!("The lobby is full, disconnecting");
+                continue;
+            }
+            Some(StatusCode::ServerError) => {
+                if message.is_empty() {
+                    error!("Server error, disconnecting");
+                } else {
+                    error!("Server error with message \"{message}\", disconnecting");
                 }
                 commands.insert_resource(NextState(GameState::Unconnected));
             }
-            442 => info!("The lobby is full, disconnecting"),
-            code if code / 10 == 44 => {
+            Some(StatusCode::UnsupportedVersion) => {
                 if message.is_empty() {
-                    warn!(
-                        "Unsuccessful, but received unknown status code {code} with data {data:?}"
-                    );
+                    error!("Unsupported protocol version, disconnecting");
                 } else {
-                    warn!(
-                        "Unsuccessful, but received unknown status code {code} \
-                           with message \"{message}\" and data {data:?}"
-                    );
+                    error!("Unsupported protocol version, disconnecting. Attached message: \"{message}\"");
+                }
+            }
+            Some(other_code) => {
+                if message.is_empty() {
+                    error!("Received inappropriate status code {other_code:?}, disconnecting");
+                } else {
+                    error!("Received inappropriate status code {other_code:?} with message \"{message}\", disconnecting");
                 }
                 commands.insert_resource(NextState(GameState::Unconnected));
             }
-            code if code / 100 == 5 => {
+            None => {
                 if message.is_empty() {
-                    error!("Server error {code}, disconnecting");
+                    error!("Received unknown status code {original_code}, disconnecting");
                 } else {
-                    error!("Server error {code} with message \"{message}\", disconnecting");
+                    error!("Received unknown status code {original_code} with message \"{message}\", disconnecting");
                 }
                 commands.insert_resource(NextState(GameState::Unconnected));
             }
-            code => {
-                if message.is_empty() {
-                    error!("Received unknown or illegal error code {code}, disconnecting");
-                } else {
-                    error!(
-                        "Received unknown or illegal error code {code} with message \"{message}\", disconnecting"
-                    );
-                }
-                commands.insert_resource(NextState(GameState::Unconnected));
+        }
+    }
+}
+
+fn process_join_response_data(
+    commands: &mut Commands,
+    message: &str,
+    data: &Option<messages::status_message::Data>,
+) {
+    match data {
+        Some(messages::status_message::Data::JoinResponse(messages::JoinResponse {
+            player_id,
+        })) => {
+            debug!("Join successful, got player ID {player_id}");
+            commands.insert_resource(NextState(GameState::Lobby));
+            commands.insert_resource(PlayerId(*player_id));
+        }
+        Some(_other_response) => {
+            // ignore
+        }
+        None => {
+            if message.is_empty() {
+                warn!("No data in response after JoinRequest but status code 2XX");
+            } else {
+                warn!("No data in response after JoinRequest but status code 2XX with message: {message}");
             }
+            // ignore
         }
     }
 }

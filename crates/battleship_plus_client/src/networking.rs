@@ -14,7 +14,7 @@ use tokio_util::codec::Decoder;
 use crate::game_state::GameState;
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
-    messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement},
+    messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement, StatusCode},
     types,
 };
 use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
@@ -551,6 +551,10 @@ fn request_server_configurations_from(
     client: &mut ResMut<Client>,
     time: &Res<Time>,
 ) {
+    if server_information.config.is_some() {
+        return;
+    }
+
     if let Some(config_last_requested) = server_information.config_last_requested {
         if time.elapsed() <= config_last_requested + CONFIGURATION_REQUEST_TIMEOUT {
             return;
@@ -722,34 +726,53 @@ fn process_server_configurations(
             commands.entity(entity).remove::<Connection>();
         }
 
-        if code / 100 != 2 {
-            if message.is_empty() {
-                warn!("Received error code {code} from server at {sender}");
-            } else {
-                warn!("Received error code {code} from server at {sender} with message: {message}");
+        let original_code = code;
+        let code = StatusCode::from_i32(*code);
+        match code {
+            Some(StatusCode::Ok) => {
+                if !message.is_empty() {
+                    debug!("Received OK response after ConfigRequest with message: {message}");
+                }
+                // Carry on
             }
-            continue;
+            Some(StatusCode::OkWithWarning) => {
+                if message.is_empty() {
+                    warn!("Received response after ConfigRequest with unspecified warning");
+                } else {
+                    warn!("Received response after ConfigRequest with warning: {message}");
+                }
+                // Carry on
+            }
+            Some(other_code) => {
+                if message.is_empty() {
+                    warn!(
+                        "Received inappropriate error code {other_code:?} from server at {sender}"
+                    );
+                } else {
+                    warn!("Received inappropriate error code {other_code:?} from server at {sender} with message: {message}");
+                }
+                continue;
+            }
+            None => {
+                if message.is_empty() {
+                    warn!("Received unknown error code {original_code} from server at {sender}");
+                } else {
+                    warn!("Received unknown error code {original_code} from server at {sender} with message: {message}");
+                }
+                continue;
+            }
         }
         let response = match data {
             Some(messages::status_message::Data::ServerConfigResponse(response)) => response,
             Some(_other_response) => {
-                if message.is_empty() {
-                    warn!("No data in response after ConfigRequest but status code 2XX");
-                } else {
-                    warn!("No data in response after ConfigRequest but status code 2XX with message: {message}");
-                }
+                warn!("No data in response after ConfigRequest but OK status code");
                 // ignore
                 continue;
             }
             None => continue,
         };
         if response.config.is_none() {
-            if message.is_empty() {
-                warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server");
-            } else {
-                warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server. \
-                       The following message was included: {message}");
-            }
+            warn!("Received empty ServerConfigResponse from {sender}. This indicates an error in that server");
             continue;
         }
 
