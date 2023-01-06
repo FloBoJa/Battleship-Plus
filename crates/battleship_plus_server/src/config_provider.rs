@@ -11,6 +11,7 @@ pub struct ServerConfig {
     pub announcement_address_v4: SocketAddrV4,
     pub announcement_address_v6: SocketAddrV6,
     pub announcement_interval: Duration,
+    pub server_domain: Option<&'static str>,
 }
 
 pub trait ConfigProvider {
@@ -151,6 +152,7 @@ pub(crate) mod default {
                     0,
                 ),
                 announcement_interval: Duration::from_secs(5),
+                server_domain: option_env!("SERVER_DOMAIN"),
             })
         }
     }
