@@ -440,9 +440,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
                 None => {
                     spawn_config
                         .to_sync_client
-                        .send(InternalAsyncMessage::ConnectionError(format!(
-                            "Failed to resolve server address"
-                        )))
+                        .send(InternalAsyncMessage::ConnectionError("Failed to resolve server address".to_string()))
                         .await
                         .expect("Failed to signal connection error to sync client");
                     return;

@@ -118,9 +118,10 @@ fn draw_selection_screen(
                                     Unconfirmed(AuthoritySigned) => {
                                         ui.colored_label(Color32::GREEN, "...\u{1F4DE} (CA-signed)")
                                     }
-                                    Unconfirmed(SelfSigned) => {
-                                        ui.colored_label(Color32::YELLOW, "...\u{1F4DE} (self-signed)")
-                                    }
+                                    Unconfirmed(SelfSigned) => ui.colored_label(
+                                        Color32::YELLOW,
+                                        "...\u{1F4DE} (self-signed)",
+                                    ),
                                     Unconfirmed(NoVerification) => {
                                         ui.colored_label(Color32::RED, "...\u{1F4DE} (unsigned)")
                                     }
@@ -131,12 +132,18 @@ fn draw_selection_screen(
                             });
                             row.col(|ui| {
                                 let mut enabled = true;
-                                if let networking::Empirical::Unconfirmed(_) = server_information.security {
+                                if let networking::Empirical::Unconfirmed(_) =
+                                    server_information.security
+                                {
                                     enabled = false;
-                                } else if let networking::Empirical::Confirmed(networking::SecurityLevel::ConnectionFailed) = server_information.security {
+                                } else if let networking::Empirical::Confirmed(
+                                    networking::SecurityLevel::ConnectionFailed,
+                                ) = server_information.security
+                                {
                                     enabled = false;
                                 }
-                                let join_button = ui.add_enabled(enabled, egui::Button::new("Join"));
+                                let join_button =
+                                    ui.add_enabled(enabled, egui::Button::new("Join"));
                                 if join_button.clicked() {
                                     commands.insert_resource(networking::CurrentServer(server));
                                     commands.insert_resource(NextState(GameState::Joining));
@@ -157,15 +164,11 @@ fn draw_selection_screen(
             let confirmed_with_keyboard =
                 address_text_edit.lost_focus() && keyboard.pressed(KeyCode::Return);
             if add_server_button.clicked() || confirmed_with_keyboard {
-                match networking::ServerInformation::from_str(&socket_address) {
+                match networking::ServerInformation::from_str(socket_address) {
                     Ok(server_information) => {
-                        if servers
-                            .iter()
-                            .find(|(_, other_server_information)| {
-                                server_information.address == other_server_information.address
-                            })
-                            .is_none()
-                        {
+                        if !servers.iter().any(|(_, other_server_information)| {
+                            server_information.address == other_server_information.address
+                        }) {
                             // Only add server if it does not exist already.
                             let entity = commands.spawn(server_information.clone()).id();
                             server_information.connect(&mut commands, entity, &mut client);
