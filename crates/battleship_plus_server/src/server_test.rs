@@ -14,7 +14,7 @@ use battleship_plus_common::codec::BattleshipPlusCodec;
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     JoinRequest, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
-    SetReadyStateRequest, SetReadyStateResponse, StatusMessage, TeamSwitchRequest,
+    SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage, TeamSwitchRequest,
     TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Coordinate, PlayerLobbyState};
@@ -60,7 +60,7 @@ impl Client {
                 data: Some(Data::TeamSwitchResponse(TeamSwitchResponse {})),
                 ..
             }) => {
-                assert_eq!(code, 200);
+                assert_eq!(StatusCode::from_i32(code), Some(StatusCode::Ok));
                 self.team = match self.team {
                     Team::A => Team::B,
                     Team::B => Team::A,
@@ -99,7 +99,7 @@ impl Client {
                 data: Some(Data::SetReadyStateResponse(SetReadyStateResponse {})),
                 ..
             }) => {
-                assert_eq!(code, 200);
+                assert_eq!(StatusCode::from_i32(code), Some(StatusCode::Ok));
                 self.state.ready = ready_state;
             }
             _ => panic!("Expected SetReadyStateResponse, got {resp:#?}"),
@@ -234,7 +234,7 @@ impl Client {
                 data: Some(Data::JoinResponse(JoinResponse { player_id })),
                 ..
             }) => {
-                assert_eq!(code, 200);
+                assert_eq!(StatusCode::from_i32(code), Some(StatusCode::Ok));
                 player_id
             }
             _ => panic!("Expected JoinResponse, got {msg:#?}"),
