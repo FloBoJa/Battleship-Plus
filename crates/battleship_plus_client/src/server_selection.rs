@@ -254,6 +254,7 @@ fn draw_joining_failed_screen(
 fn process_join_response(
     mut events: EventReader<networking::ResponseReceivedEvent>,
     mut commands: Commands,
+    mut game_event_reader: EventReader<messages::EventMessage>,
 ) {
     for networking::ResponseReceivedEvent(messages::StatusMessage {
         code,
@@ -264,14 +265,16 @@ fn process_join_response(
         let original_code = code;
         let code = StatusCode::from_i32(*code);
         match code {
-            Some(StatusCode::Ok) => process_join_response_data(&mut commands, message, data),
+            Some(StatusCode::Ok) => {
+                process_join_response_data(&mut commands, message, data, &mut game_event_reader)
+            }
             Some(StatusCode::OkWithWarning) => {
                 if message.is_empty() {
                     warn!("Received OK response to join request with warning but without message");
                 } else {
                     warn!("Received OK response to join request with warning: {message}");
                 }
-                process_join_response_data(&mut commands, message, data)
+                process_join_response_data(&mut commands, message, data, &mut game_event_reader)
             }
             Some(StatusCode::UsernameIsTaken) => {
                 error!("User name is taken, disconnecting");
@@ -316,10 +319,14 @@ fn process_join_response(
     }
 }
 
+#[derive(Resource, Deref)]
+pub struct CachedEvents(Vec<messages::EventMessage>);
+
 fn process_join_response_data(
     commands: &mut Commands,
     message: &str,
     data: &Option<messages::status_message::Data>,
+    event_reader: &mut EventReader<messages::EventMessage>,
 ) {
     match data {
         Some(messages::status_message::Data::JoinResponse(messages::JoinResponse {
@@ -328,6 +335,9 @@ fn process_join_response_data(
             debug!("Join successful, got player ID {player_id}");
             commands.insert_resource(NextState(GameState::Lobby));
             commands.insert_resource(PlayerId(*player_id));
+            trace!("Repeating events that happened during state transition");
+            let events = Vec::from_iter(event_reader.iter().map(|event| (*event).clone()));
+            commands.insert_resource(CachedEvents(events));
         }
         Some(_other_response) => {
             // ignore

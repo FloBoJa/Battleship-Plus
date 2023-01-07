@@ -6,8 +6,8 @@ pub enum GameState {
     Joining,
     JoiningFailed,
     Lobby,
+    PlacementPhase,
     // TODO:
-    // Placement,
     // Game,
 }
 

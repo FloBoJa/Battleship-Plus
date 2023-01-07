@@ -38,7 +38,7 @@ impl Plugin for NetworkingPlugin {
             .register_inspectable::<ServerInformation>()
             .register_inspectable::<Connection>()
             .add_startup_system(set_up_advertisement_listener)
-            .add_system(listen_for_messages)
+            .add_system_to_stage(CoreStage::PreUpdate, listen_for_messages)
             .add_system(handle_certificate_errors)
             .add_system(confirm_security_levels)
             .add_system_to_stage(
@@ -282,6 +282,7 @@ fn handle_certificate_errors(
                     );
                     server_information.security =
                         Empirical::Unconfirmed(server_information.security.next_weakest());
+                    server_information.config_last_requested = None;
                     server_information.connect(&mut commands, entity, &mut client);
                 }
             }
@@ -665,6 +666,7 @@ fn listen_for_messages_from(
             Ok(Some(Some(other_message))) => match EventMessage::try_from(other_message.clone()) {
                 Ok(game_event) => {
                     if let Some(game_events) = &mut game_events {
+                        debug!("Received event from {sender}: {game_event:?}");
                         game_events.send(game_event)
                     }
                 }
