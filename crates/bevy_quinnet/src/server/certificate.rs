@@ -4,7 +4,10 @@ use std::{
     path::Path,
 };
 
+#[cfg(not(feature = "no_bevy"))]
 use bevy::prelude::{trace, warn};
+#[cfg(feature = "no_bevy")]
+use log::{trace, warn};
 
 use crate::shared::{CertificateFingerprint, QuinnetError};
 
@@ -103,7 +106,7 @@ pub(crate) fn retrieve_certificate(
     match cert_mode {
         CertificateRetrievalMode::GenerateSelfSigned => {
             let (server_cert, _rcgen_cert) = generate_self_signed_certificate(server_host)?;
-            trace!("Generatied a new self-signed certificate");
+            trace!("Generated a new self-signed certificate");
             Ok(server_cert)
         }
         CertificateRetrievalMode::LoadFromFile {
@@ -111,7 +114,7 @@ pub(crate) fn retrieve_certificate(
             key_file,
         } => {
             let server_cert = read_certs_from_files(&cert_file, &key_file)?;
-            trace!("Successfuly loaded cert and key from files");
+            trace!("Successfully loaded cert and key from files");
             Ok(server_cert)
         }
         CertificateRetrievalMode::LoadFromFileOrGenerateSelfSigned {
@@ -121,14 +124,14 @@ pub(crate) fn retrieve_certificate(
         } => {
             if Path::new(&cert_file).exists() && Path::new(&key_file).exists() {
                 let server_cert = read_certs_from_files(&cert_file, &key_file)?;
-                trace!("Successfuly loaded cert and key from files");
+                trace!("Successfully loaded cert and key from files");
                 Ok(server_cert)
             } else {
                 warn!("{} and/or {} do not exist, could not load existing certificate. Generating a new self-signed certificate.", cert_file, key_file);
                 let (server_cert, rcgen_cert) = generate_self_signed_certificate(server_host)?;
                 if save_on_disk {
                     write_certs_to_files(&rcgen_cert, &cert_file, &key_file)?;
-                    trace!("Successfuly saved cert and key to files");
+                    trace!("Successfully saved cert and key to files");
                 }
                 Ok(server_cert)
             }

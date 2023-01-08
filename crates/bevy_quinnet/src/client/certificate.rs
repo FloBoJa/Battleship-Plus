@@ -10,8 +10,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(not(feature = "no_bevy"))]
 use bevy::prelude::warn;
 use futures::executor::block_on;
+#[cfg(feature = "no_bevy")]
+use log::warn;
 use rustls::ServerName as RustlsServerName;
 use tokio::sync::{mpsc, oneshot};
 
@@ -24,6 +27,7 @@ pub const DEFAULT_CERT_VERIFIER_BEHAVIOUR: CertVerifierBehaviour =
     CertVerifierBehaviour::ImmediateAction(CertVerifierAction::AbortConnection);
 
 /// Event raised when a user/app interaction is needed for the server's certificate validation
+#[derive(Debug, Clone)]
 pub struct CertInteractionEvent {
     pub connection_id: ConnectionId,
     /// The current status of the verification
@@ -31,7 +35,7 @@ pub struct CertInteractionEvent {
     /// Server & Certificate info
     pub info: CertVerificationInfo,
     /// Mutex for interior mutability
-    pub(crate) action_sender: Mutex<Option<oneshot::Sender<CertVerifierAction>>>,
+    pub(crate) action_sender: Arc<Mutex<Option<oneshot::Sender<CertVerifierAction>>>>,
 }
 
 impl CertInteractionEvent {
@@ -52,12 +56,14 @@ impl CertInteractionEvent {
 }
 
 /// Event raised when a new certificate is trusted
+#[derive(Debug, Clone)]
 pub struct CertTrustUpdateEvent {
     pub connection_id: ConnectionId,
     pub cert_info: CertVerificationInfo,
 }
 
 /// Event raised when a connection is aborted during the certificate verification
+#[derive(Debug, Clone)]
 pub struct CertConnectionAbortEvent {
     pub connection_id: ConnectionId,
     pub status: CertVerificationStatus,
@@ -122,7 +128,7 @@ impl Default for TrustOnFirstUseConfig {
 }
 
 /// Status of the server's certificate verification.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum CertVerificationStatus {
     /// First time connecting to this host.
     UnknownCertificate,
@@ -132,14 +138,14 @@ pub enum CertVerificationStatus {
     TrustedCertificate,
 }
 
-/// Info onthe server's certificate.
+/// Info on the server's certificate.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CertVerificationInfo {
     /// Name of the server
     pub server_name: ServerName,
     /// Fingerprint of the received certificate
     pub fingerprint: CertificateFingerprint,
-    /// If any, previously knwon fingerprint for this server
+    /// If any, previously known fingerprint for this server
     pub known_fingerprint: Option<CertificateFingerprint>,
 }
 
@@ -185,7 +191,7 @@ pub type CertStore = HashMap<ServerName, CertificateFingerprint>;
 pub enum KnownHosts {
     /// Directly contains the server name to fingerprint mapping
     Store(CertStore),
-    /// Path of a file caontaing the server name to fingerprint mapping.
+    /// Path of a file containing the server name to fingerprint mapping.
     HostsFile(Arc<Mutex<String>>), // TODO More on the file format + the limitations
 }
 
@@ -334,28 +340,25 @@ impl rustls::client::ServerCertVerifier for TofuServerVerification {
         _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
         // TODO Could add some optional validity checks on the cert content.
-        let status;
         let server_name = ServerName(_server_name.clone());
         let cert_info = CertVerificationInfo {
             server_name: server_name.clone(),
             fingerprint: CertificateFingerprint::from(_end_entity),
             known_fingerprint: self.store.get(&server_name).cloned(),
         };
-        if let Some(ref known_fingerprint) = cert_info.known_fingerprint {
-            if *known_fingerprint == cert_info.fingerprint {
-                status = Some(CertVerificationStatus::TrustedCertificate);
-            } else {
-                status = Some(CertVerificationStatus::UntrustedCertificate);
+
+        let status = match &cert_info.known_fingerprint {
+            None => CertVerificationStatus::UnknownCertificate,
+            Some(known_fingerprint) => {
+                if *known_fingerprint == cert_info.fingerprint {
+                    CertVerificationStatus::TrustedCertificate
+                } else {
+                    CertVerificationStatus::UntrustedCertificate
+                }
             }
-        } else {
-            status = Some(CertVerificationStatus::UnknownCertificate);
-        }
-        match status {
-            Some(status) => self.apply_verifier_behaviour_for_status(status, cert_info),
-            None => Err(rustls::Error::InvalidCertificateData(
-                "Internal error, no CertVerificationStatus".to_string(),
-            )),
-        }
+        };
+
+        self.apply_verifier_behaviour_for_status(status, cert_info)
     }
 }
 

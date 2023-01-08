@@ -9,13 +9,19 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(not(feature = "no_bevy"))]
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
+#[cfg(feature = "no_bevy")]
+use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
 use quinn::{ClientConfig, Endpoint};
 use rustls::KeyLogFile;
+#[cfg(not(feature = "no_bevy"))]
 use serde::Deserialize;
+use tokio::sync::broadcast::error::SendError;
+use tokio::sync::broadcast::Sender;
 use tokio::{
     runtime,
     sync::{
@@ -31,9 +37,9 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 
-use crate::shared::{
-    AsyncRuntime, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE,
-};
+#[cfg(not(feature = "no_bevy"))]
+use crate::shared::AsyncRuntime;
+use crate::shared::{QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
 
 use self::certificate::{
     load_known_hosts_store_from_config, CertConnectionAbortEvent, CertInteractionEvent,
@@ -53,16 +59,20 @@ pub static DEFAULT_KNOWN_HOSTS_FILE: Lazy<ProtectedString> =
 pub type ConnectionId = u64;
 
 /// Connection event raised when the client just connected to the server. Raised in the CoreStage::PreUpdate stage.
+#[derive(Debug, Copy, Clone)]
 pub struct ConnectionEvent(pub ConnectionId);
 
 /// ConnectionLost event raised when the client is considered disconnected from the server. Raised in the CoreStage::PreUpdate stage.
+#[derive(Debug, Copy, Clone)]
 pub struct ConnectionLostEvent(pub ConnectionId);
 
 /// ConnectionErrorEvent event raised when the client failed to connect to the server.
+#[derive(Debug, Clone)]
 pub struct ConnectionErrorEvent(pub ConnectionId, pub String);
 
 /// Configuration of the client, used when connecting to a server
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "no_bevy"), derive(Deserialize))]
 pub struct ConnectionConfiguration {
     server_host: String,
     server_scope: Option<u32>,
@@ -114,7 +124,7 @@ impl ConnectionConfiguration {
 }
 
 /// Current state of the client driver
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum ConnectionState {
     Disconnected,
     Connected,
@@ -213,15 +223,35 @@ impl Connection {
     }
 }
 
-#[derive(Resource)]
+#[cfg_attr(not(feature = "no_bevy"), derive(Resource))]
 pub struct Client {
     runtime: runtime::Handle,
     connections: HashMap<ConnectionId, Connection>,
     last_gen_id: ConnectionId,
     default_connection_id: Option<ConnectionId>,
+
+    #[cfg(feature = "no_bevy")]
+    event_tx: broadcast::Sender<QuinnetClientEvent>,
+    #[cfg(feature = "no_bevy")]
+    certificate_interaction_tx: broadcast::Sender<CertInteractionEvent>,
 }
 
 impl Client {
+    #[cfg(feature = "no_bevy")]
+    pub fn new_standalone(
+        event_tx: Sender<QuinnetClientEvent>,
+        certificate_interaction_tx: Sender<CertInteractionEvent>,
+    ) -> Self {
+        Client {
+            connections: HashMap::new(),
+            runtime: runtime::Handle::current(),
+            last_gen_id: 0,
+            default_connection_id: None,
+            event_tx,
+            certificate_interaction_tx,
+        }
+    }
+
     /// Returns the default connection or None.
     pub fn get_connection(&self) -> Option<&Connection> {
         match self.default_connection_id {
@@ -335,17 +365,27 @@ impl Client {
     /// Close a specific connection. This will call disconnect on the connection and remove it from the client. This may fail if the [Connection] fails to disconnect or if no [Connection] if found for connection_id
     pub fn close_connection(&mut self, connection_id: ConnectionId) -> Result<(), QuinnetError> {
         match self.connections.remove(&connection_id) {
-            Some(mut connection) => {
-                connection.disconnect()?;
-                if let Some(default_id) = self.default_connection_id {
-                    if connection_id == default_id {
-                        self.default_connection_id = None;
-                    }
-                }
-                Ok(())
-            }
+            Some(mut connection) => Self::close_connection_inner(
+                &mut connection,
+                connection_id,
+                &mut self.default_connection_id,
+            ),
             None => Err(QuinnetError::UnknownConnection(connection_id)),
         }
+    }
+
+    fn close_connection_inner(
+        connection: &mut Connection,
+        connection_id: ConnectionId,
+        default_id: &mut Option<ConnectionId>,
+    ) -> Result<(), QuinnetError> {
+        connection.disconnect()?;
+        if let Some(id) = default_id {
+            if connection_id == *id {
+                *default_id = None;
+            }
+        };
+        Ok(())
     }
 
     /// Calls close_connection on all the open connections.
@@ -359,6 +399,87 @@ impl Client {
             self.close_connection(connection_id)?;
         }
         Ok(())
+    }
+
+    #[cfg(feature = "no_bevy")]
+    // Receive messages from the async client tasks and update the sync client.
+    pub fn update_client(&mut self) {
+        for (&connection_id, connection) in &mut self.connections {
+            while let Ok(message) = connection.internal_receiver.try_recv() {
+                if let Err(_) = match message {
+                    InternalAsyncMessage::Connected => {
+                        connection.state = ConnectionState::Connected;
+                        self.event_tx
+                            .send(QuinnetClientEvent::Connected(ConnectionEvent(
+                                connection_id,
+                            )))
+                    }
+                    InternalAsyncMessage::LostConnection => {
+                        connection.state = ConnectionState::Disconnected;
+                        self.event_tx
+                            .send(QuinnetClientEvent::ConnectionLost(ConnectionLostEvent(
+                                connection_id,
+                            )))
+                    }
+                    InternalAsyncMessage::ConnectionError(message) => {
+                        trace!("Closing errored connection {connection_id}");
+                        if let Err(error) = Self::close_connection_inner(
+                            connection,
+                            connection_id,
+                            &mut self.default_connection_id,
+                        ) {
+                            warn!("Could not properly close errored connection {connection_id}: {error}");
+                        }
+
+                        self.event_tx.send(QuinnetClientEvent::ConnectionError(
+                            ConnectionErrorEvent(connection_id, message),
+                        ))
+                    }
+                    InternalAsyncMessage::CertificateTrustUpdate(info) => self.event_tx.send(
+                        QuinnetClientEvent::CertTrustUpdate(CertTrustUpdateEvent {
+                            connection_id,
+                            cert_info: info,
+                        }),
+                    ),
+                    InternalAsyncMessage::CertificateConnectionAbort { status, cert_info } => {
+                        self.event_tx.send(QuinnetClientEvent::CertConnectionAbort(
+                            CertConnectionAbortEvent {
+                                connection_id,
+                                status,
+                                cert_info,
+                            },
+                        ))
+                    }
+                    InternalAsyncMessage::CertificateInteractionRequest {
+                        status,
+                        info,
+                        action_sender,
+                    } => {
+                        if let Err(SendError(event)) =
+                            self.certificate_interaction_tx.send(CertInteractionEvent {
+                                connection_id,
+                                status,
+                                info,
+                                action_sender: Arc::new(Mutex::new(Some(action_sender))),
+                            })
+                        {
+                            // in case there are no Receivers for CertificateInteractionRequests, we abort
+                            let _ = event
+                                .action_sender
+                                .lock()
+                                .expect("unable to acquire lock on action_sender")
+                                .take()
+                                .expect("action_sender should be present")
+                                .send(CertVerifierAction::AbortConnection);
+                        }
+
+                        Ok(0)
+                    }
+                } {
+                    warn!("there are no client event receivers left");
+                }
+            }
+        }
     }
 }
 
@@ -620,6 +741,17 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
     }
 }
 
+#[cfg(feature = "no_bevy")]
+#[derive(Debug, Clone)]
+pub enum QuinnetClientEvent {
+    Connected(ConnectionEvent),
+    ConnectionError(ConnectionErrorEvent),
+    ConnectionLost(ConnectionLostEvent),
+    CertTrustUpdate(CertTrustUpdateEvent),
+    CertConnectionAbort(CertConnectionAbortEvent),
+}
+
+#[cfg(not(feature = "no_bevy"))]
 // Receive messages from the async client tasks and update the sync client.
 fn update_sync_client(
     mut connection_events: EventWriter<ConnectionEvent>,
@@ -651,7 +783,7 @@ fn update_sync_client(
                         connection_id: *connection_id,
                         status,
                         info,
-                        action_sender: Mutex::new(Some(action_sender)),
+                        action_sender: Arc::new(Mutex::new(Some(action_sender))),
                     });
                 }
                 InternalAsyncMessage::CertificateTrustUpdate(info) => {
@@ -684,6 +816,7 @@ fn update_sync_client(
     }
 }
 
+#[cfg(not(feature = "no_bevy"))]
 fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Client {
         connections: HashMap::new(),
@@ -693,9 +826,11 @@ fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
+#[cfg(not(feature = "no_bevy"))]
 #[derive(Default)]
 pub struct QuinnetClientPlugin {}
 
+#[cfg(not(feature = "no_bevy"))]
 impl Plugin for QuinnetClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ConnectionEvent>()

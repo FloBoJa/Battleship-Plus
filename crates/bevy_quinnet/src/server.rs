@@ -5,10 +5,14 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(feature = "no_bevy"))]
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
+#[cfg(feature = "no_bevy")]
+use log::{debug, error, info, trace};
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
+#[cfg(not(feature = "no_bevy"))]
 use serde::Deserialize;
 use tokio::{
     runtime,
@@ -50,7 +54,8 @@ pub struct ConnectionLostEvent {
 }
 
 /// Configuration of the server, used when the server starts
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "no_bevy"), derive(Deserialize))]
 pub struct ServerConfigurationData {
     host: String,
     port: u16,
@@ -267,13 +272,14 @@ impl Endpoint {
     }
 }
 
-#[derive(Resource)]
+#[cfg_attr(not(feature = "no_bevy"), derive(Resource))]
 pub struct Server {
     runtime: runtime::Handle,
     endpoint: Option<Endpoint>,
 }
 
 impl Server {
+    #[cfg(feature = "no_bevy")]
     pub fn new_standalone() -> Server {
         Server {
             runtime: runtime::Handle::current(),
