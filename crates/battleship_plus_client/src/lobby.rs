@@ -26,7 +26,8 @@ impl Plugin for LobbyPlugin {
             .add_system(process_lobby_events.run_in_state(GameState::Lobby))
             .add_system(process_responses.run_in_state(GameState::Lobby))
             // Catch events that happen immediately after joining.
-            .add_enter_system(GameState::Lobby, repeat_cached_events);
+            .add_enter_system(GameState::Lobby, repeat_cached_events)
+            .add_enter_system(GameState::Lobby, reset_request_state);
     }
 }
 
@@ -367,4 +368,9 @@ fn repeat_cached_events(
     };
     event_writer.send_batch(cached_events.into_iter());
     commands.remove_resource::<server_selection::CachedEvents>();
+}
+
+fn reset_request_state(mut request_state: ResMut<RequestState>) {
+    request_state.readiness_change_requested = false;
+    request_state.team_switch_requested = false;
 }
