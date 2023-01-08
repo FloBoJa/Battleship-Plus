@@ -86,11 +86,8 @@ impl LobbyState {
     }
 }
 
-#[derive(Resource, Deref)]
-#[derive(Default)]
+#[derive(Resource, Deref, Default)]
 pub struct Readiness(bool);
-
-
 
 fn draw_lobby_screen(
     mut commands: Commands,
