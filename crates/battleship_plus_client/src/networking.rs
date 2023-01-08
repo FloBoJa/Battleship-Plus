@@ -605,12 +605,16 @@ fn listen_for_messages(
             }
         }
         Some(server) => {
+            if !servers.contains(**server) {
+                debug!("Not listening for messages, a server was probably just joined");
+                return;
+            }
             let server_information = servers
                 .get_component::<ServerInformation>(**server)
-                .expect("CurrentServer always has a ServerInformation");
+                .expect("This is guaranteed by .contains()");
             let connection = servers
                 .get_component::<Connection>(**server)
-                .expect("CurrentServer always has a connection component");
+                .expect("This is guaranteed by .contains()");
             listen_for_messages_from(
                 server_information,
                 connection,
