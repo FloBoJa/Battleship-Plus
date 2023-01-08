@@ -87,13 +87,10 @@ impl LobbyState {
 }
 
 #[derive(Resource, Deref)]
+#[derive(Default)]
 pub struct Readiness(bool);
 
-impl Default for Readiness {
-    fn default() -> Readiness {
-        Readiness(false)
-    }
-}
+
 
 fn draw_lobby_screen(
     mut commands: Commands,
