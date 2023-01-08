@@ -379,10 +379,39 @@ fn configure_client(
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
         CertificateVerificationMode::SignedByCertificateAuthority => {
-            if cfg!(debug_assertions) && std::env::var("SSLKEYLOGFILE").is_ok() {
-                warn!("Logging keys is currently not supported for CertificateVerificationMode::SignedByCertificateAuthority");
+            // Taken from quinn::ClientConfig::with_native_roots()
+            // VVV
+            let mut roots = rustls::RootCertStore::empty();
+
+            match rustls_native_certs::load_native_certs() {
+                Ok(certs) => {
+                    for cert in certs {
+                        if let Err(e) = roots.add(&rustls::Certificate(cert.0)) {
+                            warn!("failed to parse trust anchor: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("couldn't load any default trust roots: {}", e);
+                }
+            };
+
+            let mut crypto = rustls::ClientConfig::builder()
+                .with_safe_default_cipher_suites()
+                .with_safe_default_kx_groups()
+                .with_protocol_versions(&[&rustls::version::TLS13])
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            crypto.enable_early_data = true;
+            // ^^^
+            // Taken from quinn::ClientConfig::with_native_roots()
+
+            if cfg!(debug_assertions) {
+                crypto.key_log = Arc::new(KeyLogFile::new());
             }
-            Ok(ClientConfig::with_native_roots())
+
+            Ok(ClientConfig::new(Arc::new(crypto)))
         }
         CertificateVerificationMode::TrustOnFirstUse(config) => {
             let (store, store_file) = load_known_hosts_store_from_config(config.known_hosts)?;
