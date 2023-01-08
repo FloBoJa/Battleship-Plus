@@ -431,6 +431,13 @@ fn configure_client(
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
     }
+    .map(|mut config| {
+        let mut transport_config = quinn::TransportConfig::default();
+        transport_config.max_idle_timeout(None);
+        transport_config.keep_alive_interval(Some(core::time::Duration::from_secs(30)));
+        config.transport_config(Arc::new(transport_config));
+        config
+    })
 }
 
 async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
