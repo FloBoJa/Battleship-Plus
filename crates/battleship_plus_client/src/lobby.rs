@@ -214,10 +214,13 @@ fn process_lobby_events(
     mut commands: Commands,
     mut events: EventReader<messages::EventMessage>,
     lobby_state: Res<LobbyState>,
+    mut readiness: ResMut<Readiness>,
+    player_id: Res<PlayerId>,
 ) {
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
+                readiness.0 = get_readiness_from_event(lobby_state, **player_id);
                 commands.insert_resource(LobbyState(lobby_state.to_owned()));
             }
             messages::EventMessage::PlacementPhase(message) => {
@@ -237,6 +240,21 @@ fn process_lobby_events(
             }
         }
     }
+}
+
+fn get_readiness_from_event(lobby_state: &messages::LobbyChangeEvent, player_id: u32) -> bool {
+    let mut player_state = lobby_state
+        .team_state_a
+        .iter()
+        .find(|player_state| player_state.player_id == player_id);
+    if player_state.is_none() {
+        player_state = lobby_state
+            .team_state_b
+            .iter()
+            .find(|player_state| player_state.player_id == player_id);
+    }
+    let player_state = player_state.expect("Player must be in one of the teams");
+    player_state.ready
 }
 
 fn process_responses(
