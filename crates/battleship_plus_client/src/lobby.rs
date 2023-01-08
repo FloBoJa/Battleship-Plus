@@ -5,9 +5,13 @@ use egui::Color32;
 use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
 
-use battleship_plus_common::{messages, types};
+use battleship_plus_common::{
+    messages::{self, StatusCode},
+    types,
+};
 
-use crate::game_state::GameState;
+use crate::game_state::{GameState, PlayerId};
+use crate::networking;
 use crate::placement_phase;
 use crate::server_selection;
 
@@ -16,9 +20,11 @@ pub struct LobbyPlugin;
 impl Plugin for LobbyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LobbyState>()
+            .init_resource::<RequestState>()
             .init_resource::<Readiness>()
             .add_system(draw_lobby_screen.run_in_state(GameState::Lobby))
             .add_system(process_lobby_events.run_in_state(GameState::Lobby))
+            .add_system(process_responses.run_in_state(GameState::Lobby))
             // Catch events that happen immediately after joining.
             .add_enter_system(GameState::Lobby, repeat_cached_events);
     }
@@ -35,21 +41,76 @@ impl LobbyState {
         self.0.team_state_a.len() + self.0.team_state_b.len()
     }
 
-    fn to_table(&self, ui: &mut egui::Ui) {
+    fn is_in_team_a(&self, player_id: u32) -> bool {
+        self.0
+            .team_state_a
+            .iter()
+            .any(|player_state| player_state.player_id == player_id)
+    }
+
+    fn is_in_team_b(&self, player_id: u32) -> bool {
+        self.0
+            .team_state_b
+            .iter()
+            .any(|player_state| player_state.player_id == player_id)
+    }
+
+    fn to_table(
+        &self,
+        ui: &mut egui::Ui,
+        request_state: &mut RequestState,
+        player_id: u32,
+        commands: &mut Commands,
+        client: &mut ResMut<Client>,
+    ) {
         ui.horizontal(|ui| {
             ui.push_id(0, |ui| {
-                Self::team_to_table(ui, &self.team_state_a);
+                Self::team_to_table(
+                    ui,
+                    &self.team_state_a,
+                    request_state,
+                    commands,
+                    client,
+                    self.is_in_team_a(player_id),
+                );
             });
             ui.separator();
             ui.push_id(1, |ui| {
-                Self::team_to_table(ui, &self.team_state_b);
+                Self::team_to_table(
+                    ui,
+                    &self.team_state_b,
+                    request_state,
+                    commands,
+                    client,
+                    self.is_in_team_b(player_id),
+                );
             });
         });
     }
 
     // Helper function for to_table
-    fn team_to_table(ui: &mut egui::Ui, team: &Vec<types::PlayerLobbyState>) {
+    fn team_to_table(
+        ui: &mut egui::Ui,
+        team: &Vec<types::PlayerLobbyState>,
+        request_state: &mut RequestState,
+        commands: &mut Commands,
+        client: &mut ResMut<Client>,
+        is_in_team: bool,
+    ) {
         ui.vertical(|ui| {
+            let enabled = !request_state.team_switch_requested && !is_in_team;
+            let join_team_button = ui.add_enabled(enabled, egui::Button::new("Join team"));
+            if join_team_button.clicked() {
+                let connection = client
+                    .get_connection()
+                    .expect("There must be a connection in the Lobby state");
+                if let Err(error) = connection.send_message(messages::TeamSwitchRequest {}.into()) {
+                    error!("Could not send SetReadyStateRequest: {error}, disonnecting");
+                    commands.insert_resource(NextState(GameState::Unconnected));
+                } else {
+                    request_state.team_switch_requested = true;
+                }
+            }
             TableBuilder::new(ui)
                 .striped(true)
                 .column(Column::at_least(Column::auto(), 250.0))
@@ -89,18 +150,29 @@ impl LobbyState {
 #[derive(Resource, Deref, Default)]
 pub struct Readiness(bool);
 
+#[derive(Resource, Default)]
+struct RequestState {
+    readiness_change_requested: bool,
+    team_switch_requested: bool,
+}
+
 fn draw_lobby_screen(
     mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
+    mut request_state: ResMut<RequestState>,
     lobby_state: Res<LobbyState>,
     readiness: Res<Readiness>,
-    client: ResMut<Client>,
+    player_id: Res<PlayerId>,
+    mut client: ResMut<Client>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
             ui.set_max_width(600.0);
             ui.heading("Lobby");
-            if ui.button("Toggle readiness").clicked() {
+
+            let enabled = !request_state.readiness_change_requested;
+            let readiness_button = ui.add_enabled(enabled, egui::Button::new("Toggle readiness"));
+            if readiness_button.clicked() {
                 let ready_state = !readiness.0;
                 let connection = client
                     .get_connection()
@@ -111,11 +183,17 @@ fn draw_lobby_screen(
                     error!("Could not send SetReadyStateRequest: {error}, disonnecting");
                     commands.insert_resource(NextState(GameState::Unconnected));
                 } else {
-                    // TODO: consider waiting for SetReadyStateResponse
-                    commands.insert_resource(Readiness(ready_state));
+                    request_state.readiness_change_requested = true;
                 }
             }
-            lobby_state.to_table(ui);
+
+            lobby_state.to_table(
+                ui,
+                &mut request_state,
+                **player_id,
+                &mut commands,
+                &mut client,
+            );
         });
     });
 }
@@ -145,6 +223,105 @@ fn process_lobby_events(
             _other_events => {
                 // ignore
             }
+        }
+    }
+}
+
+fn process_responses(
+    mut commands: Commands,
+    mut events: EventReader<networking::ResponseReceivedEvent>,
+    mut request_state: ResMut<RequestState>,
+    mut readiness: ResMut<Readiness>,
+) {
+    for networking::ResponseReceivedEvent(messages::StatusMessage {
+        code,
+        message,
+        data,
+    }) in events.iter()
+    {
+        let original_code = code;
+        let code = StatusCode::from_i32(*code);
+        match code {
+            Some(StatusCode::Ok) => {
+                process_response_data(data, message, &mut request_state, &mut readiness);
+            }
+            Some(StatusCode::OkWithWarning) => {
+                if message.is_empty() {
+                    warn!("Received OK response with warning but without message");
+                } else {
+                    warn!("Received OK response with warning: {message}");
+                }
+                process_response_data(data, message, &mut request_state, &mut readiness);
+            }
+            Some(StatusCode::ServerError) => {
+                if message.is_empty() {
+                    error!("Server error, disconnecting");
+                } else {
+                    error!("Server error with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            Some(StatusCode::UnsupportedVersion) => {
+                if message.is_empty() {
+                    error!("Unsupported protocol version, disconnecting");
+                } else {
+                    error!("Unsupported protocol version, disconnecting. Attached message: \"{message}\"");
+                }
+            }
+            Some(other_code) => {
+                if message.is_empty() {
+                    error!("Received inappropriate status code {other_code:?}, disconnecting");
+                } else {
+                    error!("Received inappropriate status code {other_code:?} with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            None => {
+                if message.is_empty() {
+                    error!("Received unknown status code {original_code}, disconnecting");
+                } else {
+                    error!("Received unknown status code {original_code} with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+        }
+    }
+}
+
+fn process_response_data(
+    data: &Option<messages::status_message::Data>,
+    message: &str,
+    request_state: &mut ResMut<RequestState>,
+    readiness: &mut ResMut<Readiness>,
+) {
+    match data {
+        Some(messages::status_message::Data::SetReadyStateResponse(_)) => {
+            if request_state.readiness_change_requested {
+                debug!("Readiness change successful");
+                readiness.0 = !readiness.0;
+                request_state.readiness_change_requested = false;
+            } else {
+                warn!("Received unexpected SetReadyStateResponse");
+            }
+        }
+        Some(messages::status_message::Data::TeamSwitchResponse(_)) => {
+            if request_state.team_switch_requested {
+                debug!("Team switch successful");
+                request_state.team_switch_requested = false;
+            } else {
+                warn!("Received unexpected TeamSwitchResponse");
+            }
+        }
+        Some(_other_response) => {
+            // ignore
+        }
+        None => {
+            if message.is_empty() {
+                warn!("No data in OK response");
+            } else {
+                warn!("No data in OK response with message: {message}");
+            }
+            // ignore
         }
     }
 }

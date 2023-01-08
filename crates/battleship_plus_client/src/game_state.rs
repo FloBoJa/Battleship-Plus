@@ -11,5 +11,5 @@ pub enum GameState {
     // Game,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 pub struct PlayerId(pub u32);
