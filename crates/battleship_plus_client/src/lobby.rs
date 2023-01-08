@@ -170,22 +170,34 @@ fn draw_lobby_screen(
             ui.set_max_width(600.0);
             ui.heading("Lobby");
 
-            let enabled = !request_state.readiness_change_requested;
-            let readiness_button = ui.add_enabled(enabled, egui::Button::new("Toggle readiness"));
-            if readiness_button.clicked() {
-                let ready_state = !readiness.0;
-                let connection = client
-                    .get_connection()
-                    .expect("There must be a connection in the Lobby state");
-                if let Err(error) =
-                    connection.send_message(messages::SetReadyStateRequest { ready_state }.into())
-                {
-                    error!("Could not send SetReadyStateRequest: {error}, disonnecting");
+            ui.add_space(20.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Leave").clicked() {
+                    info!("User requested leave");
                     commands.insert_resource(NextState(GameState::Unconnected));
-                } else {
-                    request_state.readiness_change_requested = true;
                 }
-            }
+
+                let enabled = !request_state.readiness_change_requested;
+                let readiness_button =
+                    ui.add_enabled(enabled, egui::Button::new("Toggle readiness"));
+                if readiness_button.clicked() {
+                    let ready_state = !readiness.0;
+                    let connection = client
+                        .get_connection()
+                        .expect("There must be a connection in the Lobby state");
+                    if let Err(error) = connection
+                        .send_message(messages::SetReadyStateRequest { ready_state }.into())
+                    {
+                        error!("Could not send SetReadyStateRequest: {error}, disonnecting");
+                        commands.insert_resource(NextState(GameState::Unconnected));
+                    } else {
+                        request_state.readiness_change_requested = true;
+                    }
+                }
+            });
+
+            ui.add_space(20.0);
 
             lobby_state.to_table(
                 ui,
