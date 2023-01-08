@@ -23,22 +23,26 @@ pub mod codec {
 
     #[derive(Clone, Debug)]
     pub enum CodecError {
-        IO(String),
-        PROTOCOL(String),
+        Io(String),
+        Protocol(String),
+        UnsupportedVersion(u8),
     }
 
     impl Display for CodecError {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
-                CodecError::IO(s) => f.write_str(format!("IO: {s}").as_str()),
-                CodecError::PROTOCOL(s) => f.write_str(format!("PROTOCOL: {s}").as_str()),
+                CodecError::Io(s) => f.write_str(format!("IO: {s}").as_str()),
+                CodecError::Protocol(s) => f.write_str(format!("Protocol: {s}").as_str()),
+                CodecError::UnsupportedVersion(v) => {
+                    f.write_str(format!("UnsupportedVersion: {v}").as_str())
+                }
             }
         }
     }
 
     impl From<std::io::Error> for CodecError {
         fn from(io_error: std::io::Error) -> CodecError {
-            CodecError::IO(io_error.to_string())
+            CodecError::Io(io_error.to_string())
         }
     }
 
@@ -72,7 +76,7 @@ pub mod codec {
 
             let length = payload.encoded_len();
             if length > u16::MAX as usize {
-                return Err(CodecError::PROTOCOL(String::from("message is too long")));
+                return Err(CodecError::Protocol(String::from("message is too long")));
             }
             let length = length as u16;
 
@@ -80,7 +84,7 @@ pub mod codec {
             buffer.put_u16(length);
             payload
                 .encode(buffer)
-                .map_err(|error| CodecError::IO(error.to_string()))
+                .map_err(|error| CodecError::Io(error.to_string()))
         }
     }
 
@@ -104,10 +108,7 @@ pub mod codec {
                 self.length = Some(length);
 
                 if version != self.version {
-                    return Err(CodecError::PROTOCOL(format!(
-                        "unsupported protocol version {}, supported version is {}",
-                        version, self.version
-                    )));
+                    return Err(CodecError::UnsupportedVersion(version));
                 }
 
                 // Reserve enough memory for this message and the next header.
@@ -128,7 +129,7 @@ pub mod codec {
                 // Decode the message.
                 match messages::PacketPayload::decode(buffer.split_to(length)) {
                     Ok(payload) => Ok(Some(payload.protocol_message)),
-                    Err(error) => Err(CodecError::PROTOCOL(format!(
+                    Err(error) => Err(CodecError::Protocol(format!(
                         "malformed message, expecting PacketPayload: {error}"
                     ))),
                 }
