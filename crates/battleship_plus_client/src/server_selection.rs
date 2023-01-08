@@ -370,9 +370,9 @@ fn process_join_response_data(
         }
         None => {
             if message.is_empty() {
-                warn!("No data in response after JoinRequest but status code 2XX");
+                warn!("No data in OK response after JoinRequest");
             } else {
-                warn!("No data in response after JoinRequest but status code 2XX with message: {message}");
+                warn!("No data in OK response after JoinRequest with message: {message}");
             }
             // ignore
         }
