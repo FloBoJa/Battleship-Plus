@@ -1,5 +1,6 @@
 use std::{fmt, io, net::AddrParseError, sync::PoisonError};
 
+#[cfg(not(feature = "no_bevy"))]
 use bevy::prelude::{Deref, DerefMut, Resource};
 use rcgen::RcgenError;
 use tokio::runtime::Runtime;
@@ -12,7 +13,7 @@ pub const DEFAULT_KEEP_ALIVE_INTERVAL_S: u64 = 4;
 
 pub type ClientId = u32;
 
-#[derive(Resource, Deref, DerefMut)]
+#[cfg_attr(not(feature = "no_bevy"), derive(Resource, Deref, DerefMut))]
 pub struct AsyncRuntime(pub Runtime);
 
 /// Enum with possibles errors that can occur in Bevy Quinnet
@@ -55,7 +56,7 @@ impl<T> From<PoisonError<T>> for QuinnetError {
 }
 
 /// SHA-256 hash of the certificate data in DER form
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct CertificateFingerprint([u8; 32]);
 
 impl CertificateFingerprint {
