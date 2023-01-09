@@ -27,7 +27,7 @@ impl Plugin for LobbyPlugin {
             .add_system(process_responses.run_in_state(GameState::Lobby))
             // Catch events that happen immediately after joining.
             .add_enter_system(GameState::Lobby, repeat_cached_events)
-            .add_enter_system(GameState::Lobby, reset_request_state);
+            .add_enter_system(GameState::Lobby, reset_state);
     }
 }
 
@@ -154,6 +154,7 @@ pub struct Readiness(bool);
 #[derive(Resource, Default)]
 struct RequestState {
     readiness_change_requested: bool,
+    requested_readiness: bool,
     team_switch_requested: bool,
 }
 
@@ -184,6 +185,8 @@ fn draw_lobby_screen(
                     ui.add_enabled(enabled, egui::Button::new("Toggle readiness"));
                 if readiness_button.clicked() {
                     let ready_state = !readiness.0;
+                    request_state.requested_readiness = ready_state;
+
                     let connection = client
                         .get_connection()
                         .expect("There must be a connection in the Lobby state");
@@ -216,12 +219,21 @@ fn process_lobby_events(
     mut events: EventReader<messages::EventMessage>,
     lobby_state: Res<LobbyState>,
     mut readiness: ResMut<Readiness>,
+    request_state: Res<RequestState>,
     player_id: Res<PlayerId>,
 ) {
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
-                readiness.0 = get_readiness_from_event(lobby_state, **player_id);
+                let server_readiness = get_readiness_from_event(lobby_state, **player_id);
+                if request_state.readiness_change_requested
+                    && request_state.requested_readiness == server_readiness
+                {
+                    trace!("Received lobby update containing requested readiness before SetReadyStateResponse, setting it early.");
+                    readiness.0 = server_readiness;
+                } else if readiness.0 != server_readiness {
+                    warn!("Received lobby update containing conflicting readiness state");
+                }
                 commands.insert_resource(LobbyState(lobby_state.to_owned()));
             }
             messages::EventMessage::PlacementPhase(message) => {
@@ -329,7 +341,7 @@ fn process_response_data(
         Some(messages::status_message::Data::SetReadyStateResponse(_)) => {
             if request_state.readiness_change_requested {
                 debug!("Readiness change successful");
-                readiness.0 = !readiness.0;
+                readiness.0 = request_state.requested_readiness;
                 request_state.readiness_change_requested = false;
             } else {
                 warn!("Received unexpected SetReadyStateResponse");
@@ -339,6 +351,8 @@ fn process_response_data(
             if request_state.team_switch_requested {
                 debug!("Team switch successful");
                 request_state.team_switch_requested = false;
+                trace!("Un-readying, the server should have done that as well");
+                readiness.0 = false;
             } else {
                 warn!("Received unexpected TeamSwitchResponse");
             }
@@ -370,7 +384,8 @@ fn repeat_cached_events(
     commands.remove_resource::<server_selection::CachedEvents>();
 }
 
-fn reset_request_state(mut request_state: ResMut<RequestState>) {
+fn reset_state(mut request_state: ResMut<RequestState>, mut readiness: ResMut<Readiness>) {
     request_state.readiness_change_requested = false;
     request_state.team_switch_requested = false;
+    readiness.0 = false;
 }
