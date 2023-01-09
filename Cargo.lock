@@ -651,6 +651,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rustls",
+ "rustls-native-certs",
  "rustls-pemfile",
  "serde",
  "thiserror",

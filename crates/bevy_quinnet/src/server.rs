@@ -25,10 +25,7 @@ use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessa
 use crate::shared::AsyncRuntime;
 use crate::{
     server::certificate::retrieve_certificate,
-    shared::{
-        ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
-        DEFAULT_MESSAGE_QUEUE_SIZE,
-    },
+    shared::{ClientId, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE},
 };
 
 use self::certificate::{CertificateRetrievalMode, ServerCertificate};
@@ -313,7 +310,7 @@ impl Server {
         )?;
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
-            .keep_alive_interval(Some(Duration::from_secs(DEFAULT_KEEP_ALIVE_INTERVAL_S)));
+            .max_idle_timeout(Duration::from_secs(60).try_into().ok());
 
         let (from_clients_sender, from_clients_receiver) =
             mpsc::channel::<ClientPayload>(DEFAULT_MESSAGE_QUEUE_SIZE);
