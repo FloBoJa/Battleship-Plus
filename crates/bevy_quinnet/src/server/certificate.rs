@@ -4,9 +4,9 @@ use std::{
     path::Path,
 };
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use bevy::prelude::{trace, warn};
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 use log::{trace, warn};
 
 use crate::shared::{CertificateFingerprint, QuinnetError};

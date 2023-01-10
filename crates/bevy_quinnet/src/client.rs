@@ -9,16 +9,16 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
 use quinn::{ClientConfig, Endpoint};
 use rustls::KeyLogFile;
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use serde::Deserialize;
 use tokio::sync::broadcast::error::SendError;
 use tokio::sync::broadcast::Sender;
@@ -37,7 +37,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use crate::shared::AsyncRuntime;
 use crate::shared::{QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
 
@@ -72,7 +72,7 @@ pub struct ConnectionErrorEvent(pub ConnectionId, pub String);
 
 /// Configuration of the client, used when connecting to a server
 #[derive(Debug, Clone)]
-#[cfg_attr(not(feature = "no_bevy"), derive(Deserialize))]
+#[cfg_attr(feature = "bevy", derive(Deserialize))]
 pub struct ConnectionConfiguration {
     server_host: String,
     server_scope: Option<u32>,
@@ -223,21 +223,21 @@ impl Connection {
     }
 }
 
-#[cfg_attr(not(feature = "no_bevy"), derive(Resource))]
+#[cfg_attr(feature = "bevy", derive(Resource))]
 pub struct Client {
     runtime: runtime::Handle,
     connections: HashMap<ConnectionId, Connection>,
     last_gen_id: ConnectionId,
     default_connection_id: Option<ConnectionId>,
 
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     event_tx: broadcast::Sender<QuinnetClientEvent>,
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     certificate_interaction_tx: broadcast::Sender<CertInteractionEvent>,
 }
 
 impl Client {
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     pub fn new_standalone(
         event_tx: Sender<QuinnetClientEvent>,
         certificate_interaction_tx: Sender<CertInteractionEvent>,
@@ -401,7 +401,7 @@ impl Client {
         Ok(())
     }
 
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     // Receive messages from the async client tasks and update the sync client.
     pub fn update_client(&mut self) {
         for (&connection_id, connection) in &mut self.connections {
@@ -741,7 +741,7 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
     }
 }
 
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 #[derive(Debug, Clone)]
 pub enum QuinnetClientEvent {
     Connected(ConnectionEvent),
@@ -751,7 +751,7 @@ pub enum QuinnetClientEvent {
     CertConnectionAbort(CertConnectionAbortEvent),
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 // Receive messages from the async client tasks and update the sync client.
 fn update_sync_client(
     mut connection_events: EventWriter<ConnectionEvent>,
@@ -816,7 +816,7 @@ fn update_sync_client(
     }
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Client {
         connections: HashMap::new(),
@@ -826,11 +826,11 @@ fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 #[derive(Default)]
 pub struct QuinnetClientPlugin {}
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 impl Plugin for QuinnetClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ConnectionEvent>()

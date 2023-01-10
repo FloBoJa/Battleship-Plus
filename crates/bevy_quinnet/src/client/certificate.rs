@@ -10,10 +10,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use bevy::prelude::warn;
 use futures::executor::block_on;
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 use log::warn;
 use rustls::ServerName as RustlsServerName;
 use tokio::sync::{mpsc, oneshot};

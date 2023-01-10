@@ -5,14 +5,14 @@ use std::{
     time::Duration,
 };
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 use log::{debug, error, info, trace};
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use serde::Deserialize;
 use tokio::{
     runtime,
@@ -28,7 +28,7 @@ use battleship_plus_common::{
     messages::ProtocolMessage,
 };
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use crate::shared::AsyncRuntime;
 use crate::{
     server::certificate::retrieve_certificate,
@@ -55,7 +55,7 @@ pub struct ConnectionLostEvent {
 
 /// Configuration of the server, used when the server starts
 #[derive(Debug, Clone)]
-#[cfg_attr(not(feature = "no_bevy"), derive(Deserialize))]
+#[cfg_attr(feature = "bevy", derive(Deserialize))]
 pub struct ServerConfigurationData {
     host: String,
     port: u16,
@@ -119,7 +119,7 @@ pub struct Endpoint {
     payloads_receiver: mpsc::Receiver<ClientPayload>,
     close_sender: broadcast::Sender<()>,
 
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     pub(crate) internal_receiver_closed: bool,
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
 }
@@ -194,7 +194,7 @@ impl Endpoint {
         }
     }
 
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     pub async fn next_event(&mut self) -> EndpointEvent {
         tokio::select! {
             biased;
@@ -272,14 +272,14 @@ impl Endpoint {
     }
 }
 
-#[cfg_attr(not(feature = "no_bevy"), derive(Resource))]
+#[cfg_attr(feature = "bevy", derive(Resource))]
 pub struct Server {
     runtime: runtime::Handle,
     endpoint: Option<Endpoint>,
 }
 
 impl Server {
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     pub fn new_standalone() -> Server {
         Server {
             runtime: runtime::Handle::current(),
@@ -351,7 +351,7 @@ impl Server {
             payloads_receiver: from_clients_receiver,
             close_sender: endpoint_close_sender,
             internal_receiver: from_async_server,
-            #[cfg(feature = "no_bevy")]
+            #[cfg(not(feature = "bevy"))]
             internal_receiver_closed: false,
         });
 
@@ -575,7 +575,7 @@ async fn client_receiver_task(
     }
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Server {
         endpoint: None,
@@ -583,7 +583,7 @@ fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 // Receive messages from the async server tasks and update the sync server.
 fn update_sync_server(
     mut server: ResMut<Server>,
@@ -611,10 +611,10 @@ fn update_sync_server(
 }
 
 #[derive(Default)]
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 pub struct QuinnetServerPlugin {}
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 impl Plugin for QuinnetServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ConnectionEvent>()
@@ -633,7 +633,7 @@ impl Plugin for QuinnetServerPlugin {
     }
 }
 
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 #[derive(Debug)]
 pub enum EndpointEvent {
     Payload(Box<ClientPayload>),
