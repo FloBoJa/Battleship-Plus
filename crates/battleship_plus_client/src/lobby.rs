@@ -184,12 +184,16 @@ fn draw_lobby_screen(
                 let mut readiness_button_text = egui::text::LayoutJob::default();
                 readiness_button_text.append("Ready: ", 0.0, egui::text::TextFormat::default());
                 if readiness.0 {
-                    let mut format = egui::text::TextFormat::default();
-                    format.color = Color32::GREEN;
+                    let format = egui::text::TextFormat {
+                        color: Color32::GREEN,
+                        ..default()
+                    };
                     readiness_button_text.append("\u{2713}", 0.0, format);
                 } else {
-                    let mut format = egui::text::TextFormat::default();
-                    format.color = Color32::RED;
+                    let format = egui::text::TextFormat {
+                        color: Color32::RED,
+                        ..default()
+                    };
                     readiness_button_text.append("\u{2717}", 0.0, format);
                 };
                 let readiness_button =
