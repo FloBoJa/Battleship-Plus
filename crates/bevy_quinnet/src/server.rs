@@ -577,8 +577,8 @@ fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
-// Receive messages from the async server tasks and update the sync server.
 #[cfg(not(feature = "no_bevy"))]
+// Receive messages from the async server tasks and update the sync server.
 fn update_sync_server(
     mut server: ResMut<Server>,
     mut connection_events: EventWriter<ConnectionEvent>,
@@ -595,6 +595,9 @@ fn update_sync_server(
                 InternalAsyncMessage::ClientLostConnection(client_id) => {
                     endpoint.clients.remove(&client_id);
                     connection_lost_events.send(ConnectionLostEvent { id: client_id });
+                }
+                InternalAsyncMessage::UnsupportedVersionMessage { version, .. } => {
+                    warn!("received message with unsupported version {version}")
                 }
             }
         }
