@@ -20,8 +20,8 @@ use quinn::{ClientConfig, Endpoint};
 use rustls::KeyLogFile;
 #[cfg(feature = "bevy")]
 use serde::Deserialize;
-use tokio::sync::broadcast::error::SendError;
-use tokio::sync::broadcast::Sender;
+#[cfg(not(feature = "bevy"))]
+use tokio::sync::broadcast::{error::SendError, Sender};
 use tokio::{
     runtime,
     sync::{
@@ -406,7 +406,7 @@ impl Client {
     pub fn update_client(&mut self) {
         for (&connection_id, connection) in &mut self.connections {
             while let Ok(message) = connection.internal_receiver.try_recv() {
-                if let Err(_) = match message {
+                if match message {
                     InternalAsyncMessage::Connected => {
                         connection.state = ConnectionState::Connected;
                         self.event_tx
@@ -475,7 +475,7 @@ impl Client {
 
                         Ok(0)
                     }
-                } {
+                }.is_err() {
                     warn!("there are no client event receivers left");
                 }
             }
