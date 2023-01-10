@@ -1,6 +1,6 @@
 use std::{fmt, io, net::AddrParseError, sync::PoisonError};
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 use bevy::prelude::{Deref, DerefMut, Resource};
 use rcgen::RcgenError;
 use tokio::runtime::Runtime;
@@ -13,7 +13,7 @@ pub const DEFAULT_KEEP_ALIVE_INTERVAL_S: u64 = 4;
 
 pub type ClientId = u32;
 
-#[cfg_attr(not(feature = "no_bevy"), derive(Resource, Deref, DerefMut))]
+#[cfg_attr(feature = "bevy", derive(Resource, Deref, DerefMut))]
 pub struct AsyncRuntime(pub Runtime);
 
 /// Enum with possibles errors that can occur in Bevy Quinnet

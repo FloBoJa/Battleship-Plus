@@ -7,7 +7,7 @@ pub mod shared;
 ///                      Tests                          ///
 ///                                                     ///
 ///////////////////////////////////////////////////////////
-#[cfg(test)]
+#[cfg(all(feature = "bevy", test))]
 mod tests {
     use std::{fs, io::ErrorKind, thread::sleep, time::Duration};
 
@@ -19,7 +19,6 @@ mod tests {
 
     use battleship_plus_common::messages::{self, ProtocolMessage};
 
-    #[cfg(not(feature = "no_bevy"))]
     use crate::server::QuinnetServerPlugin;
     use crate::{
         client::{
@@ -217,7 +216,7 @@ mod tests {
             .insert_resource(ServerTestData::default())
             .add_system(handle_server_events);
 
-        #[cfg(not(feature = "no_bevy"))]
+        #[cfg(feature = "bevy")]
         server_app.add_plugin(QuinnetServerPlugin::default());
 
         // Startup
@@ -477,7 +476,6 @@ mod tests {
             .add_startup_system(start_listening)
             .add_system(handle_server_events);
 
-        #[cfg(not(feature = "no_bevy"))]
         server_app.add_plugin(QuinnetServerPlugin::default());
 
         server_app
