@@ -9,7 +9,6 @@ use bevy::prelude::*;
 use bevy::utils::synccell::SyncCell;
 use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
 use bytes::BytesMut;
-use futures::task::SpawnExt;
 use iyes_loopless::prelude::*;
 use tokio::net::UdpSocket;
 use tokio_util::codec::Decoder;

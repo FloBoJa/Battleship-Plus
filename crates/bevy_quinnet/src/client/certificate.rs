@@ -10,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use base64::Engine;
 #[cfg(feature = "bevy")]
 use bevy::prelude::warn;
 use futures::executor::block_on;
@@ -260,7 +261,7 @@ impl TofuServerVerification {
                 let (action_sender, cert_action_recv) = oneshot::channel::<CertVerifierAction>();
                 self.to_sync_client
                     .try_send(InternalAsyncMessage::CertificateInteractionRequest {
-                        status: status.clone(),
+                        status,
                         info: cert_info.clone(),
                         action_sender,
                     })
@@ -299,8 +300,7 @@ impl TofuServerVerification {
                 // If we need to store them to a file
                 if let Some(file) = &self.hosts_file {
                     let mut store_clone = self.store.clone();
-                    store_clone
-                        .insert(cert_info.server_name.clone(), cert_info.fingerprint.clone());
+                    store_clone.insert(cert_info.server_name.clone(), cert_info.fingerprint);
 
                     match file.lock() {
                         Ok(file) => {
@@ -382,7 +382,7 @@ fn parse_known_host_line(
     let serv_name = ServerName(RustlsServerName::try_from(adr_str)?);
 
     let fingerprint_b64 = parts.next().ok_or(QuinnetError::InvalidHostFile)?;
-    let fingerprint_bytes = base64::decode(fingerprint_b64)?;
+    let fingerprint_bytes = base64::engine::general_purpose::STANDARD.decode(fingerprint_b64)?;
 
     match fingerprint_bytes.try_into() {
         Ok(buf) => Ok((serv_name, CertificateFingerprint::new(buf))),

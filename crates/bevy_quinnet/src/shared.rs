@@ -1,5 +1,6 @@
 use std::{fmt, io, net::AddrParseError, sync::PoisonError};
 
+use base64::Engine;
 #[cfg(feature = "bevy")]
 use bevy::prelude::{Deref, DerefMut, Resource};
 use rcgen::RcgenError;
@@ -65,7 +66,7 @@ impl CertificateFingerprint {
     }
 
     pub fn to_base64(&self) -> String {
-        base64::encode(self.0)
+        base64::engine::general_purpose::STANDARD.encode(self.0)
     }
 }
 

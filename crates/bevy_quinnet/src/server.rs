@@ -602,8 +602,8 @@ fn update_sync_server(
                     endpoint.clients.remove(&client_id);
                     connection_lost_events.send(ConnectionLostEvent { id: client_id });
                 }
-                InternalAsyncMessage::UnsupportedVersionMessage { version, .. } => {
-                    warn!("received message with unsupported version {version}")
+                InternalAsyncMessage::UnsupportedVersionMessage { client_id, version } => {
+                    warn!("received message with unsupported version {version} on connection {client_id}")
                 }
             }
         }
