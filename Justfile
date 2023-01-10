@@ -20,4 +20,4 @@ test:
     cargo test --package battleship_plus_client
     cargo test --package battleship_plus_common
     cargo test --package battleship_plus_macros
-    cargo test --package bevy_quinnet
+    cargo test --package bevy_quinnet --all-features
