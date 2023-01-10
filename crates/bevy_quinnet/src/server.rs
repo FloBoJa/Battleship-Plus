@@ -19,7 +19,10 @@ use tokio::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
+use battleship_plus_common::{
+    codec::{BattleshipPlusCodec, CodecError},
+    messages::ProtocolMessage,
+};
 
 #[cfg(not(feature = "no_bevy"))]
 use crate::shared::AsyncRuntime;
@@ -99,6 +102,7 @@ pub struct ClientPayload {
 pub(crate) enum InternalAsyncMessage {
     ClientConnected(ClientConnection),
     ClientLostConnection(ClientId),
+    UnsupportedVersionMessage { client_id: ClientId, version: u8 },
 }
 
 #[derive(Debug)]
@@ -202,6 +206,9 @@ impl Endpoint {
                     Some(InternalAsyncMessage::ClientLostConnection(client_id)) => {
                         self.clients.remove(&client_id);
                         EndpointEvent::Disconnect(client_id)
+                    },
+                    Some(InternalAsyncMessage::UnsupportedVersionMessage{client_id, version}) => {
+                        EndpointEvent::UnsupportedVersionMessage{client_id, version}
                     },
                     None => {
                         self.internal_receiver_closed = true;
@@ -525,14 +532,27 @@ async fn client_receiver_task(
 
             // Spawn a task to receive data on this stream.
             let from_client_sender = from_clients_sender.clone();
-            while let Some(Ok(msg_bytes)) = frame_recv.next().await {
-                from_client_sender
-                    .send(ClientPayload {
-                        client_id,
-                        msg: msg_bytes,
-                    })
-                    .await
-                    .unwrap();// TODO Fix: error event
+            while let Some(result) = frame_recv.next().await {
+                match result {
+                    Ok(message) => {
+                        from_client_sender
+                            .send(ClientPayload {
+                                client_id,
+                                msg: message,
+                            })
+                            .await
+                            .unwrap();// TODO Fix: error event
+                    }
+                    Err(CodecError::UnsupportedVersion(version)) => {
+                        to_sync_server
+                            .send(InternalAsyncMessage::UnsupportedVersionMessage{client_id, version})
+                            .await
+                            .expect("Failed to signal message with unsupported version to sync server");
+                    }
+                    Err(_other_error) => {
+                        break;
+                    }
+                }
             }
             trace!("Receiving half of stream ended for client: {}", client_id)
         } => {}
@@ -613,6 +633,7 @@ pub enum EndpointEvent {
     Payload(Box<ClientPayload>),
     Connect(ClientId),
     Disconnect(ClientId),
+    UnsupportedVersionMessage { client_id: ClientId, version: u8 },
     SocketClosed,
     NoMorePayloads,
 }
