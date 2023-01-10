@@ -181,8 +181,23 @@ fn draw_lobby_screen(
                 }
 
                 let enabled = !request_state.readiness_change_requested;
+                let mut readiness_button_text = egui::text::LayoutJob::default();
+                readiness_button_text.append("Ready: ", 0.0, egui::text::TextFormat::default());
+                if readiness.0 {
+                    let format = egui::text::TextFormat {
+                        color: Color32::GREEN,
+                        ..default()
+                    };
+                    readiness_button_text.append("\u{2713}", 0.0, format);
+                } else {
+                    let format = egui::text::TextFormat {
+                        color: Color32::RED,
+                        ..default()
+                    };
+                    readiness_button_text.append("\u{2717}", 0.0, format);
+                };
                 let readiness_button =
-                    ui.add_enabled(enabled, egui::Button::new("Toggle readiness"));
+                    ui.add_enabled(enabled, egui::Button::new(readiness_button_text));
                 if readiness_button.clicked() {
                     let ready_state = !readiness.0;
                     request_state.requested_readiness = ready_state;
@@ -231,8 +246,6 @@ fn process_lobby_events(
                 {
                     trace!("Received lobby update containing requested readiness before SetReadyStateResponse, setting it early.");
                     readiness.0 = server_readiness;
-                } else if readiness.0 != server_readiness {
-                    warn!("Received lobby update containing conflicting readiness state");
                 }
                 commands.insert_resource(LobbyState(lobby_state.to_owned()));
             }
