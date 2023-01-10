@@ -3,6 +3,8 @@ use std::fmt::{Display, Formatter};
 use log::debug;
 use tokio::sync::RwLockWriteGuard;
 
+use battleship_plus_common::messages::ProtocolMessage;
+
 use crate::game::actions::{Action, ActionExecutionError};
 use crate::game::data::Game;
 
@@ -26,6 +28,56 @@ impl Display for GameState {
 }
 
 impl GameState {
+    pub(crate) fn validate_inbound_message_allowed(
+        &self,
+        msg: &ProtocolMessage,
+    ) -> Result<(), String> {
+        if matches!(
+            msg,
+            ProtocolMessage::StatusMessage(_)
+                | ProtocolMessage::ServerAdvertisement(_)
+                | ProtocolMessage::LobbyChangeEvent(_)
+                | ProtocolMessage::PlacementPhase(_)
+                | ProtocolMessage::GameStart(_)
+                | ProtocolMessage::NextTurn(_)
+                | ProtocolMessage::HitEvent(_)
+                | ProtocolMessage::DestructionEvent(_)
+                | ProtocolMessage::VisionEvent(_)
+                | ProtocolMessage::ShipActionEvent(_)
+                | ProtocolMessage::GameOverEvent(_)
+        ) {
+            return Err(format!("{msg:?} is not allowed as server-bound message"));
+        }
+
+        if !match self {
+            GameState::Lobby => matches!(
+                msg,
+                ProtocolMessage::ServerConfigRequest(_)
+                    | ProtocolMessage::JoinRequest(_)
+                    | ProtocolMessage::TeamSwitchRequest(_)
+                    | ProtocolMessage::SetReadyStateRequest(_)
+            ),
+            GameState::Preparation => matches!(
+                msg,
+                ProtocolMessage::ServerConfigRequest(_) | ProtocolMessage::SetPlacementRequest(_)
+            ),
+            GameState::InGame => matches!(
+                msg,
+                ProtocolMessage::ServerConfigRequest(_)
+                    | ProtocolMessage::ServerStateRequest(_)
+                    | ProtocolMessage::ActionRequest(_)
+            ),
+            GameState::End => matches!(
+                msg,
+                ProtocolMessage::ServerConfigRequest(_) | ProtocolMessage::ServerStateRequest(_)
+            ),
+        } {
+            Err(format!("{msg:?} is not allowed in {self}"))
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn is_action_valid(&self, action: &Action) -> bool {
         match self {
             GameState::Lobby => {
