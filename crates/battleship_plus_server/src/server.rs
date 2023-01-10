@@ -297,6 +297,19 @@ async fn handle_message(
     game_end_tx: &mpsc::UnboundedSender<()>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
+    {
+        let g = game.read().await;
+        if let Err(reason) = g.state.validate_inbound_message_allowed(msg) {
+            ep.send_message(
+                client_id,
+                status_with_msg(StatusCode::BadRequest, "message not allowed now"),
+            )
+            .map_err(MessageHandlerError::Network)?;
+
+            return Err(MessageHandlerError::InvalidInboundMessage(reason));
+        }
+    }
+
     match msg {
         // common
         ProtocolMessage::ServerConfigRequest(_) => ep
@@ -640,6 +653,7 @@ pub enum MessageHandlerError {
     Network(QuinnetError),
     Protocol(ActionExecutionError),
     Broadcast(Box<tokio::sync::broadcast::error::SendError<(Vec<ClientId>, ProtocolMessage)>>),
+    InvalidInboundMessage(String),
 }
 
 impl Display for MessageHandlerError {
@@ -649,6 +663,7 @@ impl Display for MessageHandlerError {
             MessageHandlerError::Network(e) => f.write_str(format!("{e}").as_str()),
             MessageHandlerError::Protocol(e) => f.write_str(format!("{e:?}").as_str()),
             MessageHandlerError::Broadcast(e) => f.write_str(format!("{e:?}").as_str()),
+            MessageHandlerError::InvalidInboundMessage(msg) => f.write_str(msg),
         }
     }
 }
