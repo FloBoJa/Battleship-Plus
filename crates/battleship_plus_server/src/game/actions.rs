@@ -122,7 +122,7 @@ impl Action {
             Action::PlaceShips {
                 player_id,
                 ship_placements,
-            } => match game.validate_placement_request(*player_id, &ship_placements) {
+            } => match game.validate_placement_request(*player_id, ship_placements) {
                 Ok(ship_placement) => ship_placement,
                 Err(e) => {
                     debug!("Player {player_id} sent an invalid ship placement: {e:?}");

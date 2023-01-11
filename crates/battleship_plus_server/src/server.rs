@@ -665,14 +665,14 @@ fn get_server_state_for_player(
         game.team_b.contains(&player.id),
     ) {
         (true, false) => ServerState {
-            team_ships: team_ships_a.clone(),
+            team_ships: team_ships_a,
             action_points: player.action_points,
-            visible_hostile_ships: visible_hostile_ships_a.clone(),
+            visible_hostile_ships: visible_hostile_ships_a,
         },
         (false, true) => ServerState {
-            team_ships: team_ships_b.clone(),
+            team_ships: team_ships_b,
             action_points: player.action_points,
-            visible_hostile_ships: visible_hostile_ships_b.clone(),
+            visible_hostile_ships: visible_hostile_ships_b,
         },
         _ => unreachable!(),
     }
