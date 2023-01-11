@@ -9,6 +9,7 @@ use iyes_loopless::prelude::*;
 mod game_state;
 mod lobby;
 mod networking;
+mod placement_phase;
 mod server_selection;
 
 use game_state::GameState;
@@ -33,6 +34,7 @@ fn main() {
         .add_loopless_state(GameState::Unconnected)
         .add_plugin(networking::NetworkingPlugin)
         .add_plugin(server_selection::ServerSelectionPlugin)
+        .add_plugin(lobby::LobbyPlugin)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
         .insert_resource(lobby::UserName("Userus Namus XXVII.".to_string()))

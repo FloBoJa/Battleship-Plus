@@ -6,10 +6,10 @@ pub enum GameState {
     Joining,
     JoiningFailed,
     Lobby,
+    PlacementPhase,
     // TODO:
-    // Placement,
     // Game,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 pub struct PlayerId(pub u32);

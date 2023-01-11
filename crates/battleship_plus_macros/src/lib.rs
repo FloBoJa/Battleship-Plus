@@ -90,7 +90,7 @@ fn add_event_enum(item: &syn::Item) -> Vec<syn::Item> {
 
         let event_enum: syn::ItemEnum = parse_quote!(
 
-            #[derive(prost::Oneof)]
+            #[derive(Clone, prost::Oneof)]
             pub enum EventMessage {
                 #(#variants),*
             }
