@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use log::{debug, error, info, trace, warn};
 use rand::seq::SliceRandom;
@@ -11,10 +12,13 @@ use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage, ServerConfigResponse,
-    SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage, TeamSwitchResponse,
+    GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
+    ServerConfigResponse, SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage,
+    TeamSwitchResponse,
 };
-use battleship_plus_common::types::{Config, Coordinate, PlayerLobbyState};
+use battleship_plus_common::types::{
+    Config, Coordinate, Direction, PlayerLobbyState, ServerState, ShipState,
+};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::server::{Endpoint, EndpointEvent, Server, ServerConfigurationData};
 use bevy_quinnet::shared::{ClientId, QuinnetError};
@@ -22,6 +26,7 @@ use bevy_quinnet::shared::{ClientId, QuinnetError};
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
 use crate::game::data::{Game, Player, PlayerID};
+use crate::game::ship::{Cooldown, Orientation, Ship};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
 
@@ -148,10 +153,17 @@ pub async fn server_task(
                 })
                 .collect();
 
+            info!("New game initialized");
+
             tokio::select! {
                 _ = game_end_rx.recv() => {},
                 _ = stop.recv() => return,
             }
+
+            // TODO: find a better way to wait for queues
+            // let queues run out
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            info!("Game finished");
 
             for h in handles {
                 h.1.send(())
@@ -214,14 +226,19 @@ async fn endpoint_task(
                         info!("Client {client_it} disconnected");
                         let mut game = game.write().await;
                         if game.remove_player(client_it) {
-                            let _ = game_end_tx.send(());
+                            info!("Ending game due lost connection to player {client_it}...");
+                            debug!("Disconnecting all clients...");
+                            if let Err(e) = server.endpoint_mut().disconnect_all_clients() {
+                                error!("Unable to disconnect all client: {e}");
+                            }
+                            game_end_tx.send(()).expect("unable to notify the end of the game");
                         }
                         if matches!(game.state, GameState::Lobby) {
                             if let Err(e) = broadcast_lobby_change_event(
                                 game.team_a.iter().cloned(),
                                 game.team_b.iter().cloned(),
                                 game.players.clone(),
-                                &broadcast_tx).await {
+                                &broadcast_tx) {
                                 error!("unable to broadcast LobbyChangeEvent: {e:#?}");
                             }
                         }
@@ -374,7 +391,6 @@ async fn handle_message(
                 g.players.clone(),
                 broadcast_tx,
             )
-            .await
         }
         ProtocolMessage::TeamSwitchRequest(_) => {
             let action = Action::TeamSwitch {
@@ -398,7 +414,6 @@ async fn handle_message(
                     g.players.clone(),
                     broadcast_tx,
                 )
-                .await
             }
         }
         ProtocolMessage::SetReadyStateRequest(props) => {
@@ -425,15 +440,18 @@ async fn handle_message(
                     g.team_b.iter().cloned(),
                     g.players.clone(),
                     broadcast_tx,
-                )
-                .await?;
+                )?;
 
-                if g.can_start() {
+                if g.can_change_into_preparation_phase() {
                     g.state = GameState::Preparation;
+                    info!("GamePhase: Preparation");
                     let quadrants = g.quadrants();
 
-                    broadcast_game_start(g.players.values_mut().collect(), quadrants, broadcast_tx)
-                        .await?;
+                    broadcast_game_preparation_start(
+                        g.players.values_mut().collect(),
+                        quadrants,
+                        broadcast_tx,
+                    )?;
                 }
 
                 Ok(())
@@ -450,8 +468,13 @@ async fn handle_message(
                 .execute_action(action, &mut g)
                 .map_err(MessageHandlerError::Protocol);
 
-            // TODO: respond according to the action and the action result
-            todo!()
+            if g.can_change_into_game_phase() {
+                info!("GamePhase: InGame");
+                g.state = GameState::InGame;
+                broadcast_game_start(&g, broadcast_tx)?;
+            }
+
+            Ok(())
         }
 
         // game
@@ -520,7 +543,7 @@ fn place_into_team(player_id: ClientId, game: &mut RwLockWriteGuard<Game>) {
     }
 }
 
-async fn broadcast_lobby_change_event(
+fn broadcast_lobby_change_event(
     team_a: impl Iterator<Item = PlayerID>,
     team_b: impl Iterator<Item = PlayerID>,
     players: HashMap<PlayerID, Player>,
@@ -536,7 +559,7 @@ async fn broadcast_lobby_change_event(
     }
 }
 
-async fn broadcast_game_start(
+fn broadcast_game_preparation_start(
     players: Vec<&mut Player>,
     mut quadrants: Vec<(u32, u32)>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
@@ -568,6 +591,107 @@ async fn broadcast_game_start(
     }
 
     Ok(())
+}
+
+fn broadcast_game_start(
+    game: &Game,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+) -> Result<(), MessageHandlerError> {
+    let (team_ships_a, team_ships_b) = get_ships_by_team(game);
+
+    let visible_hostile_ships_a = game.ships.get_ship_parts_seen_by(&team_ships_a);
+    let visible_hostile_ships_b = game.ships.get_ship_parts_seen_by(&team_ships_b);
+
+    let team_ships_a: Vec<_> = team_ships_a
+        .iter()
+        .map(|ship| create_ship_state(ship))
+        .collect();
+    let team_ships_b: Vec<_> = team_ships_b
+        .iter()
+        .map(|ship| create_ship_state(ship))
+        .collect();
+
+    for (&id, player) in game.players.iter() {
+        // This function does not send the messages directly through the endpoint struct.
+        // Instead it queues them in the broadcast channel.
+        // Doing so will ensure that this broadcast will be sent in order with other broadcasts.
+        broadcast_tx
+            .send((
+                vec![id],
+                game_state_for_player(
+                    player,
+                    game,
+                    (team_ships_a.clone(), team_ships_b.clone()),
+                    (
+                        visible_hostile_ships_a.clone(),
+                        visible_hostile_ships_b.clone(),
+                    ),
+                )
+                .into(),
+            ))
+            .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
+    }
+
+    Ok(())
+}
+
+fn get_ships_by_team(game: &Game) -> (Vec<&Ship>, Vec<&Ship>) {
+    game.ships.iter_ships().fold(
+        (Vec::new(), Vec::new()),
+        |(mut team_ships_a, mut team_ships_b), (&ship_id, ship)| {
+            let player_id = ship_id.0;
+            match (
+                game.team_a.contains(&player_id),
+                game.team_b.contains(&player_id),
+            ) {
+                (true, false) => team_ships_a.push(ship),
+                (false, true) => team_ships_b.push(ship),
+                _ => unreachable!(),
+            }
+
+            (team_ships_a, team_ships_b)
+        },
+    )
+}
+
+fn get_server_state_for_player(
+    player: &Player,
+    game: &Game,
+    (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),
+    (visible_hostile_ships_a, visible_hostile_ships_b): (Vec<Coordinate>, Vec<Coordinate>),
+) -> ServerState {
+    match (
+        game.team_a.contains(&player.id),
+        game.team_b.contains(&player.id),
+    ) {
+        (true, false) => ServerState {
+            team_ships: team_ships_a.clone(),
+            action_points: player.action_points,
+            visible_hostile_ships: visible_hostile_ships_a.clone(),
+        },
+        (false, true) => ServerState {
+            team_ships: team_ships_b.clone(),
+            action_points: player.action_points,
+            visible_hostile_ships: visible_hostile_ships_b.clone(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+fn game_state_for_player(
+    player: &Player,
+    game: &Game,
+    (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),
+    (visible_hostile_ships_a, visible_hostile_ships_b): (Vec<Coordinate>, Vec<Coordinate>),
+) -> GameStart {
+    GameStart {
+        state: Some(get_server_state_for_player(
+            player,
+            game,
+            (team_ships_a, team_ships_b),
+            (visible_hostile_ships_a, visible_hostile_ships_b),
+        )),
+    }
 }
 
 fn build_team_states(
@@ -657,6 +781,40 @@ fn status_response(code: StatusCode, message: &str, data: Option<Data>) -> Proto
         data,
     }
     .into()
+}
+
+fn create_ship_state(ship: &Ship) -> ShipState {
+    let player_id = ship.get_player_id();
+    ShipState {
+        ship_type: ship.ship_type() as i32,
+        position: Some(Coordinate {
+            x: ship.position().0 as u32,
+            y: ship.position().1 as u32,
+        }),
+        direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
+        health: ship.data().health,
+        owner_id: player_id,
+        remaining_cooldown_move: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Movement { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+        remaining_cooldown_rotate: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Rotate { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+        remaining_cooldown_shoot: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Cannon { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+        remaining_cooldown_ability: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Ability { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+    }
 }
 
 #[derive(Debug)]
