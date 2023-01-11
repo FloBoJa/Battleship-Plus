@@ -110,11 +110,7 @@ pub async fn server_task(
     info!("Endpoints initialized");
 
     loop {
-        let game = Game::new(
-            cfg.game_config().board_size,
-            cfg.game_config().team_size_a,
-            cfg.game_config().team_size_b,
-        );
+        let game = Game::default();
 
         // check game config
         if let Err(e) = game.check_game_config() {
@@ -445,8 +441,16 @@ async fn handle_message(
         }
 
         // preparation phase
-        ProtocolMessage::SetPlacementRequest(_) => {
-            // TODO: SetPlacementRequest
+        ProtocolMessage::SetPlacementRequest(request) => {
+            let action = Action::from((client_id, request));
+
+            let mut g = game.write().await;
+            let /*action_result*/ _ = g
+                .get_state()
+                .execute_action(action, &mut g)
+                .map_err(MessageHandlerError::Protocol);
+
+            // TODO: respond according to the action and the action result
             todo!()
         }
 
@@ -494,7 +498,10 @@ fn place_into_team(player_id: ClientId, game: &mut RwLockWriteGuard<Game>) {
     let mut a = game.team_a.clone();
     let mut b = game.team_b.clone();
 
-    let mut teams = [(&mut a, game.team_a_size), (&mut b, game.team_b_size)];
+    let mut teams = [
+        (&mut a, game.config.team_size_a),
+        (&mut b, game.config.team_size_b),
+    ];
     teams.sort_by_key(|(team, _)| team.len());
     if let Some((team, _)) = teams
         .iter_mut()
@@ -606,11 +613,15 @@ fn action_validation_error_reply(
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Unreachable =>
                 ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "request target is unreachable".to_string().as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "request target is unreachable"))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::OutOfMap =>
                 ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "request target is out of map".to_string().as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "request target is out of map"))
+                    .map_err(MessageHandlerError::Network),
+            ActionValidationError::InvalidShipPlacement(e) =>
+                ep.send_message(client_id,
+                                status_with_msg(StatusCode::BadRequest, format!("ship placement is invalid: {e}").as_str()))
                     .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {

@@ -8,6 +8,7 @@ use bevy_quinnet::shared::ClientId;
 
 use crate::game::data::{Game, PlayerID};
 use crate::game::ship::ShipID;
+use crate::game::ship_manager::ShipPlacementError;
 use crate::game::states::GameState;
 
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ pub enum Action {
     // Preparation actions
     PlaceShips {
         player_id: PlayerID,
-        request: SetPlacementRequest,
+        ship_placements: Vec<ShipAssignment>,
     },
 
     // Game actions
@@ -79,6 +80,7 @@ pub enum ActionValidationError {
     InsufficientPoints { required: u32 },
     Unreachable,
     OutOfMap,
+    InvalidShipPlacement(ShipPlacementError),
 }
 
 impl Action {
@@ -117,7 +119,26 @@ impl Action {
                 }
                 Ok(())
             }
-            // TODO Implementation: Action::PlaceShips { .. } => {}
+            Action::PlaceShips {
+                player_id,
+                ship_placements,
+            } => match game.validate_placement_request(*player_id, &ship_placements) {
+                Ok(ship_placement) => ship_placement,
+                Err(e) => {
+                    debug!("Player {player_id} sent an invalid ship placement: {e:?}");
+                    return Err(ActionExecutionError::Validation(
+                        ActionValidationError::InvalidShipPlacement(e),
+                    ));
+                }
+            }
+            .iter()
+            .map(|(&ship_id, ship)| game.ships.place_ship(ship_id, ship.clone()))
+            .filter(|res| res.is_err())
+            .next()
+            .unwrap()
+            .map_err(|e| {
+                ActionExecutionError::Validation(ActionValidationError::InvalidShipPlacement(e))
+            }),
             Action::Move {
                 ship_id,
                 properties,
@@ -210,6 +231,15 @@ impl Action {
         }
 
         // TODO Implementation: find a good way to return Action Results
+    }
+}
+
+impl From<(ClientId, &SetPlacementRequest)> for Action {
+    fn from((client_id, request): (ClientId, &SetPlacementRequest)) -> Self {
+        Self::PlaceShips {
+            player_id: client_id,
+            ship_placements: request.clone().assignments,
+        }
     }
 }
 
