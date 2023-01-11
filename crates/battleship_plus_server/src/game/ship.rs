@@ -146,6 +146,42 @@ impl Ship {
         }
     }
 
+    pub fn vision_range(&self) -> u32 {
+        match self {
+            Ship::Carrier { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Battleship { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Cruiser { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Submarine { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Destroyer { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+        }
+    }
+
+    pub(crate) fn vision_envelope(&self) -> AABB<[i32; 2]> {
+        let vision_range = self.vision_range();
+        let mut envelope = self.envelope();
+        let lower = envelope.lower();
+        let upper = envelope.upper();
+        envelope.merge(&AABB::from_point([
+            lower[0] - vision_range as i32,
+            lower[1] - vision_range as i32,
+        ]));
+        envelope.merge(&AABB::from_point([
+            upper[0] + vision_range as i32,
+            upper[1] + vision_range as i32,
+        ]));
+        envelope
+    }
+
     pub fn common_balancing(&self) -> CommonBalancing {
         match self {
             Ship::Carrier { balancing, .. } => balancing.common_balancing.clone().unwrap(),
@@ -173,6 +209,16 @@ impl Ship {
             | Ship::Cruiser { cool_downs, .. }
             | Ship::Submarine { cool_downs, .. }
             | Ship::Destroyer { cool_downs, .. } => cool_downs,
+        }
+    }
+
+    pub(crate) fn ship_type(&self) -> ShipType {
+        match self {
+            Ship::Carrier { .. } => ShipType::Carrier,
+            Ship::Battleship { .. } => ShipType::Battleship,
+            Ship::Cruiser { .. } => ShipType::Cruiser,
+            Ship::Submarine { .. } => ShipType::Submarine,
+            Ship::Destroyer { .. } => ShipType::Destroyer,
         }
     }
 
@@ -388,8 +434,20 @@ impl From<Direction> for Orientation {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Cooldown {
     Movement { remaining_rounds: u32 },
+    Rotate { remaining_rounds: u32 },
     Cannon { remaining_rounds: u32 },
     Ability { remaining_rounds: u32 },
+}
+
+impl Cooldown {
+    pub fn remaining_rounds(&self) -> u32 {
+        match self {
+            Cooldown::Movement { remaining_rounds }
+            | Cooldown::Rotate { remaining_rounds }
+            | Cooldown::Cannon { remaining_rounds }
+            | Cooldown::Ability { remaining_rounds } => *remaining_rounds,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
-use battleship_plus_common::types::{MoveDirection, RotateDirection};
+use battleship_plus_common::types::{Coordinate, MoveDirection, RotateDirection};
 
 use crate::game::actions::ActionValidationError;
 use crate::game::data::Player;
@@ -39,6 +39,34 @@ impl ShipManager {
                     .collect(),
             ),
         }
+    }
+
+    pub fn get_ship_parts_seen_by(&self, ships: &Vec<&Ship>) -> Vec<Coordinate> {
+        ships
+            .iter()
+            .flat_map(|ship| {
+                let vision_envelope = ship.vision_envelope();
+
+                self.ships_geo_lookup
+                    .locate_in_envelope_intersecting(&vision_envelope)
+                    .flat_map(|ship| {
+                        let lower = ship.envelope().lower();
+                        let upper = ship.envelope().upper();
+
+                        (lower[0]..upper[0])
+                            .flat_map(move |x| (lower[1]..upper[1]).map(move |y| (x, y)))
+                    })
+                    .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
+                    .map(|(x, y)| Coordinate {
+                        x: x as u32,
+                        y: y as u32,
+                    })
+            })
+            .collect()
+    }
+
+    pub fn iter_ships(&self) -> impl Iterator<Item = (&ShipID, &Ship)> {
+        self.ships.iter()
     }
 
     pub fn get_by_id(&self, ship_id: &ShipID) -> Option<&Ship> {

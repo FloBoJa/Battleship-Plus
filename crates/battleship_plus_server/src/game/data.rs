@@ -58,10 +58,37 @@ impl Game {
         Ok(())
     }
 
-    pub fn can_start(&self) -> bool {
-        self.team_a.len() == self.config.team_size_a as usize
+    pub fn can_change_into_preparation_phase(&self) -> bool {
+        matches!(self.state, GameState::Lobby)
+            && self.team_a.len() == self.config.team_size_a as usize
             && self.team_b.len() == self.config.team_size_b as usize
             && self.players.iter().all(|(_, p)| p.is_ready)
+    }
+
+    pub fn can_change_into_game_phase(&self) -> bool {
+        matches!(self.state, GameState::Preparation)
+            && self.check_players_placed_ships(
+                self.team_a.iter().cloned(),
+                self.config.ship_set_team_a.clone(),
+            )
+            && self.check_players_placed_ships(
+                self.team_a.iter().cloned(),
+                self.config.ship_set_team_a.clone(),
+            )
+    }
+
+    fn check_players_placed_ships(
+        &self,
+        mut team: impl Iterator<Item = PlayerID>,
+        ships: Vec<i32>,
+    ) -> bool {
+        team.all(|player_id| {
+            ships.iter().enumerate().all(|(ship_number, _)| {
+                self.ships
+                    .get_by_id(&(player_id, ship_number as u32))
+                    .is_some()
+            })
+        })
     }
 
     pub fn board_bounds(&self) -> AABB<[i32; 2]> {
