@@ -38,6 +38,70 @@ pub enum Ship {
 }
 
 impl Ship {
+    pub(crate) fn new_from_type(
+        ship_type: ShipType,
+        ship_id: ShipID,
+        position: (u32, u32),
+        orientation: Orientation,
+        cfg: Arc<Config>,
+    ) -> Ship {
+        let mut data = ShipData {
+            id: ship_id,
+            pos_x: position.0 as i32,
+            pos_y: position.1 as i32,
+            orientation,
+            health: 0,
+        };
+
+        match ship_type {
+            ShipType::Carrier => {
+                let balancing = cfg.carrier_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Carrier {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Battleship => {
+                let balancing = cfg.battleship_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Battleship {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Cruiser => {
+                let balancing = cfg.cruiser_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Cruiser {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Submarine => {
+                let balancing = cfg.submarine_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Submarine {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Destroyer => {
+                let balancing = cfg.destroyer_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Destroyer {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+        }
+    }
+
     pub fn len(&self) -> i32 {
         match self {
             Ship::Carrier { .. } => 5,
@@ -297,6 +361,17 @@ pub enum Orientation {
     South,
     East,
     West,
+}
+
+impl From<Direction> for Orientation {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::North => Orientation::North,
+            Direction::East => Orientation::East,
+            Direction::South => Orientation::South,
+            Direction::West => Orientation::West,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]

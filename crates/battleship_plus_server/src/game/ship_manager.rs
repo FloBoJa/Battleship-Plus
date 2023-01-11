@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
@@ -12,6 +13,12 @@ use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 pub struct ShipManager {
     ships: HashMap<ShipID, Ship>,
     ships_geo_lookup: RTree<ShipTreeNode>,
+}
+
+impl From<ShipManager> for HashMap<ShipID, Ship> {
+    fn from(ship_manager: ShipManager) -> Self {
+        ship_manager.ships
+    }
 }
 
 impl ShipManager {
@@ -71,6 +78,25 @@ impl ShipManager {
             self.ships.remove(&ship.id());
             self.ships_geo_lookup.remove(&ShipTreeNode::from(ship));
         });
+    }
+
+    pub fn place_ship(&mut self, ship_id: ShipID, ship: Ship) -> Result<(), ShipPlacementError> {
+        if self.ships.get(&ship_id).is_some() {
+            return Err(ShipPlacementError::IdAlreadyPlaced);
+        }
+
+        if self
+            .ships_geo_lookup
+            .locate_in_envelope_intersecting(&ship.envelope())
+            .any(|_| true)
+        {
+            return Err(ShipPlacementError::Collision);
+        }
+
+        self.ships_geo_lookup.insert(ShipTreeNode::from(&ship));
+        self.ships.insert(ship_id, ship);
+
+        Ok(())
     }
 
     pub fn attack_with_ship(
@@ -321,5 +347,38 @@ impl RTreeObject for ShipTreeNode {
 impl PointDistance for ShipTreeNode {
     fn distance_2(&self, point: &[i32; 2]) -> i32 {
         ship_distance(&self.envelope(), point)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ShipPlacementError {
+    Collision,
+    IdAlreadyPlaced,
+    InvalidShipNumber,
+    InvalidShipSet,
+    InvalidShipType,
+    InvalidShipDirection,
+    InvalidShipPosition,
+    PlayerNotInGame,
+    ShipOutOfQuadrant,
+    PlayerHasAlreadyPlacedShips,
+}
+
+impl Display for ShipPlacementError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ShipPlacementError::Collision => "Ships colliding",
+            ShipPlacementError::IdAlreadyPlaced => "Ship with the same id already exists",
+            ShipPlacementError::InvalidShipNumber => "Ship number is not valid",
+            ShipPlacementError::InvalidShipSet => "provided ship set is invalid",
+            ShipPlacementError::InvalidShipType => "Ship type is invalid",
+            ShipPlacementError::InvalidShipDirection => "Ship direction is invalid",
+            ShipPlacementError::InvalidShipPosition => "Ship position is invalid",
+            ShipPlacementError::PlayerNotInGame => "Player is not in game",
+            ShipPlacementError::ShipOutOfQuadrant => "Ship is placed outside the provided quadrant",
+            ShipPlacementError::PlayerHasAlreadyPlacedShips => {
+                "A player can only place their ships once"
+            }
+        })
     }
 }
