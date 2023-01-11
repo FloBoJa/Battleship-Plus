@@ -149,7 +149,7 @@ impl Game {
             ],
         );
 
-        if !(0..ship_set.len())
+        if (0..ship_set.len())
             .map(|ship_number| (player_id, ship_number as u32) as ShipID)
             .any(|ship_id| self.ships.get_by_id(&ship_id).is_some())
         {
@@ -163,7 +163,7 @@ impl Game {
         let mut ship_manager = ShipManager::new();
         for assignment in assignments {
             let ship_id: ShipID = (player_id, assignment.ship_number);
-            if assignment.ship_number < ship_set.len() as u32 {
+            if assignment.ship_number > ship_set.len() as u32 {
                 return Err(ShipPlacementError::InvalidShipNumber);
             }
 

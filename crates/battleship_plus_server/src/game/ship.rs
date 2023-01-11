@@ -8,7 +8,7 @@ use battleship_plus_common::types::*;
 use crate::game::actions::ActionValidationError;
 use crate::game::data::PlayerID;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Ship {
     Carrier {
         balancing: Arc<CarrierBalancing>,
@@ -334,7 +334,7 @@ impl PointDistance for Ship {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ShipData {
     pub(crate) id: ShipID,
     pub(crate) pos_x: i32,
@@ -355,12 +355,23 @@ impl Default for ShipData {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Orientation {
     North,
     South,
     East,
     West,
+}
+
+impl From<Orientation> for Direction {
+    fn from(orientation: Orientation) -> Self {
+        match orientation {
+            Orientation::North => Direction::North,
+            Orientation::East => Direction::East,
+            Orientation::South => Direction::South,
+            Orientation::West => Direction::West,
+        }
+    }
 }
 
 impl From<Direction> for Orientation {

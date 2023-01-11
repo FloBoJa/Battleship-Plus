@@ -133,12 +133,12 @@ impl Action {
             }
             .iter()
             .map(|(&ship_id, ship)| game.ships.place_ship(ship_id, ship.clone()))
-            .filter(|res| res.is_err())
-            .next()
-            .unwrap()
+            .find(|res| res.is_err())
+            .unwrap_or(Ok(()))
             .map_err(|e| {
                 ActionExecutionError::Validation(ActionValidationError::InvalidShipPlacement(e))
             }),
+
             Action::Move {
                 ship_id,
                 properties,
