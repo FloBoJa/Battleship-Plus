@@ -232,7 +232,6 @@ mod actions_shoot {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![
@@ -335,7 +334,6 @@ mod actions_shoot {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship]),
@@ -398,7 +396,6 @@ mod actions_shoot {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -485,7 +482,6 @@ mod actions_shoot {
                     ..Default::default()
                 },
             )]),
-            board_size: 24,
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -493,7 +489,10 @@ mod actions_shoot {
         let res = Action::Shoot {
             ship_id: (42, 1),
             properties: ShootProperties {
-                target: Some(Coordinate { x: 9999, y: 9999 }),
+                target: Some(Coordinate {
+                    x: 9999999,
+                    y: 9999999,
+                }),
             },
         }
         .apply_on(&mut g);
@@ -516,6 +515,7 @@ mod actions_move {
 
     use battleship_plus_common::types::*;
 
+    use crate::config_provider::default_config_provider;
     use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
     use crate::game::data::{Game, Player};
     use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
@@ -545,7 +545,6 @@ mod actions_move {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -611,7 +610,6 @@ mod actions_move {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -676,7 +674,6 @@ mod actions_move {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -774,6 +771,8 @@ mod actions_move {
 
     #[tokio::test]
     async fn actions_move_deny_out_of_bounds() {
+        let config = default_config_provider().game_config();
+
         let player = Player::default();
         let ship1 = Ship::Destroyer {
             balancing: Arc::from(DestroyerBalancing {
@@ -807,8 +806,8 @@ mod actions_move {
             }),
             data: ShipData {
                 id: (0, 1),
-                pos_x: 23,
-                pos_y: 23,
+                pos_x: (config.board_size - 1) as i32,
+                pos_y: (config.board_size - 1) as i32,
                 orientation: Orientation::North,
                 ..Default::default()
             },
@@ -816,10 +815,10 @@ mod actions_move {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship1, ship2]),
+            config,
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -889,7 +888,6 @@ mod actions_move {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship1.clone(), ship2.clone()]),
@@ -953,7 +951,6 @@ mod actions_rotate {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -1045,7 +1042,6 @@ mod actions_rotate {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -1118,7 +1114,6 @@ mod actions_rotate {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
@@ -1246,7 +1241,6 @@ mod actions_rotate {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship]),
@@ -1329,7 +1323,6 @@ mod actions_rotate {
         };
 
         let g = Arc::new(RwLock::new(Game {
-            board_size: 24,
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![
@@ -1357,5 +1350,96 @@ mod actions_rotate {
             assert!(g.ships.get_by_id(&ship_to_be_destroyed.id()).is_none());
             assert!(g.ships.get_by_id(&ship_to_stay_intact.id()).is_some());
         }
+    }
+}
+
+//noinspection DuplicatedCode
+mod actions_place_ships {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+
+    use tokio::sync::RwLock;
+
+    use battleship_plus_common::types::*;
+
+    use crate::game::actions::Action;
+    use crate::game::data::{Game, Player};
+    use crate::game::ship::{GetShipID, Orientation, Ship};
+    use crate::game::states::GameState;
+
+    #[tokio::test]
+    async fn actions_place_ship() {
+        let player = Player::default();
+
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ..Default::default()
+        }));
+        let mut g = g.write().await;
+        g.state = GameState::Preparation;
+        g.players.get_mut(&player.id).unwrap().quadrant = g.quadrants().first().cloned();
+        let player = g.players.get(&player.id).unwrap().clone();
+
+        let ship_positions_orientation = vec![
+            (0, 0, Orientation::East),  // Carrier
+            (0, 1, Orientation::East),  // Battleship
+            (0, 2, Orientation::East),  // Battleship
+            (0, 3, Orientation::East),  // Cruiser
+            (0, 4, Orientation::East),  // Cruiser
+            (0, 5, Orientation::East),  // Cruiser
+            (0, 6, Orientation::East),  // Submarine
+            (0, 7, Orientation::East),  // Submarine
+            (0, 8, Orientation::East),  // Submarine
+            (0, 9, Orientation::East),  // Submarine
+            (0, 10, Orientation::East), // Destroyer
+            (0, 11, Orientation::East), // Destroyer
+        ];
+
+        let ships_to_be_placed: Vec<_> = g
+            .config
+            .ship_set_team_a
+            .iter()
+            .enumerate()
+            .map(|(ship_number, &ship_id)| (ship_number, ShipType::from_i32(ship_id).unwrap()))
+            .zip(ship_positions_orientation)
+            .map(|((ship_number, ship_type), (x, y, orientation))| {
+                Ship::new_from_type(
+                    ship_type,
+                    (player.id, ship_number as u32),
+                    (x, y),
+                    orientation,
+                    g.config.clone(),
+                )
+            })
+            .collect();
+
+        // rotate ship counter clockwise
+        assert!(Action::PlaceShips {
+            player_id: player.id,
+            ship_placements: ships_to_be_placed
+                .iter()
+                .enumerate()
+                .map(|(i, ship)| ShipAssignment {
+                    ship_number: i as u32,
+                    coordinate: Some(Coordinate {
+                        x: ship.position().0 as u32,
+                        y: ship.position().1 as u32,
+                    }),
+                    direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
+                })
+                .collect(),
+        }
+        .apply_on(&mut g)
+        .is_ok());
+
+        // check game
+        ships_to_be_placed.iter().for_each(|ship_expected| {
+            let ship_actual = g.ships.get_by_id(&ship_expected.id());
+            assert!(ship_actual.is_some());
+            let ship_actual = ship_actual.unwrap();
+
+            assert_eq!(ship_actual, ship_expected);
+        })
     }
 }
