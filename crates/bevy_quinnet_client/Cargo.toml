@@ -1,0 +1,39 @@
+[package]
+name = "bevy_quinnet_client"
+version = "0.2.0-custom"
+description = "Bevy plugin for Client/Server multiplayer games using QUIC"
+repository = "https://github.com/Henauxg/bevy_quinnet"
+documentation = "https://docs.rs/bevy_quinnet"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+keywords = ["gamedev", "networking", "quic", "bevy", "plugin"]
+categories = ["game-development", "network-programming"]
+readme = "README.md"
+exclude = ["assets/"]
+
+[dependencies]
+bevy_quinnet_common = { path = "../bevy_quinnet_common" }
+bevy = { version = "0.9.0", default-features = false, features = [], optional = true }
+rustls = { version = "0.20.6", default-features = false, features = ["quic", "dangerous_configuration"] }
+rustls-pemfile = "1.0.1"
+ring = "0.16.20"
+tokio = { version = "1.21.2", features = ["sync", "rt-multi-thread", "macros"] }
+tokio-util = { version = "0.7.4", features = ["codec"] }
+rcgen = "0.10.0"
+quinn = "0.9.1"
+futures-util = "0.3.24"
+futures = "0.3.24"
+bincode = "1.3.3"
+serde = "1.0.145"
+bytes = "1.2.1"
+base64 = "0.21.0"
+thiserror = "1.0.37"
+once_cell = "1.16.0"
+log = "0.4.17"
+rustls-native-certs = "0.6.2"
+
+# For a custom codec
+battleship_plus_common = { path = "../battleship_plus_common" }
+
+[features]
+bevy = ["dep:bevy"]

@@ -14,6 +14,7 @@ use log::{debug, error, info, trace};
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
 #[cfg(feature = "bevy")]
 use serde::Deserialize;
+use tokio::runtime::Runtime;
 use tokio::{
     runtime,
     sync::{
@@ -28,18 +29,20 @@ use battleship_plus_common::{
     messages::ProtocolMessage,
 };
 
-#[cfg(feature = "bevy")]
-use crate::shared::AsyncRuntime;
-use crate::{
-    server::certificate::retrieve_certificate,
-    shared::{ClientId, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE},
-};
+use bevy_quinnet_common::common::{DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
+
+pub use bevy_quinnet_common::common::{ClientId, QuinnetError};
+
+use crate::server::certificate::retrieve_certificate;
 
 use self::certificate::{CertificateRetrievalMode, ServerCertificate};
 
 pub mod certificate;
 
 pub const DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE: usize = 100;
+
+#[cfg_attr(feature = "bevy", derive(Resource, Deref, DerefMut))]
+pub struct AsyncRuntime(pub Runtime);
 
 /// Connection event raised when a client just connected to the server. Raised in the CoreStage::PreUpdate stage.
 pub struct ConnectionEvent {

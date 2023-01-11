@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
-use bevy_quinnet::client::Client;
+use bevy_quinnet_client::client::Client;
 use egui::Color32;
 use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;

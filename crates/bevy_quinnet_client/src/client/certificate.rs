@@ -20,7 +20,7 @@ use rustls::ServerName as RustlsServerName;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::client::ProtectedString;
-use crate::shared::{CertificateFingerprint, QuinnetError};
+use bevy_quinnet_common::common::{CertificateFingerprint, QuinnetError};
 
 use super::{ConnectionId, InternalAsyncMessage, DEFAULT_KNOWN_HOSTS_FILE};
 

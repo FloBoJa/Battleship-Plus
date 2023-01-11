@@ -18,12 +18,9 @@ use battleship_plus_common::{
     messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement, StatusCode},
     types,
 };
-use bevy_quinnet::{
-    client::{
-        certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
-        Client, ConnectionConfiguration, ConnectionId, QuinnetClientPlugin,
-    },
-    shared::{AsyncRuntime, QuinnetError},
+use bevy_quinnet_client::client::{
+    certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
+    AsyncRuntime, Client, ConnectionConfiguration, ConnectionId, QuinnetClientPlugin, QuinnetError,
 };
 
 use crate::game_state::GameState;
@@ -258,12 +255,12 @@ impl ServerInformation {
 }
 
 fn handle_certificate_errors(
-    mut events: EventReader<bevy_quinnet::client::ConnectionErrorEvent>,
+    mut events: EventReader<bevy_quinnet_client::client::ConnectionErrorEvent>,
     mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
     mut commands: Commands,
     mut client: ResMut<Client>,
 ) {
-    for bevy_quinnet::client::ConnectionErrorEvent(connection_id, message) in events.iter() {
+    for bevy_quinnet_client::client::ConnectionErrorEvent(connection_id, message) in events.iter() {
         if let Some((entity, mut server_information, _)) = servers
             .iter_mut()
             .find(|(_, _, Connection(server_connection_id))| connection_id == server_connection_id)
@@ -292,10 +289,10 @@ fn handle_certificate_errors(
 }
 
 fn confirm_security_levels(
-    mut events: EventReader<bevy_quinnet::client::ConnectionEvent>,
+    mut events: EventReader<bevy_quinnet_client::client::ConnectionEvent>,
     mut servers: Query<(&mut ServerInformation, &Connection)>,
 ) {
-    for bevy_quinnet::client::ConnectionEvent(connection_id) in events.iter() {
+    for bevy_quinnet_client::client::ConnectionEvent(connection_id) in events.iter() {
         if let Some((mut server_information, _)) = servers
             .iter_mut()
             .find(|(_, Connection(server_connection_id))| connection_id == server_connection_id)
