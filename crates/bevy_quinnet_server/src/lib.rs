@@ -74,7 +74,7 @@ impl ServerConfigurationData {
     /// # Examples
     ///
     /// ```
-    /// use bevy_quinnet::server::ServerConfigurationData;
+    /// use bevy_quinnet_server::ServerConfigurationData;
     ///
     /// let config = ServerConfigurationData::new(
     ///         "127.0.0.1".to_string(),
