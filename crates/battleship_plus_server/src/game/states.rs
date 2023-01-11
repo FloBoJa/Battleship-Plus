@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use log::debug;
 use tokio::sync::RwLockWriteGuard;
 
-use battleship_plus_common::messages::ProtocolMessage;
+use battleship_plus_common::messages::{EventMessage, ProtocolMessage};
 
 use crate::game::actions::{Action, ActionExecutionError};
 use crate::game::data::Game;
@@ -34,18 +34,9 @@ impl GameState {
     ) -> Result<(), String> {
         if matches!(
             msg,
-            ProtocolMessage::StatusMessage(_)
-                | ProtocolMessage::ServerAdvertisement(_)
-                | ProtocolMessage::LobbyChangeEvent(_)
-                | ProtocolMessage::PlacementPhase(_)
-                | ProtocolMessage::GameStart(_)
-                | ProtocolMessage::NextTurn(_)
-                | ProtocolMessage::HitEvent(_)
-                | ProtocolMessage::DestructionEvent(_)
-                | ProtocolMessage::VisionEvent(_)
-                | ProtocolMessage::ShipActionEvent(_)
-                | ProtocolMessage::GameOverEvent(_)
-        ) {
+            ProtocolMessage::StatusMessage(_) | ProtocolMessage::ServerAdvertisement(_)
+        ) || EventMessage::try_from(msg.clone()).is_ok()
+        {
             return Err(format!("{msg:?} is not allowed as server-bound message"));
         }
 
