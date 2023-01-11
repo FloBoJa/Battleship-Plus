@@ -1,21 +1,14 @@
 use std::{fmt, io, net::AddrParseError, sync::PoisonError};
 
 use base64::Engine;
-#[cfg(feature = "bevy")]
-use bevy::prelude::{Deref, DerefMut, Resource};
 use rcgen::RcgenError;
-use tokio::runtime::Runtime;
-
-use crate::client::ConnectionId;
 
 pub const DEFAULT_MESSAGE_QUEUE_SIZE: usize = 150;
 pub const DEFAULT_KILL_MESSAGE_QUEUE_SIZE: usize = 10;
 pub const DEFAULT_KEEP_ALIVE_INTERVAL_S: u64 = 4;
 
 pub type ClientId = u32;
-
-#[cfg_attr(feature = "bevy", derive(Resource, Deref, DerefMut))]
-pub struct AsyncRuntime(pub Runtime);
+pub type ConnectionId = u64;
 
 /// Enum with possibles errors that can occur in Bevy Quinnet
 #[derive(thiserror::Error, Debug)]

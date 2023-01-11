@@ -20,6 +20,7 @@ use quinn::{ClientConfig, Endpoint};
 use rustls::KeyLogFile;
 #[cfg(feature = "bevy")]
 use serde::Deserialize;
+use tokio::runtime::Runtime;
 #[cfg(not(feature = "bevy"))]
 use tokio::sync::broadcast::{error::SendError, Sender};
 use tokio::{
@@ -37,9 +38,8 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
 
-#[cfg(feature = "bevy")]
-use crate::shared::AsyncRuntime;
-use crate::shared::{QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
+pub use bevy_quinnet_common::common::{ConnectionId, QuinnetError};
+use bevy_quinnet_common::common::{DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
 
 use self::certificate::{
     load_known_hosts_store_from_config, CertConnectionAbortEvent, CertInteractionEvent,
@@ -56,7 +56,8 @@ pub type ProtectedString = Arc<Mutex<String>>;
 pub static DEFAULT_KNOWN_HOSTS_FILE: Lazy<ProtectedString> =
     Lazy::new(|| Arc::new(Mutex::new("quinnet/known_hosts".to_string())));
 
-pub type ConnectionId = u64;
+#[cfg_attr(feature = "bevy", derive(Resource, Deref, DerefMut))]
+pub struct AsyncRuntime(pub Runtime);
 
 /// Connection event raised when the client just connected to the server. Raised in the CoreStage::PreUpdate stage.
 #[derive(Debug, Copy, Clone)]
@@ -816,7 +817,6 @@ fn update_sync_client(
     }
 }
 
-#[cfg(feature = "bevy")]
 fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Client {
         connections: HashMap::new(),

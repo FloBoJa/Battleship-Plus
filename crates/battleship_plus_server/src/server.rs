@@ -15,9 +15,10 @@ use battleship_plus_common::messages::{
     SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage, TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Config, Coordinate, PlayerLobbyState};
-use bevy_quinnet::server::certificate::CertificateRetrievalMode;
-use bevy_quinnet::server::{Endpoint, EndpointEvent, Server, ServerConfigurationData};
-use bevy_quinnet::shared::{ClientId, QuinnetError};
+use bevy_quinnet_server::server::certificate::CertificateRetrievalMode;
+use bevy_quinnet_server::server::{
+    ClientId, Endpoint, EndpointEvent, QuinnetError, Server, ServerConfigurationData,
+};
 
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};

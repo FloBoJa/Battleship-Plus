@@ -1,5 +1,5 @@
 [package]
-name = "bevy_quinnet"
+name = "bevy_quinnet_server"
 version = "0.2.0-custom"
 description = "Bevy plugin for Client/Server multiplayer games using QUIC"
 repository = "https://github.com/Henauxg/bevy_quinnet"
@@ -12,6 +12,7 @@ readme = "README.md"
 exclude = ["assets/"]
 
 [dependencies]
+bevy_quinnet_common = { path = "../bevy_quinnet_common" }
 bevy = { version = "0.9.0", default-features = false, features = [], optional = true }
 rustls = { version = "0.20.6", default-features = false, features = ["quic", "dangerous_configuration"] }
 rustls-pemfile = "1.0.1"
@@ -32,7 +33,6 @@ log = "0.4.17"
 
 # For a custom codec
 battleship_plus_common = { path = "../battleship_plus_common" }
-rustls-native-certs = "0.6.2"
 
 [features]
 bevy = ["dep:bevy"]

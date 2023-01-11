@@ -230,7 +230,7 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_egui",
- "bevy_quinnet",
+ "bevy_quinnet_client",
  "bytes",
  "egui",
  "egui_extras",
@@ -266,7 +266,7 @@ name = "battleship_plus_server"
 version = "0.1.0"
 dependencies = [
  "battleship_plus_common",
- "bevy_quinnet",
+ "bevy_quinnet_server",
  "bytes",
  "futures",
  "log",
@@ -636,12 +636,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ec44f7655039546bc5d34d98de877083473f3e9b2b81d560c528d6d74d3eff4"
 
 [[package]]
-name = "bevy_quinnet"
+name = "bevy_quinnet_client"
 version = "0.2.0-custom"
 dependencies = [
  "base64 0.21.0",
  "battleship_plus_common",
  "bevy",
+ "bevy_quinnet_common",
  "bincode",
  "bytes",
  "futures",
@@ -653,6 +654,54 @@ dependencies = [
  "ring",
  "rustls",
  "rustls-native-certs",
+ "rustls-pemfile",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "bevy_quinnet_common"
+version = "0.2.0-custom"
+dependencies = [
+ "base64 0.21.0",
+ "bevy",
+ "bincode",
+ "bytes",
+ "futures",
+ "futures-util",
+ "log",
+ "once_cell",
+ "quinn",
+ "rcgen",
+ "ring",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "bevy_quinnet_server"
+version = "0.2.0-custom"
+dependencies = [
+ "base64 0.21.0",
+ "battleship_plus_common",
+ "bevy",
+ "bevy_quinnet_common",
+ "bincode",
+ "bytes",
+ "futures",
+ "futures-util",
+ "log",
+ "once_cell",
+ "quinn",
+ "rcgen",
+ "ring",
+ "rustls",
  "rustls-pemfile",
  "serde",
  "thiserror",
