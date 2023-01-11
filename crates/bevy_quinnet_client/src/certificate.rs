@@ -19,8 +19,8 @@ use log::warn;
 use rustls::ServerName as RustlsServerName;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::client::ProtectedString;
-use bevy_quinnet_common::common::{CertificateFingerprint, QuinnetError};
+use crate::ProtectedString;
+use bevy_quinnet_common::{CertificateFingerprint, QuinnetError};
 
 use super::{ConnectionId, InternalAsyncMessage, DEFAULT_KNOWN_HOSTS_FILE};
 

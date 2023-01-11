@@ -15,8 +15,8 @@ use battleship_plus_common::messages::{
     SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage, TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Config, Coordinate, PlayerLobbyState};
-use bevy_quinnet_server::server::certificate::CertificateRetrievalMode;
-use bevy_quinnet_server::server::{
+use bevy_quinnet_server::certificate::CertificateRetrievalMode;
+use bevy_quinnet_server::{
     ClientId, Endpoint, EndpointEvent, QuinnetError, Server, ServerConfigurationData,
 };
 
