@@ -88,10 +88,10 @@ pub enum CertificateVerificationMode {
 ///
 /// ```
 /// use std::sync::{Arc, Mutex};
-/// use bevy_quinnet::client::certificate::TrustOnFirstUseConfig;
+/// use bevy_quinnet_client::certificate::TrustOnFirstUseConfig;
 ///
 /// TrustOnFirstUseConfig {
-///     known_hosts: bevy_quinnet::client::certificate::KnownHosts::HostsFile(
+///     known_hosts: bevy_quinnet_client::certificate::KnownHosts::HostsFile(
 ///         Arc::new(Mutex::new("my_own_hosts_file".to_string())),
 ///     ),
 ///     ..Default::default()
