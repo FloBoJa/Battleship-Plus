@@ -41,7 +41,7 @@ impl ShipManager {
         }
     }
 
-    pub fn get_ship_parts_seen_by(&self, ships: &Vec<&Ship>) -> Vec<Coordinate> {
+    pub fn get_ship_parts_seen_by(&self, ships: &[&Ship]) -> Vec<Coordinate> {
         ships
             .iter()
             .flat_map(|ship| {
