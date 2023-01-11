@@ -643,20 +643,15 @@ dependencies = [
  "battleship_plus_common",
  "bevy",
  "bevy_quinnet_common",
- "bincode",
- "bytes",
  "futures",
  "futures-util",
  "log",
  "once_cell",
  "quinn",
- "rcgen",
- "ring",
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
  "serde",
- "thiserror",
  "tokio",
  "tokio-util",
 ]
@@ -666,45 +661,27 @@ name = "bevy_quinnet_common"
 version = "0.2.0-custom"
 dependencies = [
  "base64 0.21.0",
- "bevy",
- "bincode",
- "bytes",
- "futures",
- "futures-util",
- "log",
- "once_cell",
- "quinn",
  "rcgen",
  "ring",
  "rustls",
- "rustls-pemfile",
- "serde",
  "thiserror",
- "tokio",
- "tokio-util",
 ]
 
 [[package]]
 name = "bevy_quinnet_server"
 version = "0.2.0-custom"
 dependencies = [
- "base64 0.21.0",
  "battleship_plus_common",
  "bevy",
  "bevy_quinnet_common",
- "bincode",
- "bytes",
  "futures",
  "futures-util",
  "log",
- "once_cell",
  "quinn",
  "rcgen",
- "ring",
  "rustls",
  "rustls-pemfile",
  "serde",
- "thiserror",
  "tokio",
  "tokio-util",
 ]
@@ -984,15 +961,6 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "winit",
-]
-
-[[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
 ]
 
 [[package]]
