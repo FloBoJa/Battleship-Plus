@@ -243,6 +243,18 @@ async fn endpoint_task(
 
                         continue;
                     }
+                    EndpointEvent::UnsupportedVersionMessage{client_id, version} => {
+                        debug!("Client {client_id} sent message with unsupported version {version}");
+                        let description = format!(
+                            "Received message with version {version}, only version {} is supported.",
+                            battleship_plus_common::PROTOCOL_VERSION
+                        );
+                        let message = status_with_msg(StatusCode::UnsupportedVersion, &description);
+                        if let Err(error) = server.endpoint_mut().send_message(client_id, message) {
+                            warn!("Failed to send UnsupportedVersion response to client {client_id}: {error}");
+                        };
+                        continue;
+                    }
                     EndpointEvent::SocketClosed => {
                         debug!("Server socket closed");
                         continue;

@@ -20,16 +20,16 @@ use tokio::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
+use battleship_plus_common::{
+    codec::{BattleshipPlusCodec, CodecError},
+    messages::ProtocolMessage,
+};
 
 #[cfg(not(feature = "no_bevy"))]
 use crate::shared::AsyncRuntime;
 use crate::{
     server::certificate::retrieve_certificate,
-    shared::{
-        ClientId, QuinnetError, DEFAULT_KEEP_ALIVE_INTERVAL_S, DEFAULT_KILL_MESSAGE_QUEUE_SIZE,
-        DEFAULT_MESSAGE_QUEUE_SIZE,
-    },
+    shared::{ClientId, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE},
 };
 
 use self::certificate::{CertificateRetrievalMode, ServerCertificate};
@@ -100,6 +100,7 @@ pub struct ClientPayload {
 pub(crate) enum InternalAsyncMessage {
     ClientConnected(ClientConnection),
     ClientLostConnection(ClientId),
+    UnsupportedVersionMessage { client_id: ClientId, version: u8 },
 }
 
 #[derive(Debug)]
@@ -203,6 +204,9 @@ impl Endpoint {
                     Some(InternalAsyncMessage::ClientLostConnection(client_id)) => {
                         self.clients.remove(&client_id);
                         EndpointEvent::Disconnect(client_id)
+                    },
+                    Some(InternalAsyncMessage::UnsupportedVersionMessage{client_id, version}) => {
+                        EndpointEvent::UnsupportedVersionMessage{client_id, version}
                     },
                     None => {
                         self.internal_receiver_closed = true;
@@ -321,7 +325,7 @@ impl Server {
         let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
-            .keep_alive_interval(Some(Duration::from_secs(DEFAULT_KEEP_ALIVE_INTERVAL_S)));
+            .max_idle_timeout(Duration::from_secs(60).try_into().ok());
 
         let (from_clients_sender, from_clients_receiver) =
             mpsc::channel::<ClientPayload>(DEFAULT_MESSAGE_QUEUE_SIZE);
@@ -533,14 +537,27 @@ async fn client_receiver_task(
 
             // Spawn a task to receive data on this stream.
             let from_client_sender = from_clients_sender.clone();
-            while let Some(Ok(msg_bytes)) = frame_recv.next().await {
-                from_client_sender
-                    .send(ClientPayload {
-                        client_id,
-                        msg: msg_bytes,
-                    })
-                    .await
-                    .unwrap();// TODO Fix: error event
+            while let Some(result) = frame_recv.next().await {
+                match result {
+                    Ok(message) => {
+                        from_client_sender
+                            .send(ClientPayload {
+                                client_id,
+                                msg: message,
+                            })
+                            .await
+                            .unwrap();// TODO Fix: error event
+                    }
+                    Err(CodecError::UnsupportedVersion(version)) => {
+                        to_sync_server
+                            .send(InternalAsyncMessage::UnsupportedVersionMessage{client_id, version})
+                            .await
+                            .expect("Failed to signal message with unsupported version to sync server");
+                    }
+                    Err(_other_error) => {
+                        break;
+                    }
+                }
             }
             trace!("Receiving half of stream ended for client: {}", client_id)
         } => {}
@@ -568,8 +585,8 @@ fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
-// Receive messages from the async server tasks and update the sync server.
 #[cfg(not(feature = "no_bevy"))]
+// Receive messages from the async server tasks and update the sync server.
 fn update_sync_server(
     mut server: ResMut<Server>,
     mut connection_events: EventWriter<ConnectionEvent>,
@@ -586,6 +603,9 @@ fn update_sync_server(
                 InternalAsyncMessage::ClientLostConnection(client_id) => {
                     endpoint.clients.remove(&client_id);
                     connection_lost_events.send(ConnectionLostEvent { id: client_id });
+                }
+                InternalAsyncMessage::UnsupportedVersionMessage { version, .. } => {
+                    warn!("received message with unsupported version {version}")
                 }
             }
         }
@@ -621,6 +641,7 @@ pub enum EndpointEvent {
     Payload(Box<ClientPayload>),
     Connect(ClientId),
     Disconnect(ClientId),
+    UnsupportedVersionMessage { client_id: ClientId, version: u8 },
     SocketClosed,
     NoMorePayloads,
 }
