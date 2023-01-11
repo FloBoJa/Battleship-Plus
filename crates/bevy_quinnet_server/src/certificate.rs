@@ -9,7 +9,7 @@ use bevy::prelude::{trace, warn};
 #[cfg(not(feature = "bevy"))]
 use log::{trace, warn};
 
-use bevy_quinnet_common::common::{CertificateFingerprint, QuinnetError};
+use bevy_quinnet_common::{CertificateFingerprint, QuinnetError};
 
 #[derive(Debug, Clone)]
 pub enum CertOrigin {

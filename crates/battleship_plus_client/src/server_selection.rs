@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPlugin};
-use bevy_quinnet_client::client::{Client, ConnectionErrorEvent};
+use bevy_quinnet_client::{Client, ConnectionErrorEvent};
 use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
 use std::str::FromStr;
