@@ -237,6 +237,7 @@ dependencies = [
  "futures",
  "iyes_loopless",
  "pnet_datalink",
+ "rstar",
  "tokio",
  "tokio-util",
 ]
@@ -249,6 +250,7 @@ dependencies = [
  "bytes",
  "prost",
  "prost-build",
+ "rstar",
  "tokio-util",
 ]
 

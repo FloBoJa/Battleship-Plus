@@ -1,21 +1,14 @@
 use bevy::prelude::*;
+use rstar::AABB;
 
-use battleship_plus_common::types;
+use battleship_plus_common::{types, util};
 
-#[derive(Resource)]
-pub struct Quadrant {
-    pub x: u32,
-    pub y: u32,
-    pub size: u32,
-}
+#[derive(Resource, Deref)]
+pub struct Quadrant(AABB<[i32; 2]>);
 
 impl Quadrant {
-    pub fn new(top_left_corner: types::Coordinate, _player_count: usize) -> Quadrant {
-        // TODO: quadrant calculation
-        Quadrant {
-            x: top_left_corner.x,
-            y: top_left_corner.y,
-            size: 1,
-        }
+    pub fn new(corner: types::Coordinate, board_size: u32, player_count: u32) -> Quadrant {
+        let corner = (corner.x, corner.y);
+        Quadrant(util::quadrant_from_corner(corner, board_size, player_count))
     }
 }
