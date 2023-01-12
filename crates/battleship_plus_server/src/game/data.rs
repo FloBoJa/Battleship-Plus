@@ -72,8 +72,8 @@ impl Game {
                 self.config.ship_set_team_a.clone(),
             )
             && self.check_players_placed_ships(
-                self.team_a.iter().cloned(),
-                self.config.ship_set_team_a.clone(),
+                self.team_b.iter().cloned(),
+                self.config.ship_set_team_b.clone(),
             )
     }
 
@@ -190,7 +190,7 @@ impl Game {
         let mut ship_manager = ShipManager::new();
         for assignment in assignments {
             let ship_id: ShipID = (player_id, assignment.ship_number);
-            if assignment.ship_number > ship_set.len() as u32 {
+            if assignment.ship_number >= ship_set.len() as u32 {
                 return Err(ShipPlacementError::InvalidShipNumber);
             }
 
