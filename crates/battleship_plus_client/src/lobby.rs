@@ -10,10 +10,13 @@ use battleship_plus_common::{
     types,
 };
 
-use crate::game_state::{GameState, PlayerId};
-use crate::networking;
+use crate::networking::{self, CurrentServer};
 use crate::placement_phase;
 use crate::server_selection;
+use crate::{
+    game_state::{GameState, PlayerId},
+    networking::ServerInformation,
+};
 
 pub struct LobbyPlugin;
 
@@ -232,10 +235,11 @@ fn draw_lobby_screen(
 fn process_lobby_events(
     mut commands: Commands,
     mut events: EventReader<messages::EventMessage>,
-    lobby_state: Res<LobbyState>,
+    (lobby_state, request_state): (Res<LobbyState>, Res<RequestState>),
     mut readiness: ResMut<Readiness>,
-    request_state: Res<RequestState>,
     player_id: Res<PlayerId>,
+    servers: Query<Entity, &ServerInformation>,
+    current_server: Res<CurrentServer>,
 ) {
     for event in events.iter() {
         match event {
@@ -251,9 +255,17 @@ fn process_lobby_events(
             }
             messages::EventMessage::PlacementPhase(message) => {
                 if let Some(corner) = &message.corner {
+                    let server_information = servers
+                        .get_component::<ServerInformation>(**current_server)
+                        .expect("");
+                    let config = match &server_information.config {
+                        Some(config) => config,
+                        None => todo!("Wait for the config to arrive"),
+                    };
                     commands.insert_resource(placement_phase::Quadrant::new(
                         corner.to_owned(),
-                        lobby_state.total_player_count(),
+                        config.board_size,
+                        lobby_state.total_player_count() as u32,
                     ));
                     commands.insert_resource(NextState(GameState::PlacementPhase));
                 } else {
