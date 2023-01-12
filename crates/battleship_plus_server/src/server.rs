@@ -463,10 +463,9 @@ async fn handle_message(
             let action = Action::from((client_id, request));
 
             let mut g = game.write().await;
-            let /*action_result*/ _ = g
-                .get_state()
+            g.get_state()
                 .execute_action(action, &mut g)
-                .map_err(MessageHandlerError::Protocol);
+                .map_err(MessageHandlerError::Protocol)?;
 
             if g.can_change_into_game_phase() {
                 info!("GamePhase: InGame");
