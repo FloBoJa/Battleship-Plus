@@ -1,3 +1,4 @@
+use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ pub struct Game {
     pub(crate) ships: ShipManager,
 
     pub(crate) state: GameState,
+    pub(crate) turn: Option<Turn>,
 }
 
 impl Default for Game {
@@ -38,11 +40,12 @@ impl Game {
     pub fn new(config: Arc<Config>) -> Self {
         Game {
             config,
+            state: GameState::Lobby,
             players: Default::default(),
             team_a: Default::default(),
             team_b: Default::default(),
             ships: Default::default(),
-            state: GameState::Lobby,
+            turn: Default::default(),
         }
     }
 
@@ -149,7 +152,7 @@ impl Game {
     pub(crate) fn validate_placement_request(
         &self,
         player_id: PlayerID,
-        assignments: &Vec<ShipAssignment>,
+        assignments: &[ShipAssignment],
     ) -> Result<HashMap<ShipID, Ship>, ShipPlacementError> {
         let ship_set = match (
             self.team_a.contains(&player_id),
@@ -173,18 +176,24 @@ impl Game {
             return Err(ShipPlacementError::PlayerHasAlreadyPlacedShips);
         }
 
+        let assignments: HashMap<u32, ShipAssignment, RandomState> = HashMap::from_iter(
+            assignments
+                .iter()
+                .map(|assignment| (assignment.ship_number, assignment.clone())),
+        );
+
         if assignments.len() != ship_set.len() {
             return Err(ShipPlacementError::InvalidShipSet);
         }
 
         let mut ship_manager = ShipManager::new();
-        for assignment in assignments {
-            let ship_id: ShipID = (player_id, assignment.ship_number);
-            if assignment.ship_number >= ship_set.len() as u32 {
+        for (ship_number, assignment) in assignments {
+            let ship_id: ShipID = (player_id, ship_number);
+            if ship_number >= ship_set.len() as u32 {
                 return Err(ShipPlacementError::InvalidShipNumber);
             }
 
-            let ship_type = match ShipType::from_i32(ship_set[assignment.ship_number as usize]) {
+            let ship_type = match ShipType::from_i32(ship_set[ship_number as usize]) {
                 None => return Err(ShipPlacementError::InvalidShipType),
                 Some(t) => t,
             };
@@ -222,7 +231,21 @@ impl Game {
 pub struct Player {
     pub(crate) id: PlayerID,
     pub(crate) name: String,
-    pub(crate) action_points: u32,
     pub(crate) is_ready: bool,
     pub(crate) quadrant: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Turn {
+    pub(crate) player_id: PlayerID,
+    pub(crate) action_points_left: u32,
+}
+
+impl Turn {
+    pub fn new(player_id: PlayerID, initial_action_points: u32) -> Self {
+        Turn {
+            player_id,
+            action_points_left: initial_action_points,
+        }
+    }
 }
