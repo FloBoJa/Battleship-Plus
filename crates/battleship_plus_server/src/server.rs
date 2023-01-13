@@ -679,6 +679,14 @@ fn broadcast_game_start(
             .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
     }
 
+    // TODO: remove not implemented message
+    broadcast_tx.send((game.players.iter().map(|(&id, _)| id).collect(), StatusMessage {
+        code: 555,
+        message: "Thanks for trying our implementation. Maybe next time you come around there is a game phase for you.. Who knows? :)\n\nThe server will reset soon...".to_string(),
+        data: None,
+    }.into()))
+        .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
+
     Ok(())
 }
 
