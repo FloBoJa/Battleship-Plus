@@ -17,3 +17,6 @@ rstar = "0.9.3"
 bevy_quinnet_server = { path = "../bevy_quinnet_server" }
 once_cell = "1.17.0"
 rand = "0.8.5"
+
+[features]
+silent = []
