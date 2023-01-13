@@ -11,6 +11,7 @@ pub struct ServerConfig {
     pub announcement_address_v4: SocketAddrV4,
     pub announcement_address_v6: SocketAddrV6,
     pub announcement_interval: Duration,
+    pub server_domain: Option<&'static str>,
 }
 
 pub trait ConfigProvider {
@@ -128,10 +129,10 @@ pub(crate) mod default {
                 }),
                 ship_set_team_a: default_ship_set(),
                 ship_set_team_b: default_ship_set(),
-                board_size: 128,
+                board_size: if cfg!(test) { 128 } else { 422 },
                 action_point_gain: 1,
-                team_size_a: 2,
-                team_size_b: 2,
+                team_size_a: if cfg!(test) { 2 } else { 422 },
+                team_size_b: if cfg!(test) { 2 } else { 422 },
             })
         }
 
@@ -151,6 +152,7 @@ pub(crate) mod default {
                     0,
                 ),
                 announcement_interval: Duration::from_secs(5),
+                server_domain: option_env!("SERVER_DOMAIN"),
             })
         }
     }
