@@ -6,7 +6,6 @@ use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 use battleship_plus_common::types::{Coordinate, MoveDirection, RotateDirection};
 
 use crate::game::actions::ActionValidationError;
-use crate::game::data::Player;
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 
 #[derive(Debug, Clone, Default)]
@@ -129,7 +128,7 @@ impl ShipManager {
 
     pub fn attack_with_ship(
         &mut self,
-        player: &mut Player,
+        action_points: &mut u32,
         ship_id: &ShipID,
         target: &[i32; 2],
         bounds: &AABB<[i32; 2]>,
@@ -156,7 +155,7 @@ impl ShipManager {
         // check action points of player
         let balancing = ship.common_balancing();
         let costs = balancing.shoot_costs.unwrap();
-        if player.action_points < costs.action_points {
+        if *action_points < costs.action_points {
             return Err(ActionValidationError::InsufficientPoints {
                 required: costs.action_points,
             });
@@ -168,7 +167,7 @@ impl ShipManager {
         }
 
         // enforce costs
-        player.action_points -= costs.action_points;
+        *action_points -= costs.action_points;
         if costs.cooldown > 0 {
             ship.cool_downs_mut().push(Cooldown::Cannon {
                 remaining_rounds: costs.cooldown,
@@ -202,7 +201,7 @@ impl ShipManager {
     /// Returns the area that has to be checked for collision.
     pub fn move_ship(
         &mut self,
-        player: &mut Player,
+        action_points: &mut u32,
         ship_id: &ShipID,
         direction: MoveDirection,
         bounds: &AABB<[i32; 2]>,
@@ -223,7 +222,7 @@ impl ShipManager {
 
                 // check action points of player
                 let costs = ship.common_balancing().movement_costs.unwrap();
-                if player.action_points < costs.action_points {
+                if *action_points < costs.action_points {
                     return Err(ActionValidationError::InsufficientPoints {
                         required: costs.action_points,
                     });
@@ -235,7 +234,7 @@ impl ShipManager {
                     Ok(new_position) => {
                         // enforce costs
                         let new_position = new_position;
-                        player.action_points -= costs.action_points;
+                        *action_points -= costs.action_points;
                         if costs.cooldown > 0 {
                             ship.cool_downs_mut().push(Cooldown::Movement {
                                 remaining_rounds: costs.cooldown,
@@ -253,7 +252,7 @@ impl ShipManager {
     /// Returns the area that has to be checked for collision.
     pub fn rotate_ship(
         &mut self,
-        player: &mut Player,
+        action_points: &mut u32,
         ship_id: &ShipID,
         direction: RotateDirection,
         bounds: &AABB<[i32; 2]>,
@@ -274,7 +273,7 @@ impl ShipManager {
 
                 // check action points of player
                 let costs = ship.common_balancing().movement_costs.unwrap();
-                if player.action_points < costs.action_points {
+                if *action_points < costs.action_points {
                     return Err(ActionValidationError::InsufficientPoints {
                         required: costs.action_points,
                     });
@@ -286,7 +285,7 @@ impl ShipManager {
                     Ok(new_position) => {
                         // enforce costs
                         let new_position = new_position;
-                        player.action_points -= costs.action_points;
+                        *action_points -= costs.action_points;
                         if costs.cooldown > 0 {
                             ship.cool_downs_mut().push(Cooldown::Movement {
                                 remaining_rounds: costs.cooldown,

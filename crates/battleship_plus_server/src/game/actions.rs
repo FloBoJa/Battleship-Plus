@@ -6,7 +6,7 @@ use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
 use bevy_quinnet::shared::ClientId;
 
-use crate::game::data::{Game, PlayerID};
+use crate::game::data::{Game, PlayerID, Turn};
 use crate::game::ship::ShipID;
 use crate::game::ship_manager::ShipPlacementError;
 use crate::game::states::GameState;
@@ -81,6 +81,7 @@ pub enum ActionValidationError {
     Unreachable,
     OutOfMap,
     InvalidShipPlacement(ShipPlacementError),
+    NotPlayersTurn,
 }
 
 impl Action {
@@ -147,10 +148,11 @@ impl Action {
                 check_player_exists(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
-                let mut player = game.players.get(&player_id).unwrap().clone();
+                let player = game.players.get(&player_id).unwrap().clone();
 
+                let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 let trajectory = match game.ships.move_ship(
-                    &mut player,
+                    &mut action_points,
                     ship_id,
                     properties.direction(),
                     &board_bounds,
@@ -158,6 +160,7 @@ impl Action {
                     Ok(trajectory) => trajectory,
                     Err(e) => return Err(ActionExecutionError::Validation(e)),
                 };
+                game.turn.as_mut().unwrap().action_points_left = action_points;
 
                 game.players.insert(player_id, player);
 
@@ -174,10 +177,11 @@ impl Action {
                 check_player_exists(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
-                let mut player = game.players.get(&player_id).unwrap().clone();
+                let player = game.players.get(&player_id).unwrap().clone();
 
+                let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 let trajectory = match game.ships.rotate_ship(
-                    &mut player,
+                    &mut action_points,
                     ship_id,
                     properties.direction(),
                     &board_bounds,
@@ -185,6 +189,7 @@ impl Action {
                     Ok(trajectory) => trajectory,
                     Err(e) => return Err(ActionExecutionError::Validation(e)),
                 };
+                game.turn.as_mut().unwrap().action_points_left = action_points;
 
                 game.players.insert(player_id, player);
 
@@ -206,13 +211,15 @@ impl Action {
                 ];
 
                 let bounds = game.board_bounds();
-                let mut player = game.players.get(&player_id).unwrap().clone();
+                let player = game.players.get(&player_id).unwrap().clone();
 
+                let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 match game
                     .ships
-                    .attack_with_ship(&mut player, ship_id, &target, &bounds)
+                    .attack_with_ship(&mut action_points, ship_id, &target, &bounds)
                 {
                     Ok(_) => {
+                        game.turn.as_mut().unwrap().action_points_left = action_points;
                         game.players
                             .insert(player_id, player)
                             .expect("unable to update player");
@@ -295,5 +302,14 @@ fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionExecutionE
         ))
     } else {
         Ok(())
+    }
+}
+
+fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
+    match game.turn {
+        Some(Turn { player_id, .. }) if player_id == id => Ok(()),
+        _ => Err(ActionExecutionError::Validation(
+            ActionValidationError::NotPlayersTurn,
+        )),
     }
 }

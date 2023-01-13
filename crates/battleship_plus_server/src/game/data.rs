@@ -23,6 +23,7 @@ pub struct Game {
     pub(crate) ships: ShipManager,
 
     pub(crate) state: GameState,
+    pub(crate) turn: Option<Turn>,
 }
 
 impl Default for Game {
@@ -35,11 +36,12 @@ impl Game {
     pub fn new(config: Arc<Config>) -> Self {
         Game {
             config,
+            state: GameState::Lobby,
             players: Default::default(),
             team_a: Default::default(),
             team_b: Default::default(),
             ships: Default::default(),
-            state: GameState::Lobby,
+            turn: Default::default(),
         }
     }
 
@@ -232,7 +234,21 @@ impl Game {
 pub struct Player {
     pub(crate) id: PlayerID,
     pub(crate) name: String,
-    pub(crate) action_points: u32,
     pub(crate) is_ready: bool,
     pub(crate) quadrant: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Turn {
+    pub(crate) player_id: PlayerID,
+    pub(crate) action_points_left: u32,
+}
+
+impl Turn {
+    pub fn new(player_id: PlayerID, initial_action_points: u32) -> Self {
+        Turn {
+            player_id,
+            action_points_left: initial_action_points,
+        }
+    }
 }
