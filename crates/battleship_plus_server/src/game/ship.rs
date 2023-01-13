@@ -8,7 +8,7 @@ use battleship_plus_common::types::*;
 use crate::game::actions::ActionValidationError;
 use crate::game::data::PlayerID;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Ship {
     Carrier {
         balancing: Arc<CarrierBalancing>,
@@ -38,6 +38,70 @@ pub enum Ship {
 }
 
 impl Ship {
+    pub(crate) fn new_from_type(
+        ship_type: ShipType,
+        ship_id: ShipID,
+        position: (u32, u32),
+        orientation: Orientation,
+        cfg: Arc<Config>,
+    ) -> Ship {
+        let mut data = ShipData {
+            id: ship_id,
+            pos_x: position.0 as i32,
+            pos_y: position.1 as i32,
+            orientation,
+            health: 0,
+        };
+
+        match ship_type {
+            ShipType::Carrier => {
+                let balancing = cfg.carrier_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Carrier {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Battleship => {
+                let balancing = cfg.battleship_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Battleship {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Cruiser => {
+                let balancing = cfg.cruiser_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Cruiser {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Submarine => {
+                let balancing = cfg.submarine_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Submarine {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+            ShipType::Destroyer => {
+                let balancing = cfg.destroyer_balancing.clone().unwrap();
+                data.health = balancing.common_balancing.as_ref().unwrap().initial_health;
+                Ship::Destroyer {
+                    balancing: Arc::from(balancing),
+                    data,
+                    cool_downs: Vec::new(),
+                }
+            }
+        }
+    }
+
     pub fn len(&self) -> i32 {
         match self {
             Ship::Carrier { .. } => 5,
@@ -82,6 +146,42 @@ impl Ship {
         }
     }
 
+    pub fn vision_range(&self) -> u32 {
+        match self {
+            Ship::Carrier { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Battleship { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Cruiser { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Submarine { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+            Ship::Destroyer { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().vision_range
+            }
+        }
+    }
+
+    pub(crate) fn vision_envelope(&self) -> AABB<[i32; 2]> {
+        let vision_range = self.vision_range();
+        let mut envelope = self.envelope();
+        let lower = envelope.lower();
+        let upper = envelope.upper();
+        envelope.merge(&AABB::from_point([
+            lower[0] - vision_range as i32,
+            lower[1] - vision_range as i32,
+        ]));
+        envelope.merge(&AABB::from_point([
+            upper[0] + vision_range as i32,
+            upper[1] + vision_range as i32,
+        ]));
+        envelope
+    }
+
     pub fn common_balancing(&self) -> CommonBalancing {
         match self {
             Ship::Carrier { balancing, .. } => balancing.common_balancing.clone().unwrap(),
@@ -109,6 +209,16 @@ impl Ship {
             | Ship::Cruiser { cool_downs, .. }
             | Ship::Submarine { cool_downs, .. }
             | Ship::Destroyer { cool_downs, .. } => cool_downs,
+        }
+    }
+
+    pub(crate) fn ship_type(&self) -> ShipType {
+        match self {
+            Ship::Carrier { .. } => ShipType::Carrier,
+            Ship::Battleship { .. } => ShipType::Battleship,
+            Ship::Cruiser { .. } => ShipType::Cruiser,
+            Ship::Submarine { .. } => ShipType::Submarine,
+            Ship::Destroyer { .. } => ShipType::Destroyer,
         }
     }
 
@@ -270,7 +380,7 @@ impl PointDistance for Ship {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ShipData {
     pub(crate) id: ShipID,
     pub(crate) pos_x: i32,
@@ -291,7 +401,7 @@ impl Default for ShipData {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Orientation {
     North,
     South,
@@ -299,11 +409,45 @@ pub enum Orientation {
     West,
 }
 
+impl From<Orientation> for Direction {
+    fn from(orientation: Orientation) -> Self {
+        match orientation {
+            Orientation::North => Direction::North,
+            Orientation::East => Direction::East,
+            Orientation::South => Direction::South,
+            Orientation::West => Direction::West,
+        }
+    }
+}
+
+impl From<Direction> for Orientation {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::North => Orientation::North,
+            Direction::East => Orientation::East,
+            Direction::South => Orientation::South,
+            Direction::West => Orientation::West,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Cooldown {
     Movement { remaining_rounds: u32 },
+    Rotate { remaining_rounds: u32 },
     Cannon { remaining_rounds: u32 },
     Ability { remaining_rounds: u32 },
+}
+
+impl Cooldown {
+    pub fn remaining_rounds(&self) -> u32 {
+        match self {
+            Cooldown::Movement { remaining_rounds }
+            | Cooldown::Rotate { remaining_rounds }
+            | Cooldown::Cannon { remaining_rounds }
+            | Cooldown::Ability { remaining_rounds } => *remaining_rounds,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
