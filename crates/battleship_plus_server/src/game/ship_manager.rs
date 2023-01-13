@@ -1,17 +1,23 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
-use battleship_plus_common::types::{MoveDirection, RotateDirection};
+use battleship_plus_common::types::{Coordinate, MoveDirection, RotateDirection};
 
 use crate::game::actions::ActionValidationError;
-use crate::game::data::Player;
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {
     ships: HashMap<ShipID, Ship>,
     ships_geo_lookup: RTree<ShipTreeNode>,
+}
+
+impl From<ShipManager> for HashMap<ShipID, Ship> {
+    fn from(ship_manager: ShipManager) -> Self {
+        ship_manager.ships
+    }
 }
 
 impl ShipManager {
@@ -32,6 +38,34 @@ impl ShipManager {
                     .collect(),
             ),
         }
+    }
+
+    pub fn get_ship_parts_seen_by(&self, ships: &[&Ship]) -> Vec<Coordinate> {
+        ships
+            .iter()
+            .flat_map(|ship| {
+                let vision_envelope = ship.vision_envelope();
+
+                self.ships_geo_lookup
+                    .locate_in_envelope_intersecting(&vision_envelope)
+                    .flat_map(|ship| {
+                        let lower = ship.envelope().lower();
+                        let upper = ship.envelope().upper();
+
+                        (lower[0]..upper[0])
+                            .flat_map(move |x| (lower[1]..upper[1]).map(move |y| (x, y)))
+                    })
+                    .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
+                    .map(|(x, y)| Coordinate {
+                        x: x as u32,
+                        y: y as u32,
+                    })
+            })
+            .collect()
+    }
+
+    pub fn iter_ships(&self) -> impl Iterator<Item = (&ShipID, &Ship)> {
+        self.ships.iter()
     }
 
     pub fn get_by_id(&self, ship_id: &ShipID) -> Option<&Ship> {
@@ -73,9 +107,28 @@ impl ShipManager {
         });
     }
 
+    pub fn place_ship(&mut self, ship_id: ShipID, ship: Ship) -> Result<(), ShipPlacementError> {
+        if self.ships.get(&ship_id).is_some() {
+            return Err(ShipPlacementError::IdAlreadyPlaced);
+        }
+
+        if self
+            .ships_geo_lookup
+            .locate_in_envelope_intersecting(&ship.envelope())
+            .any(|_| true)
+        {
+            return Err(ShipPlacementError::Collision);
+        }
+
+        self.ships_geo_lookup.insert(ShipTreeNode::from(&ship));
+        self.ships.insert(ship_id, ship);
+
+        Ok(())
+    }
+
     pub fn attack_with_ship(
         &mut self,
-        player: &mut Player,
+        action_points: &mut u32,
         ship_id: &ShipID,
         target: &[i32; 2],
         bounds: &AABB<[i32; 2]>,
@@ -102,7 +155,7 @@ impl ShipManager {
         // check action points of player
         let balancing = ship.common_balancing();
         let costs = balancing.shoot_costs.unwrap();
-        if player.action_points < costs.action_points {
+        if *action_points < costs.action_points {
             return Err(ActionValidationError::InsufficientPoints {
                 required: costs.action_points,
             });
@@ -114,7 +167,7 @@ impl ShipManager {
         }
 
         // enforce costs
-        player.action_points -= costs.action_points;
+        *action_points -= costs.action_points;
         if costs.cooldown > 0 {
             ship.cool_downs_mut().push(Cooldown::Cannon {
                 remaining_rounds: costs.cooldown,
@@ -148,7 +201,7 @@ impl ShipManager {
     /// Returns the area that has to be checked for collision.
     pub fn move_ship(
         &mut self,
-        player: &mut Player,
+        action_points: &mut u32,
         ship_id: &ShipID,
         direction: MoveDirection,
         bounds: &AABB<[i32; 2]>,
@@ -169,7 +222,7 @@ impl ShipManager {
 
                 // check action points of player
                 let costs = ship.common_balancing().movement_costs.unwrap();
-                if player.action_points < costs.action_points {
+                if *action_points < costs.action_points {
                     return Err(ActionValidationError::InsufficientPoints {
                         required: costs.action_points,
                     });
@@ -181,7 +234,7 @@ impl ShipManager {
                     Ok(new_position) => {
                         // enforce costs
                         let new_position = new_position;
-                        player.action_points -= costs.action_points;
+                        *action_points -= costs.action_points;
                         if costs.cooldown > 0 {
                             ship.cool_downs_mut().push(Cooldown::Movement {
                                 remaining_rounds: costs.cooldown,
@@ -199,7 +252,7 @@ impl ShipManager {
     /// Returns the area that has to be checked for collision.
     pub fn rotate_ship(
         &mut self,
-        player: &mut Player,
+        action_points: &mut u32,
         ship_id: &ShipID,
         direction: RotateDirection,
         bounds: &AABB<[i32; 2]>,
@@ -220,7 +273,7 @@ impl ShipManager {
 
                 // check action points of player
                 let costs = ship.common_balancing().movement_costs.unwrap();
-                if player.action_points < costs.action_points {
+                if *action_points < costs.action_points {
                     return Err(ActionValidationError::InsufficientPoints {
                         required: costs.action_points,
                     });
@@ -232,7 +285,7 @@ impl ShipManager {
                     Ok(new_position) => {
                         // enforce costs
                         let new_position = new_position;
-                        player.action_points -= costs.action_points;
+                        *action_points -= costs.action_points;
                         if costs.cooldown > 0 {
                             ship.cool_downs_mut().push(Cooldown::Movement {
                                 remaining_rounds: costs.cooldown,
@@ -321,5 +374,38 @@ impl RTreeObject for ShipTreeNode {
 impl PointDistance for ShipTreeNode {
     fn distance_2(&self, point: &[i32; 2]) -> i32 {
         ship_distance(&self.envelope(), point)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ShipPlacementError {
+    Collision,
+    IdAlreadyPlaced,
+    InvalidShipNumber,
+    InvalidShipSet,
+    InvalidShipType,
+    InvalidShipDirection,
+    InvalidShipPosition,
+    PlayerNotInGame,
+    ShipOutOfQuadrant,
+    PlayerHasAlreadyPlacedShips,
+}
+
+impl Display for ShipPlacementError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ShipPlacementError::Collision => "Ships colliding",
+            ShipPlacementError::IdAlreadyPlaced => "Ship with the same id already exists",
+            ShipPlacementError::InvalidShipNumber => "Ship number is not valid",
+            ShipPlacementError::InvalidShipSet => "provided ship set is invalid",
+            ShipPlacementError::InvalidShipType => "Ship type is invalid",
+            ShipPlacementError::InvalidShipDirection => "Ship direction is invalid",
+            ShipPlacementError::InvalidShipPosition => "Ship position is invalid",
+            ShipPlacementError::PlayerNotInGame => "Player is not in game",
+            ShipPlacementError::ShipOutOfQuadrant => "Ship is placed outside the provided quadrant",
+            ShipPlacementError::PlayerHasAlreadyPlacedShips => {
+                "A player can only place their ships once"
+            }
+        })
     }
 }

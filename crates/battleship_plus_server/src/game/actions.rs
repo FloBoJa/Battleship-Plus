@@ -6,8 +6,9 @@ use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
 use bevy_quinnet::shared::ClientId;
 
-use crate::game::data::{Game, PlayerID};
+use crate::game::data::{Game, PlayerID, Turn};
 use crate::game::ship::ShipID;
+use crate::game::ship_manager::ShipPlacementError;
 use crate::game::states::GameState;
 
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ pub enum Action {
     // Preparation actions
     PlaceShips {
         player_id: PlayerID,
-        request: SetPlacementRequest,
+        ship_placements: Vec<ShipAssignment>,
     },
 
     // Game actions
@@ -79,6 +80,8 @@ pub enum ActionValidationError {
     InsufficientPoints { required: u32 },
     Unreachable,
     OutOfMap,
+    InvalidShipPlacement(ShipPlacementError),
+    NotPlayersTurn,
 }
 
 impl Action {
@@ -117,19 +120,40 @@ impl Action {
                 }
                 Ok(())
             }
-            // TODO Implementation: Action::PlaceShips { .. } => {}
+            Action::PlaceShips {
+                player_id,
+                ship_placements,
+            } => match game.validate_placement_request(*player_id, ship_placements) {
+                Ok(ship_placement) => ship_placement,
+                Err(e) => {
+                    debug!("Player {player_id} sent an invalid ship placement: {e:?}");
+                    return Err(ActionExecutionError::Validation(
+                        ActionValidationError::InvalidShipPlacement(e),
+                    ));
+                }
+            }
+            .iter()
+            .map(|(&ship_id, ship)| game.ships.place_ship(ship_id, ship.clone()))
+            .find(|res| res.is_err())
+            .unwrap_or(Ok(()))
+            .map_err(|e| {
+                ActionExecutionError::Validation(ActionValidationError::InvalidShipPlacement(e))
+            }),
+
             Action::Move {
                 ship_id,
                 properties,
             } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
-                let mut player = game.players.get(&player_id).unwrap().clone();
+                let player = game.players.get(&player_id).unwrap().clone();
 
+                let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 let trajectory = match game.ships.move_ship(
-                    &mut player,
+                    &mut action_points,
                     ship_id,
                     properties.direction(),
                     &board_bounds,
@@ -137,6 +161,7 @@ impl Action {
                     Ok(trajectory) => trajectory,
                     Err(e) => return Err(ActionExecutionError::Validation(e)),
                 };
+                game.turn.as_mut().unwrap().action_points_left = action_points;
 
                 game.players.insert(player_id, player);
 
@@ -151,12 +176,14 @@ impl Action {
             } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
-                let mut player = game.players.get(&player_id).unwrap().clone();
+                let player = game.players.get(&player_id).unwrap().clone();
 
+                let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 let trajectory = match game.ships.rotate_ship(
-                    &mut player,
+                    &mut action_points,
                     ship_id,
                     properties.direction(),
                     &board_bounds,
@@ -164,6 +191,7 @@ impl Action {
                     Ok(trajectory) => trajectory,
                     Err(e) => return Err(ActionExecutionError::Validation(e)),
                 };
+                game.turn.as_mut().unwrap().action_points_left = action_points;
 
                 game.players.insert(player_id, player);
 
@@ -178,6 +206,7 @@ impl Action {
             } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
 
                 let target = [
                     properties.target.as_ref().unwrap().x as i32,
@@ -185,13 +214,15 @@ impl Action {
                 ];
 
                 let bounds = game.board_bounds();
-                let mut player = game.players.get(&player_id).unwrap().clone();
+                let player = game.players.get(&player_id).unwrap().clone();
 
+                let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 match game
                     .ships
-                    .attack_with_ship(&mut player, ship_id, &target, &bounds)
+                    .attack_with_ship(&mut action_points, ship_id, &target, &bounds)
                 {
                     Ok(_) => {
+                        game.turn.as_mut().unwrap().action_points_left = action_points;
                         game.players
                             .insert(player_id, player)
                             .expect("unable to update player");
@@ -210,6 +241,15 @@ impl Action {
         }
 
         // TODO Implementation: find a good way to return Action Results
+    }
+}
+
+impl From<(ClientId, &SetPlacementRequest)> for Action {
+    fn from((client_id, request): (ClientId, &SetPlacementRequest)) -> Self {
+        Self::PlaceShips {
+            player_id: client_id,
+            ship_placements: request.clone().assignments,
+        }
     }
 }
 
@@ -265,5 +305,14 @@ fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionExecutionE
         ))
     } else {
         Ok(())
+    }
+}
+
+fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
+    match game.turn {
+        Some(Turn { player_id, .. }) if player_id == id => Ok(()),
+        _ => Err(ActionExecutionError::Validation(
+            ActionValidationError::NotPlayersTurn,
+        )),
     }
 }

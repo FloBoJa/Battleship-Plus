@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use log::{debug, error, info, trace, warn};
 use rand::seq::SliceRandom;
@@ -11,17 +12,21 @@ use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage, ServerConfigResponse,
-    SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage, TeamSwitchResponse,
+    GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
+    ServerConfigResponse, ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse,
+    StatusCode, StatusMessage, TeamSwitchResponse,
 };
-use battleship_plus_common::types::{Config, Coordinate, PlayerLobbyState};
+use battleship_plus_common::types::{
+    Config, Coordinate, Direction, PlayerLobbyState, ServerState, ShipState,
+};
 use bevy_quinnet::server::certificate::CertificateRetrievalMode;
 use bevy_quinnet::server::{Endpoint, EndpointEvent, Server, ServerConfigurationData};
 use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-use crate::game::data::{Game, Player, PlayerID};
+use crate::game::data::{Game, Player, PlayerID, Turn};
+use crate::game::ship::{Cooldown, Orientation, Ship};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
 
@@ -110,11 +115,7 @@ pub async fn server_task(
     info!("Endpoints initialized");
 
     loop {
-        let game = Game::new(
-            cfg.game_config().board_size,
-            cfg.game_config().team_size_a,
-            cfg.game_config().team_size_b,
-        );
+        let game = Game::default();
 
         // check game config
         if let Err(e) = game.check_game_config() {
@@ -152,10 +153,17 @@ pub async fn server_task(
                 })
                 .collect();
 
+            info!("New game initialized");
+
             tokio::select! {
                 _ = game_end_rx.recv() => {},
                 _ = stop.recv() => return,
             }
+
+            // TODO: find a better way to wait for queues
+            // let queues run out
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            info!("Game finished");
 
             for h in handles {
                 h.1.send(())
@@ -218,14 +226,19 @@ async fn endpoint_task(
                         info!("Client {client_it} disconnected");
                         let mut game = game.write().await;
                         if game.remove_player(client_it) {
-                            let _ = game_end_tx.send(());
+                            info!("Ending game due lost connection to player {client_it}...");
+                            debug!("Disconnecting all clients...");
+                            if let Err(e) = server.endpoint_mut().disconnect_all_clients() {
+                                error!("Unable to disconnect all client: {e}");
+                            }
+                            game_end_tx.send(()).expect("unable to notify the end of the game");
                         }
                         if matches!(game.state, GameState::Lobby) {
                             if let Err(e) = broadcast_lobby_change_event(
                                 game.team_a.iter().cloned(),
                                 game.team_b.iter().cloned(),
                                 game.players.clone(),
-                                &broadcast_tx).await {
+                                &broadcast_tx) {
                                 error!("unable to broadcast LobbyChangeEvent: {e:#?}");
                             }
                         }
@@ -351,7 +364,6 @@ async fn handle_message(
                 Player {
                     id: client_id,
                     name: props.username.clone(),
-                    action_points: 0,
                     is_ready: false,
                     quadrant: None,
                 },
@@ -378,7 +390,6 @@ async fn handle_message(
                 g.players.clone(),
                 broadcast_tx,
             )
-            .await
         }
         ProtocolMessage::TeamSwitchRequest(_) => {
             let action = Action::TeamSwitch {
@@ -402,7 +413,6 @@ async fn handle_message(
                     g.players.clone(),
                     broadcast_tx,
                 )
-                .await
             }
         }
         ProtocolMessage::SetReadyStateRequest(props) => {
@@ -429,15 +439,18 @@ async fn handle_message(
                     g.team_b.iter().cloned(),
                     g.players.clone(),
                     broadcast_tx,
-                )
-                .await?;
+                )?;
 
-                if g.can_start() {
+                if g.can_change_into_preparation_phase() {
                     g.state = GameState::Preparation;
+                    info!("GamePhase: Preparation");
                     let quadrants = g.quadrants();
 
-                    broadcast_game_start(g.players.values_mut().collect(), quadrants, broadcast_tx)
-                        .await?;
+                    broadcast_game_preparation_start(
+                        g.players.values_mut().collect(),
+                        quadrants,
+                        broadcast_tx,
+                    )?;
                 }
 
                 Ok(())
@@ -445,15 +458,72 @@ async fn handle_message(
         }
 
         // preparation phase
-        ProtocolMessage::SetPlacementRequest(_) => {
-            // TODO: SetPlacementRequest
-            todo!()
+        ProtocolMessage::SetPlacementRequest(request) => {
+            let action = Action::from((client_id, request));
+
+            let mut g = game.write().await;
+            g.get_state()
+                .execute_action(action, &mut g)
+                .map_err(MessageHandlerError::Protocol)?;
+
+            if g.can_change_into_game_phase() {
+                info!("GamePhase: InGame");
+                g.state = GameState::InGame;
+                broadcast_game_start(&g, broadcast_tx)?;
+            }
+
+            Ok(())
         }
 
         // game
         ProtocolMessage::ServerStateRequest(_) => {
-            // TODO: ServerStateRequest
-            todo!()
+            let g = game.read().await;
+            let players = match g.players.get(&client_id) {
+                Some(p) => p,
+                None => {
+                    return ep
+                        .send_message(
+                            client_id,
+                            status_with_msg(StatusCode::BadRequest, "not joined"),
+                        )
+                        .map_err(MessageHandlerError::Network);
+                }
+            };
+
+            let ship_sets = get_ships_by_team(&g);
+            let visible_hostile_ships = (
+                g.ships.get_ship_parts_seen_by(&ship_sets.0),
+                g.ships.get_ship_parts_seen_by(&ship_sets.1),
+            );
+            let ship_sets: (Vec<_>, Vec<_>) = (
+                ship_sets
+                    .0
+                    .iter()
+                    .map(|ship| create_ship_state(ship))
+                    .collect(),
+                ship_sets
+                    .1
+                    .iter()
+                    .map(|ship| create_ship_state(ship))
+                    .collect(),
+            );
+
+            ep.send_message(
+                client_id,
+                status_with_data(
+                    StatusCode::Ok,
+                    ServerStateResponse {
+                        state: Some(get_server_state_for_player(
+                            players,
+                            &g,
+                            ship_sets,
+                            visible_hostile_ships,
+                        )),
+                    }
+                    .into(),
+                ),
+            )
+            .map_err(MessageHandlerError::Network)
         }
         ProtocolMessage::ActionRequest(request) => {
             let action = Action::from((client_id, request));
@@ -494,7 +564,10 @@ fn place_into_team(player_id: ClientId, game: &mut RwLockWriteGuard<Game>) {
     let mut a = game.team_a.clone();
     let mut b = game.team_b.clone();
 
-    let mut teams = [(&mut a, game.team_a_size), (&mut b, game.team_b_size)];
+    let mut teams = [
+        (&mut a, game.config.team_size_a),
+        (&mut b, game.config.team_size_b),
+    ];
     teams.sort_by_key(|(team, _)| team.len());
     if let Some((team, _)) = teams
         .iter_mut()
@@ -513,7 +586,7 @@ fn place_into_team(player_id: ClientId, game: &mut RwLockWriteGuard<Game>) {
     }
 }
 
-async fn broadcast_lobby_change_event(
+fn broadcast_lobby_change_event(
     team_a: impl Iterator<Item = PlayerID>,
     team_b: impl Iterator<Item = PlayerID>,
     players: HashMap<PlayerID, Player>,
@@ -529,7 +602,7 @@ async fn broadcast_lobby_change_event(
     }
 }
 
-async fn broadcast_game_start(
+fn broadcast_game_preparation_start(
     players: Vec<&mut Player>,
     mut quadrants: Vec<(u32, u32)>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
@@ -561,6 +634,115 @@ async fn broadcast_game_start(
     }
 
     Ok(())
+}
+
+fn broadcast_game_start(
+    game: &Game,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+) -> Result<(), MessageHandlerError> {
+    let (team_ships_a, team_ships_b) = get_ships_by_team(game);
+
+    let visible_hostile_ships_a = game.ships.get_ship_parts_seen_by(&team_ships_a);
+    let visible_hostile_ships_b = game.ships.get_ship_parts_seen_by(&team_ships_b);
+
+    let team_ships_a: Vec<_> = team_ships_a
+        .iter()
+        .map(|ship| create_ship_state(ship))
+        .collect();
+    let team_ships_b: Vec<_> = team_ships_b
+        .iter()
+        .map(|ship| create_ship_state(ship))
+        .collect();
+
+    for (&id, player) in game.players.iter() {
+        // This function does not send the messages directly through the endpoint struct.
+        // Instead it queues them in the broadcast channel.
+        // Doing so will ensure that this broadcast will be sent in order with other broadcasts.
+        broadcast_tx
+            .send((
+                vec![id],
+                game_state_for_player(
+                    player,
+                    game,
+                    (team_ships_a.clone(), team_ships_b.clone()),
+                    (
+                        visible_hostile_ships_a.clone(),
+                        visible_hostile_ships_b.clone(),
+                    ),
+                )
+                .into(),
+            ))
+            .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
+    }
+
+    Ok(())
+}
+
+fn get_ships_by_team(game: &Game) -> (Vec<&Ship>, Vec<&Ship>) {
+    game.ships.iter_ships().fold(
+        (Vec::new(), Vec::new()),
+        |(mut team_ships_a, mut team_ships_b), (&ship_id, ship)| {
+            let player_id = ship_id.0;
+            match (
+                game.team_a.contains(&player_id),
+                game.team_b.contains(&player_id),
+            ) {
+                (true, false) => team_ships_a.push(ship),
+                (false, true) => team_ships_b.push(ship),
+                _ => unreachable!(),
+            }
+
+            (team_ships_a, team_ships_b)
+        },
+    )
+}
+
+fn get_server_state_for_player(
+    player: &Player,
+    game: &Game,
+    (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),
+    (visible_hostile_ships_a, visible_hostile_ships_b): (Vec<Coordinate>, Vec<Coordinate>),
+) -> ServerState {
+    let action_points_left = match game.turn {
+        Some(Turn {
+            player_id,
+            action_points_left,
+        }) if player_id == player.id => action_points_left,
+        _ => 0,
+    };
+
+    match (
+        game.team_a.contains(&player.id),
+        game.team_b.contains(&player.id),
+    ) {
+        (true, false) => ServerState {
+            team_ships: team_ships_a,
+            action_points: action_points_left,
+            visible_hostile_ships: visible_hostile_ships_a,
+        },
+        (false, true) => ServerState {
+            team_ships: team_ships_b,
+            action_points: action_points_left,
+            visible_hostile_ships: visible_hostile_ships_b,
+        },
+        _ => unreachable!(),
+    }
+}
+
+fn game_state_for_player(
+    player: &Player,
+    game: &Game,
+    (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),
+    (visible_hostile_ships_a, visible_hostile_ships_b): (Vec<Coordinate>, Vec<Coordinate>),
+) -> GameStart {
+    GameStart {
+        state: Some(get_server_state_for_player(
+            player,
+            game,
+            (team_ships_a, team_ships_b),
+            (visible_hostile_ships_a, visible_hostile_ships_b),
+        )),
+    }
 }
 
 fn build_team_states(
@@ -606,11 +788,19 @@ fn action_validation_error_reply(
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Unreachable =>
                 ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "request target is unreachable".to_string().as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "request target is unreachable"))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::OutOfMap =>
                 ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "request target is out of map".to_string().as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "request target is out of map"))
+                    .map_err(MessageHandlerError::Network),
+            ActionValidationError::InvalidShipPlacement(e) =>
+                ep.send_message(client_id,
+                                status_with_msg(StatusCode::BadRequest, format!("ship placement is invalid: {e}").as_str()))
+                    .map_err(MessageHandlerError::Network),
+            ActionValidationError::NotPlayersTurn =>
+                ep.send_message(client_id,
+                                status_with_msg(StatusCode::InvalidMove, "not your turn"))
                     .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {
@@ -646,6 +836,40 @@ fn status_response(code: StatusCode, message: &str, data: Option<Data>) -> Proto
         data,
     }
     .into()
+}
+
+fn create_ship_state(ship: &Ship) -> ShipState {
+    let player_id = ship.get_player_id();
+    ShipState {
+        ship_type: ship.ship_type() as i32,
+        position: Some(Coordinate {
+            x: ship.position().0 as u32,
+            y: ship.position().1 as u32,
+        }),
+        direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
+        health: ship.data().health,
+        owner_id: player_id,
+        remaining_cooldown_move: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Movement { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+        remaining_cooldown_rotate: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Rotate { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+        remaining_cooldown_shoot: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Cannon { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+        remaining_cooldown_ability: ship
+            .cool_downs()
+            .iter()
+            .find(|cd| matches!(cd, Cooldown::Ability { .. }))
+            .map_or(0, |cd| cd.remaining_rounds()),
+    }
 }
 
 #[derive(Debug)]
