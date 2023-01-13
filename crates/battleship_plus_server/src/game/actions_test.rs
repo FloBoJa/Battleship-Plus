@@ -175,7 +175,7 @@ mod actions_shoot {
     use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player};
+    use crate::game::data::{Game, Player, Turn};
     use crate::game::ship::{Cooldown, GetShipID, Ship, ShipData};
     use crate::game::ship_manager::ShipManager;
 
@@ -239,6 +239,7 @@ mod actions_shoot {
                 ship_target1.clone(),
                 ship_target2.clone(),
             ]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -313,7 +314,6 @@ mod actions_shoot {
     #[tokio::test]
     async fn actions_shoot_action_points() {
         let player = Player {
-            action_points: 5,
             ..Default::default()
         };
         let ship = Ship::Destroyer {
@@ -337,6 +337,7 @@ mod actions_shoot {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship]),
+            turn: Some(Turn::new(player.id, 5)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -353,7 +354,7 @@ mod actions_shoot {
 
         // action points reduced
         {
-            assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
+            assert_eq!(g.turn.as_ref().unwrap().action_points_left, 1);
         }
 
         // deny second shot
@@ -368,14 +369,13 @@ mod actions_shoot {
 
         // board untouched
         {
-            assert_eq!(g.players.get(&player.id).unwrap().action_points, 1);
+            assert_eq!(g.turn.as_ref().unwrap().action_points_left, 1);
         }
     }
 
     #[tokio::test]
     async fn actions_shoot_cooldown() {
         let player = Player {
-            action_points: 5,
             ..Default::default()
         };
         let ship = Ship::Destroyer {
@@ -399,6 +399,7 @@ mod actions_shoot {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 5)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -474,14 +475,13 @@ mod actions_shoot {
 
     #[tokio::test]
     async fn actions_shoot_reject_shot_into_oblivion() {
+        let player = Player {
+            id: 42,
+            ..Default::default()
+        };
         let g = Arc::new(RwLock::new(Game {
-            players: HashMap::from([(
-                42,
-                Player {
-                    id: 42,
-                    ..Default::default()
-                },
-            )]),
+            players: HashMap::from([(player.id, player.clone())]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -517,7 +517,7 @@ mod actions_move {
 
     use crate::config_provider::default_config_provider;
     use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player};
+    use crate::game::data::{Game, Player, Turn};
     use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
     use crate::game::ship_manager::ShipManager;
 
@@ -548,6 +548,7 @@ mod actions_move {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -586,7 +587,6 @@ mod actions_move {
     #[tokio::test]
     async fn actions_move_action_points() {
         let player = Player {
-            action_points: 5,
             ..Default::default()
         };
         let ship = Ship::Destroyer {
@@ -613,6 +613,7 @@ mod actions_move {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 5)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -629,7 +630,7 @@ mod actions_move {
 
         // check action points
         {
-            assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
+            assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
         }
 
@@ -646,7 +647,7 @@ mod actions_move {
         // check board untouched
         {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 1));
-            assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
+            assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
         }
     }
 
@@ -677,6 +678,7 @@ mod actions_move {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -818,6 +820,7 @@ mod actions_move {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship1, ship2]),
+            turn: Some(Turn::new(player.id, 0)),
             config,
             ..Default::default()
         }));
@@ -891,6 +894,7 @@ mod actions_move {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship1.clone(), ship2.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -923,7 +927,7 @@ mod actions_rotate {
     use battleship_plus_common::types::*;
 
     use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player};
+    use crate::game::data::{Game, Player, Turn};
     use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
     use crate::game::ship_manager::ShipManager;
 
@@ -954,6 +958,7 @@ mod actions_rotate {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let g = g.write().await;
@@ -1018,7 +1023,6 @@ mod actions_rotate {
     #[tokio::test]
     async fn actions_rotate_action_points() {
         let player = Player {
-            action_points: 5,
             ..Default::default()
         };
         let ship = Ship::Destroyer {
@@ -1045,6 +1049,7 @@ mod actions_rotate {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 5)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -1061,7 +1066,7 @@ mod actions_rotate {
 
         // check action points
         {
-            assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
+            assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
                 Orientation::East
@@ -1086,7 +1091,7 @@ mod actions_rotate {
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
                 Orientation::East
             );
-            assert_eq!(g.players.get(&player.id).unwrap().action_points, 2);
+            assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
         }
     }
 
@@ -1117,6 +1122,7 @@ mod actions_rotate {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -1244,6 +1250,7 @@ mod actions_rotate {
             players: HashMap::from([(player.id, player.clone())]),
             team_a: HashSet::from([player.id]),
             ships: ShipManager::new_with_ships(vec![ship]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;
@@ -1330,6 +1337,7 @@ mod actions_rotate {
                 ship_to_be_destroyed.clone(),
                 ship_to_stay_intact.clone(),
             ]),
+            turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
         let mut g = g.write().await;

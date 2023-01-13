@@ -25,7 +25,7 @@ use bevy_quinnet::shared::{ClientId, QuinnetError};
 
 use crate::config_provider::ConfigProvider;
 use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-use crate::game::data::{Game, Player, PlayerID};
+use crate::game::data::{Game, Player, PlayerID, Turn};
 use crate::game::ship::{Cooldown, Orientation, Ship};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
@@ -364,7 +364,6 @@ async fn handle_message(
                 Player {
                     id: client_id,
                     name: props.username.clone(),
-                    action_points: 0,
                     is_ready: false,
                     quadrant: None,
                 },
@@ -659,18 +658,26 @@ fn get_server_state_for_player(
     (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),
     (visible_hostile_ships_a, visible_hostile_ships_b): (Vec<Coordinate>, Vec<Coordinate>),
 ) -> ServerState {
+    let action_points_left = match game.turn {
+        Some(Turn {
+            player_id,
+            action_points_left,
+        }) if player_id == player.id => action_points_left,
+        _ => 0,
+    };
+
     match (
         game.team_a.contains(&player.id),
         game.team_b.contains(&player.id),
     ) {
         (true, false) => ServerState {
             team_ships: team_ships_a,
-            action_points: player.action_points,
+            action_points: action_points_left,
             visible_hostile_ships: visible_hostile_ships_a,
         },
         (false, true) => ServerState {
             team_ships: team_ships_b,
-            action_points: player.action_points,
+            action_points: action_points_left,
             visible_hostile_ships: visible_hostile_ships_b,
         },
         _ => unreachable!(),
@@ -745,6 +752,10 @@ fn action_validation_error_reply(
             ActionValidationError::InvalidShipPlacement(e) =>
                 ep.send_message(client_id,
                                 status_with_msg(StatusCode::BadRequest, format!("ship placement is invalid: {e}").as_str()))
+                    .map_err(MessageHandlerError::Network),
+            ActionValidationError::NotPlayersTurn =>
+                ep.send_message(client_id,
+                                status_with_msg(StatusCode::InvalidMove, format!("not your turn").as_str()))
                     .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {
