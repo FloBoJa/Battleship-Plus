@@ -1,0 +1,19 @@
+[package]
+name = "bevy_quinnet_common"
+version = "0.2.0-custom"
+description = "Bevy plugin for Client/Server multiplayer games using QUIC"
+repository = "https://github.com/Henauxg/bevy_quinnet"
+documentation = "https://docs.rs/bevy_quinnet"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+keywords = ["gamedev", "networking", "quic", "bevy", "plugin"]
+categories = ["game-development", "network-programming"]
+readme = "README.md"
+exclude = ["assets/"]
+
+[dependencies]
+base64 = "0.21.0"
+rcgen = "0.10.0"
+rustls = { version = "0.20.6", default-features = false, features = ["quic", "dangerous_configuration"] }
+ring = "0.16.20"
+thiserror = "1.0.37"

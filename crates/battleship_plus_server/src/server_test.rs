@@ -18,7 +18,6 @@ use battleship_plus_common::messages::{
     TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Coordinate, PlayerLobbyState};
-use bevy_quinnet::client::certificate::SkipServerVerification;
 
 use crate::config_provider::{default_config_provider, ConfigProvider};
 use crate::game::data::PlayerID;
@@ -298,6 +297,30 @@ impl Client {
                 .expect("unable to receive ProtocolMessage")
                 .expect("unable to receive ProtocolMessage"),
         }
+    }
+}
+
+/// Implementation of `ServerCertVerifier` that verifies everything as trustworthy.
+/// Taken from `bevy_quinnet_client`
+pub struct SkipServerVerification;
+
+impl SkipServerVerification {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self)
+    }
+}
+
+impl rustls::client::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
     }
 }
 
