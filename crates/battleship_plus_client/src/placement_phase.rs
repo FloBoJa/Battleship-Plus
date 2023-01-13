@@ -3,6 +3,12 @@ use rstar::AABB;
 
 use battleship_plus_common::{types, util};
 
+pub struct PlacementPhasePlugin;
+
+impl Plugin for PlacementPhasePlugin {
+    fn build(&self, _app: &mut App) {}
+}
+
 #[derive(Resource, Deref)]
 pub struct Quadrant(AABB<[i32; 2]>);
 
