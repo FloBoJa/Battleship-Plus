@@ -258,10 +258,10 @@ fn process_lobby_events(
                     let server_information = servers
                         .get_component::<ServerInformation>(**current_server)
                         .expect("");
-                    let config = match &server_information.config {
-                        Some(config) => config,
-                        None => todo!("Wait for the config to arrive"),
-                    };
+                    let config = server_information
+                        .config
+                        .as_ref()
+                        .expect("Servers without config cannot be joined");
                     commands.insert_resource(placement_phase::Quadrant::new(
                         corner.to_owned(),
                         config.board_size,

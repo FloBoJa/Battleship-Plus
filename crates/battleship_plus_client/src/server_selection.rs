@@ -213,6 +213,8 @@ fn draw_server_list_row(
         ) = server_information.security
         {
             enabled = false;
+        } else if server_information.config.is_none() {
+            enabled = false;
         }
         let join_button = ui.add_enabled(enabled, egui::Button::new("Join"));
         if join_button.clicked() {
