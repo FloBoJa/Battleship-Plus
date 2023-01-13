@@ -1,3 +1,4 @@
+use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -185,18 +186,24 @@ impl Game {
             return Err(ShipPlacementError::PlayerHasAlreadyPlacedShips);
         }
 
+        let assignments: HashMap<u32, ShipAssignment, RandomState> = HashMap::from_iter(
+            assignments
+                .iter()
+                .map(|assignment| (assignment.ship_number, assignment.clone())),
+        );
+
         if assignments.len() != ship_set.len() {
             return Err(ShipPlacementError::InvalidShipSet);
         }
 
         let mut ship_manager = ShipManager::new();
-        for assignment in assignments {
-            let ship_id: ShipID = (player_id, assignment.ship_number);
-            if assignment.ship_number >= ship_set.len() as u32 {
+        for (ship_number, assignment) in assignments {
+            let ship_id: ShipID = (player_id, ship_number);
+            if ship_number >= ship_set.len() as u32 {
                 return Err(ShipPlacementError::InvalidShipNumber);
             }
 
-            let ship_type = match ShipType::from_i32(ship_set[assignment.ship_number as usize]) {
+            let ship_type = match ShipType::from_i32(ship_set[ship_number as usize]) {
                 None => return Err(ShipPlacementError::InvalidShipType),
                 Some(t) => t,
             };
