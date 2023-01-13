@@ -4,6 +4,7 @@ use bevy::{
     window::PresentMode,
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_mod_picking::{DefaultPickingPlugins, PickingCameraBundle};
 use iyes_loopless::prelude::*;
 
 mod game_state;
@@ -31,6 +32,7 @@ fn main() {
         }))
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(WorldInspectorPlugin::default())
+        .add_plugins(DefaultPickingPlugins)
         .add_loopless_state(GameState::Unconnected)
         .add_plugin(networking::NetworkingPlugin)
         .add_plugin(server_selection::ServerSelectionPlugin)
@@ -48,13 +50,15 @@ fn main() {
 struct FpsText;
 
 fn camera_setup(mut commands: Commands) {
-    commands.spawn(Camera3dBundle {
-        projection: Projection::Orthographic(OrthographicProjection::default()),
-        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0))
-            .with_scale(Vec3::from(Vec3::new(0.5, 0.5, 1.0)))
-            .looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    commands
+        .spawn(Camera3dBundle {
+            projection: Projection::Orthographic(OrthographicProjection::default()),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0))
+                .with_scale(Vec3::from(Vec3::new(0.5, 0.5, 1.0)))
+                .looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        })
+        .insert(PickingCameraBundle::default());
 }
 
 fn fps_counter(mut commands: Commands, asset_server: Res<AssetServer>) {
