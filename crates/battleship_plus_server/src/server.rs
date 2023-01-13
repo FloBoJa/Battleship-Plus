@@ -755,7 +755,7 @@ fn action_validation_error_reply(
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::NotPlayersTurn =>
                 ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, format!("not your turn").as_str()))
+                                status_with_msg(StatusCode::InvalidMove, "not your turn"))
                     .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {

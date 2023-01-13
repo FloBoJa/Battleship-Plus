@@ -504,6 +504,99 @@ mod actions_shoot {
             ActionExecutionError::Validation(ActionValidationError::OutOfMap)
         ));
     }
+
+    #[tokio::test]
+    async fn actions_shoot_not_players_turn() {
+        let player = Player::default();
+        let ship_src = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    shoot_damage: 10,
+                    shoot_range: 128,
+                    shoot_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: Default::default(),
+            cool_downs: Default::default(),
+        };
+        let ship_target1 = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    ..ship_src.common_balancing()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                id: (2, 2),
+                health: 10,
+                pos_x: 5,
+                pos_y: 5,
+                ..ship_src.data()
+            },
+            cool_downs: Default::default(),
+        };
+        let ship_target2 = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    ..ship_src.common_balancing()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                id: (2, 3),
+                health: 11,
+                pos_x: 10,
+                pos_y: 10,
+                ..ship_src.data()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: ShipManager::new_with_ships(vec![
+                ship_src.clone(),
+                ship_target1.clone(),
+                ship_target2.clone(),
+            ]),
+            turn: Some(Turn::new(player.id + 1, 0)),
+            ..Default::default()
+        }));
+        let mut g = g.write().await;
+
+        // shoot ship_target1
+        assert!(Action::Shoot {
+            ship_id: (player.id, 0),
+            properties: ShootProperties {
+                target: Some(Coordinate {
+                    x: ship_target1.data().pos_x as u32,
+                    y: ship_target1.data().pos_y as u32,
+                }),
+            },
+        }
+        .apply_on(&mut g)
+        .is_err());
+
+        // check ship_target1 and ship_target2 untouched
+        {
+            assert!(g.ships.get_by_id(&ship_target1.id()).is_some());
+            assert_eq!(
+                g.ships.get_by_id(&ship_target1.id()).unwrap().data().health,
+                10
+            );
+            assert!(g.ships.get_by_id(&ship_target2.id()).is_some());
+            assert_eq!(
+                g.ships.get_by_id(&ship_target2.id()).unwrap().data().health,
+                11
+            );
+        }
+    }
 }
 
 //noinspection DuplicatedCode
@@ -913,6 +1006,54 @@ mod actions_move {
         {
             assert!(g.ships.get_by_id(&ship1.id()).is_none());
             assert!(g.ships.get_by_id(&ship2.id()).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_move_not_players_turn() {
+        let player = Player::default();
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 0,
+                pos_y: 0,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id + 1, 0)),
+            ..Default::default()
+        }));
+        let mut g = g.write().await;
+
+        // move ship forward
+        assert!(Action::Move {
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(&mut g)
+        .is_err());
+
+        // check ship's position
+        {
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0))
         }
     }
 }
@@ -1358,6 +1499,54 @@ mod actions_rotate {
             assert!(g.ships.get_by_id(&ship_to_be_destroyed.id()).is_none());
             assert!(g.ships.get_by_id(&ship_to_stay_intact.id()).is_some());
         }
+    }
+
+    #[tokio::test]
+    async fn actions_rotate_not_players_turn() {
+        let player = Player::default();
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                pos_x: 10,
+                pos_y: 10,
+                orientation: Orientation::South,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: ShipManager::new_with_ships(vec![ship.clone()]),
+            turn: Some(Turn::new(player.id + 1, 0)),
+            ..Default::default()
+        }));
+        let mut g = g.write().await;
+
+        assert!(Action::Rotate {
+            ship_id: (player.id, 0),
+            properties: RotateProperties {
+                direction: i32::from(RotateDirection::Clockwise),
+            },
+        }
+        .apply_on(&mut g)
+        .is_err());
+
+        // check for no rotation
+        assert_eq!(
+            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            Orientation::South
+        );
     }
 }
 

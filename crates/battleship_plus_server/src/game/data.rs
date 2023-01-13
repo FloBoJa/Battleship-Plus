@@ -157,7 +157,7 @@ impl Game {
     pub(crate) fn validate_placement_request(
         &self,
         player_id: PlayerID,
-        assignments: &Vec<ShipAssignment>,
+        assignments: &[ShipAssignment],
     ) -> Result<HashMap<ShipID, Ship>, ShipPlacementError> {
         let ship_set = match (
             self.team_a.contains(&player_id),

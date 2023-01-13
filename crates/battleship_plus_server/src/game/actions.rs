@@ -146,6 +146,7 @@ impl Action {
             } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
                 let player = game.players.get(&player_id).unwrap().clone();
@@ -175,6 +176,7 @@ impl Action {
             } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
 
                 let board_bounds = game.board_bounds();
                 let player = game.players.get(&player_id).unwrap().clone();
@@ -204,6 +206,7 @@ impl Action {
             } => {
                 let player_id = ship_id.0;
                 check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
 
                 let target = [
                     properties.target.as_ref().unwrap().x as i32,
