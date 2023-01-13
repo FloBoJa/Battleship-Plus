@@ -13,8 +13,8 @@ use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
-    ServerConfigResponse, SetReadyStateRequest, SetReadyStateResponse, StatusCode, StatusMessage,
-    TeamSwitchResponse,
+    ServerConfigResponse, ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse,
+    StatusCode, StatusMessage, TeamSwitchResponse,
 };
 use battleship_plus_common::types::{
     Config, Coordinate, Direction, PlayerLobbyState, ServerState, ShipState,
@@ -477,8 +477,53 @@ async fn handle_message(
 
         // game
         ProtocolMessage::ServerStateRequest(_) => {
-            // TODO: ServerStateRequest
-            todo!()
+            let g = game.read().await;
+            let players = match g.players.get(&client_id) {
+                Some(p) => p,
+                None => {
+                    return ep
+                        .send_message(
+                            client_id,
+                            status_with_msg(StatusCode::BadRequest, "not joined"),
+                        )
+                        .map_err(MessageHandlerError::Network);
+                }
+            };
+
+            let ship_sets = get_ships_by_team(&g);
+            let visible_hostile_ships = (
+                g.ships.get_ship_parts_seen_by(&ship_sets.0),
+                g.ships.get_ship_parts_seen_by(&ship_sets.1),
+            );
+            let ship_sets: (Vec<_>, Vec<_>) = (
+                ship_sets
+                    .0
+                    .iter()
+                    .map(|ship| create_ship_state(ship))
+                    .collect(),
+                ship_sets
+                    .1
+                    .iter()
+                    .map(|ship| create_ship_state(ship))
+                    .collect(),
+            );
+
+            ep.send_message(
+                client_id,
+                status_with_data(
+                    StatusCode::Ok,
+                    ServerStateResponse {
+                        state: Some(get_server_state_for_player(
+                            players,
+                            &g,
+                            ship_sets,
+                            visible_hostile_ships,
+                        )),
+                    }
+                    .into(),
+                ),
+            )
+            .map_err(MessageHandlerError::Network)
         }
         ProtocolMessage::ActionRequest(request) => {
             let action = Action::from((client_id, request));
