@@ -21,3 +21,11 @@ target/
 **/certificate6.pem
 **/key4.pem
 **/key6.pem
+
+# git
+**/.git
+**/.github
+**/.run
+
+
+tools
