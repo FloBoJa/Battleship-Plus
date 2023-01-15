@@ -340,11 +340,6 @@ impl Server {
             server_crypto.alpn_protocols.push(alpn.into_bytes());
         }
 
-        //let mut server_config = ServerConfig::with_single_cert(
-        //    server_cert.cert_chain.clone(),
-        //    server_cert.priv_key.clone(),
-        //)?;
-
         let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
 
         Arc::get_mut(&mut server_config.transport)
