@@ -18,6 +18,7 @@ use battleship_plus_common::messages::{
     TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Coordinate, PlayerLobbyState};
+use battleship_plus_common::{protocol_name, protocol_name_with_version};
 
 use crate::config_provider::{default_config_provider, ConfigProvider};
 use crate::game::data::PlayerID;
@@ -337,12 +338,18 @@ async fn lobby_e2e() {
     let client_count: usize =
         (cfg.game_config().team_size_a + cfg.game_config().team_size_a) as usize;
 
-    let client_config = Arc::new(
-        rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(SkipServerVerification::new())
-            .with_no_client_auth(),
-    );
+    let mut client_config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_no_client_auth();
+    client_config
+        .alpn_protocols
+        .push(protocol_name_with_version().into_bytes());
+    client_config
+        .alpn_protocols
+        .push(protocol_name().into_bytes());
+
+    let client_config = Arc::new(client_config);
 
     // create clients and connect to socket
     let mut clients = Vec::with_capacity(client_count);
