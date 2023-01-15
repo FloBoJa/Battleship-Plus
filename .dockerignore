@@ -12,6 +12,7 @@ target/
 
 # Logged TLS keys
 **/tls.keylog
+**/server_tls.keylog
 
 # bevy_quinnet known_hosts
 **/quinnet/known_hosts
@@ -20,3 +21,11 @@ target/
 **/certificate6.pem
 **/key4.pem
 **/key6.pem
+
+# git
+**/.git
+**/.github
+**/.run
+
+
+tools
