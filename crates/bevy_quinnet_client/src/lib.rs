@@ -22,7 +22,7 @@ use rustls::KeyLogFile;
 use serde::Deserialize;
 use tokio::runtime::Runtime;
 #[cfg(not(feature = "bevy"))]
-use tokio::sync::broadcast::{error::SendError, Sender};
+use tokio::sync::broadcast::error::SendError;
 use tokio::{
     runtime,
     sync::{
@@ -37,16 +37,16 @@ use tokio::{
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::{codec::BattleshipPlusCodec, messages::ProtocolMessage};
-
 pub use bevy_quinnet_common::{ConnectionId, QuinnetError};
 use bevy_quinnet_common::{DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
 
-pub mod certificate;
 use self::certificate::{
     load_known_hosts_store_from_config, CertConnectionAbortEvent, CertInteractionEvent,
     CertTrustUpdateEvent, CertVerificationInfo, CertVerificationStatus, CertVerifierAction,
     CertificateVerificationMode, SkipServerVerification, TofuServerVerification,
 };
+
+pub mod certificate;
 
 pub const DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE: usize = 100;
 
@@ -493,9 +493,10 @@ fn configure_client(
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(SkipServerVerification::new())
                 .with_no_client_auth();
-            if cfg!(debug_assertions) {
-                crypto.key_log = Arc::new(KeyLogFile::new());
+            if let Some(file) = option_env!("SSLKEYLOGFILE") {
+                warn!("SSL Key log file is active: {file}");
             }
+            crypto.key_log = Arc::new(KeyLogFile::new());
 
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
@@ -545,9 +546,10 @@ fn configure_client(
                     store_file,
                 ))
                 .with_no_client_auth();
-            if cfg!(debug_assertions) {
-                crypto.key_log = Arc::new(KeyLogFile::new());
+            if let Some(file) = option_env!("SSLKEYLOGFILE") {
+                warn!("SSL Key log file is active: {file}");
             }
+            crypto.key_log = Arc::new(KeyLogFile::new());
 
             Ok(ClientConfig::new(Arc::new(crypto)))
         }
