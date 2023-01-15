@@ -28,13 +28,12 @@ use battleship_plus_common::{
     codec::{BattleshipPlusCodec, CodecError},
     messages::ProtocolMessage,
 };
-
+pub use bevy_quinnet_common::{ClientId, QuinnetError};
 use bevy_quinnet_common::{DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
 
-pub use bevy_quinnet_common::{ClientId, QuinnetError};
+use self::certificate::{retrieve_certificate, CertificateRetrievalMode, ServerCertificate};
 
 pub mod certificate;
-use self::certificate::{retrieve_certificate, CertificateRetrievalMode, ServerCertificate};
 
 pub const DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE: usize = 100;
 
@@ -309,6 +308,16 @@ impl Server {
         config: ServerConfigurationData,
         cert_mode: CertificateRetrievalMode,
     ) -> Result<ServerCertificate, QuinnetError> {
+        self.start_endpoint_with_alpn(config, cert_mode, Vec::with_capacity(0))
+    }
+
+    /// Run the server with the given [ServerConfigurationData] and [CertificateRetrievalMode]
+    pub fn start_endpoint_with_alpn(
+        &mut self,
+        config: ServerConfigurationData,
+        cert_mode: CertificateRetrievalMode,
+        alpns: Vec<String>,
+    ) -> Result<ServerCertificate, QuinnetError> {
         let server_adr_str = format!("{}:{}", config.local_bind_host, config.port);
         let server_addr = server_adr_str
             .to_socket_addrs()?
@@ -317,10 +326,27 @@ impl Server {
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
-        let mut server_config = ServerConfig::with_single_cert(
-            server_cert.cert_chain.clone(),
-            server_cert.priv_key.clone(),
-        )?;
+
+        let mut server_crypto = rustls::ServerConfig::builder()
+            .with_safe_default_cipher_suites()
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())?;
+        server_crypto.max_early_data_size = u32::MAX;
+
+        for alpn in alpns {
+            server_crypto.alpn_protocols.push(alpn.into_bytes());
+        }
+
+        //let mut server_config = ServerConfig::with_single_cert(
+        //    server_cert.cert_chain.clone(),
+        //    server_cert.priv_key.clone(),
+        //)?;
+
+        let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
             .max_idle_timeout(Duration::from_secs(60).try_into().ok());
