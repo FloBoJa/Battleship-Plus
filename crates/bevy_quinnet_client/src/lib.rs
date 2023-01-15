@@ -494,19 +494,12 @@ fn configure_client(
 ) -> Result<ClientConfig, Box<dyn Error>> {
     match cert_mode {
         CertificateVerificationMode::SkipVerification => {
-            let mut crypto = rustls::ClientConfig::builder()
+            let crypto = rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(SkipServerVerification::new())
                 .with_no_client_auth();
-            for alpn in alpns {
-                crypto.alpn_protocols.push(alpn.into_bytes());
-            }
-            if let Some(file) = option_env!("SSLKEYLOGFILE") {
-                warn!("SSL Key log file is active: {file}");
-            }
-            crypto.key_log = Arc::new(KeyLogFile::new());
 
-            Ok(ClientConfig::new(Arc::new(crypto)))
+            Ok(crypto)
         }
         CertificateVerificationMode::SignedByCertificateAuthority => {
             // Taken from quinn::ClientConfig::with_native_roots()
@@ -537,15 +530,11 @@ fn configure_client(
             // ^^^
             // Taken from quinn::ClientConfig::with_native_roots()
 
-            if cfg!(debug_assertions) {
-                crypto.key_log = Arc::new(KeyLogFile::new());
-            }
-
-            Ok(ClientConfig::new(Arc::new(crypto)))
+            Ok(crypto)
         }
         CertificateVerificationMode::TrustOnFirstUse(config) => {
             let (store, store_file) = load_known_hosts_store_from_config(config.known_hosts)?;
-            let mut crypto = rustls::ClientConfig::builder()
+            let crypto = rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(TofuServerVerification::new(
                     store,
@@ -554,15 +543,20 @@ fn configure_client(
                     store_file,
                 ))
                 .with_no_client_auth();
-            if let Some(file) = option_env!("SSLKEYLOGFILE") {
-                warn!("SSL Key log file is active: {file}");
-            }
-            crypto.key_log = Arc::new(KeyLogFile::new());
 
-            Ok(ClientConfig::new(Arc::new(crypto)))
+            Ok(crypto)
         }
     }
-    .map(|mut config| {
+    .map(|mut crypto| {
+        for alpn in alpns {
+            crypto.alpn_protocols.push(alpn.into_bytes());
+        }
+        if let Some(file) = option_env!("SSLKEYLOGFILE") {
+            warn!("SSL Key log file is active: {file}");
+        }
+        crypto.key_log = Arc::new(KeyLogFile::new());
+
+        let mut config = ClientConfig::new(Arc::new(crypto));
         let mut transport_config = quinn::TransportConfig::default();
         transport_config.max_idle_timeout(None);
         transport_config.keep_alive_interval(Some(core::time::Duration::from_secs(30)));
