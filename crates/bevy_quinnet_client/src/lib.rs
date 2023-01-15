@@ -307,6 +307,7 @@ impl Client {
         &mut self,
         config: ConnectionConfiguration,
         cert_mode: CertificateVerificationMode,
+        alpns: Vec<String>,
     ) -> ConnectionId {
         let (from_server_sender, from_server_receiver) =
             mpsc::channel::<Option<ProtocolMessage>>(DEFAULT_MESSAGE_QUEUE_SIZE);
@@ -330,15 +331,18 @@ impl Client {
 
         // Async connection
         self.runtime.spawn(async move {
-            connection_task(ConnectionSpawnConfig {
-                connection_config: config,
-                cert_mode,
-                to_sync_client,
-                close_sender,
-                close_receiver,
-                to_server_receiver,
-                from_server_sender,
-            })
+            connection_task(
+                ConnectionSpawnConfig {
+                    connection_config: config,
+                    cert_mode,
+                    to_sync_client,
+                    close_sender,
+                    close_receiver,
+                    to_server_receiver,
+                    from_server_sender,
+                },
+                alpns,
+            )
             .await
         });
 
@@ -486,6 +490,7 @@ impl Client {
 fn configure_client(
     cert_mode: CertificateVerificationMode,
     to_sync_client: mpsc::Sender<InternalAsyncMessage>,
+    alpns: Vec<String>,
 ) -> Result<ClientConfig, Box<dyn Error>> {
     match cert_mode {
         CertificateVerificationMode::SkipVerification => {
@@ -493,6 +498,9 @@ fn configure_client(
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(SkipServerVerification::new())
                 .with_no_client_auth();
+            for alpn in alpns {
+                crypto.alpn_protocols.push(alpn.into_bytes());
+            }
             if let Some(file) = option_env!("SSLKEYLOGFILE") {
                 warn!("SSL Key log file is active: {file}");
             }
@@ -563,7 +571,7 @@ fn configure_client(
     })
 }
 
-async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
+async fn connection_task(mut spawn_config: ConnectionSpawnConfig, alpns: Vec<String>) {
     let config = spawn_config.connection_config;
     let server_adr_str = format!("{}:{}", config.server_host, config.server_port);
     let srv_host = config.server_host.clone();
@@ -607,9 +615,12 @@ async fn connection_task(mut spawn_config: ConnectionSpawnConfig) {
             }
         };
 
-    let configuration_result =
-        configure_client(spawn_config.cert_mode, spawn_config.to_sync_client.clone())
-            .map_err(|x| format!("{x}"));
+    let configuration_result = configure_client(
+        spawn_config.cert_mode,
+        spawn_config.to_sync_client.clone(),
+        alpns,
+    )
+    .map_err(|x| format!("{x}"));
     let client_cfg = match configuration_result {
         Ok(client_cfg) => client_cfg,
         Err(error) => {
