@@ -19,6 +19,7 @@ use battleship_plus_common::messages::{
 use battleship_plus_common::types::{
     Config, Coordinate, Direction, PlayerLobbyState, ServerState, ShipState,
 };
+use battleship_plus_common::{protocol_name, protocol_name_with_version};
 use bevy_quinnet_server::certificate::CertificateRetrievalMode;
 use bevy_quinnet_server::{
     ClientId, Endpoint, EndpointEvent, QuinnetError, Server, ServerConfigurationData,
@@ -48,6 +49,15 @@ pub async fn server_task(
 ) {
     let mut stop = upgrade_oneshot(stop);
 
+    let alpns = vec![
+        protocol_name_with_version(),
+        protocol_name(),
+        "http/0.9".to_string(), // keep to maximize compatibility
+        "http/1.0".to_string(), // keep to maximize compatibility
+        "http/1.1".to_string(), // keep to maximize compatibility
+        "http/3".to_string(),   // keep to maximize compatibility
+    ];
+
     let addr6 = cfg.server_config().game_address_v6;
     let addr4 = cfg.server_config().game_address_v4;
     let ascii_host = match cfg.server_config().server_domain {
@@ -61,7 +71,7 @@ pub async fn server_task(
     };
 
     let mut server6 = Server::new_standalone();
-    let server6 = match server6.start_endpoint(
+    let server6 = match server6.start_endpoint_with_alpn(
         ServerConfigurationData::new(
             ascii_host.clone(),
             addr6.port(),
@@ -72,6 +82,7 @@ pub async fn server_task(
             key_file: "./key6.pem".to_string(),
             save_on_disk: true,
         },
+        alpns.clone(),
     ) {
         Ok(_) => Some(Arc::new(RwLock::new(server6))),
         Err(e) => {
@@ -95,7 +106,7 @@ pub async fn server_task(
             server4 = None;
         } else {
             let mut s4 = Server::new_standalone();
-            server4 = match s4.start_endpoint(
+            server4 = match s4.start_endpoint_with_alpn(
                 ServerConfigurationData::new(
                     ascii_host.clone(),
                     addr4.port(),
@@ -106,6 +117,7 @@ pub async fn server_task(
                     key_file: "./key4.pem".to_string(),
                     save_on_disk: true,
                 },
+                alpns.clone(),
             ) {
                 Ok(_) => Some(Arc::new(RwLock::new(s4))),
                 Err(e) => {

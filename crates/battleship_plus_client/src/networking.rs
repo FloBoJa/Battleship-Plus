@@ -16,7 +16,7 @@ use tokio_util::codec::Decoder;
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
     messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement, StatusCode},
-    types,
+    protocol_name, protocol_name_with_version, types,
 };
 use bevy_quinnet_client::{
     certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
@@ -246,6 +246,7 @@ impl ServerInformation {
         let connection_id = client.open_connection(
             connection_configuration,
             self.security.get_verification_mode(),
+            vec![protocol_name_with_version(), protocol_name()],
         );
 
         commands
