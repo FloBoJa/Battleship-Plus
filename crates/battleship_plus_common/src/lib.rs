@@ -6,17 +6,19 @@ pub mod types {
 
 #[allow(clippy::large_enum_variant)]
 pub mod messages {
+    pub use prost::Message;
+
     pub use crate::messages::packet_payload::EventMessage;
     pub use crate::messages::packet_payload::ProtocolMessage;
-    pub use prost::Message;
 
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.messages.rs"));
 }
 
 pub mod codec {
+    use std::fmt::{Display, Formatter};
+
     use bytes::{Buf, BufMut, BytesMut};
     use prost::Message;
-    use std::fmt::{Display, Formatter};
     use tokio_util::codec::{Decoder, Encoder};
 
     use crate::messages;
@@ -216,4 +218,12 @@ pub mod codec {
 
         assert_eq!(expected_message, decoded_message);
     }
+}
+
+pub fn protocol_name_with_version() -> String {
+    format!("{}/{PROTOCOL_VERSION}", protocol_name())
+}
+
+pub fn protocol_name() -> String {
+    String::from("bs_plus")
 }

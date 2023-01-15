@@ -12,6 +12,7 @@ target/
 
 # Logged TLS keys
 **/tls.keylog
+**/server_tls.keylog
 
 # bevy_quinnet known_hosts
 **/quinnet/known_hosts
