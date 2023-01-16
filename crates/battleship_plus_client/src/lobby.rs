@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
-use bevy_quinnet::client::Client;
+use bevy_quinnet_client::Client;
 use egui::Color32;
 use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
@@ -24,7 +24,6 @@ impl Plugin for LobbyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LobbyState>()
             .init_resource::<RequestState>()
-            .init_resource::<Readiness>()
             .add_system(draw_lobby_screen.run_in_state(GameState::Lobby))
             .add_system(process_lobby_events.run_in_state(GameState::Lobby))
             .add_system(process_responses.run_in_state(GameState::Lobby))
@@ -151,13 +150,9 @@ impl LobbyState {
     }
 }
 
-#[derive(Resource, Deref, Default)]
-pub struct Readiness(bool);
-
 #[derive(Resource, Default)]
 struct RequestState {
     readiness_change_requested: bool,
-    requested_readiness: bool,
     team_switch_requested: bool,
 }
 
@@ -166,7 +161,6 @@ fn draw_lobby_screen(
     mut egui_context: ResMut<EguiContext>,
     mut request_state: ResMut<RequestState>,
     lobby_state: Res<LobbyState>,
-    readiness: Res<Readiness>,
     player_id: Res<PlayerId>,
     mut client: ResMut<Client>,
 ) {
@@ -186,7 +180,8 @@ fn draw_lobby_screen(
                 let enabled = !request_state.readiness_change_requested;
                 let mut readiness_button_text = egui::text::LayoutJob::default();
                 readiness_button_text.append("Ready: ", 0.0, egui::text::TextFormat::default());
-                if readiness.0 {
+                let current_readiness = get_readiness_from_event(&lobby_state, **player_id);
+                if current_readiness {
                     let format = egui::text::TextFormat {
                         color: Color32::GREEN,
                         ..default()
@@ -202,15 +197,15 @@ fn draw_lobby_screen(
                 let readiness_button =
                     ui.add_enabled(enabled, egui::Button::new(readiness_button_text));
                 if readiness_button.clicked() {
-                    let ready_state = !readiness.0;
-                    request_state.requested_readiness = ready_state;
-
                     let connection = client
                         .get_connection()
                         .expect("There must be a connection in the Lobby state");
-                    if let Err(error) = connection
-                        .send_message(messages::SetReadyStateRequest { ready_state }.into())
-                    {
+                    if let Err(error) = connection.send_message(
+                        messages::SetReadyStateRequest {
+                            ready_state: !current_readiness,
+                        }
+                        .into(),
+                    ) {
                         error!("Could not send SetReadyStateRequest: {error}, disonnecting");
                         commands.insert_resource(NextState(GameState::Unconnected));
                     } else {
@@ -235,22 +230,13 @@ fn draw_lobby_screen(
 fn process_lobby_events(
     mut commands: Commands,
     mut events: EventReader<messages::EventMessage>,
-    (lobby_state, request_state): (Res<LobbyState>, Res<RequestState>),
-    mut readiness: ResMut<Readiness>,
-    player_id: Res<PlayerId>,
+    lobby_state: Res<LobbyState>,
     servers: Query<Entity, &ServerInformation>,
     current_server: Res<CurrentServer>,
 ) {
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
-                let server_readiness = get_readiness_from_event(lobby_state, **player_id);
-                if request_state.readiness_change_requested
-                    && request_state.requested_readiness == server_readiness
-                {
-                    trace!("Received lobby update containing requested readiness before SetReadyStateResponse, setting it early.");
-                    readiness.0 = server_readiness;
-                }
                 commands.insert_resource(LobbyState(lobby_state.to_owned()));
             }
             messages::EventMessage::PlacementPhase(message) => {
@@ -291,15 +277,13 @@ fn get_readiness_from_event(lobby_state: &messages::LobbyChangeEvent, player_id:
             .iter()
             .find(|player_state| player_state.player_id == player_id);
     }
-    let player_state = player_state.expect("Player must be in one of the teams");
-    player_state.ready
+    player_state.map_or_else(|| false, |player_state| player_state.ready)
 }
 
 fn process_responses(
     mut commands: Commands,
     mut events: EventReader<networking::ResponseReceivedEvent>,
     mut request_state: ResMut<RequestState>,
-    mut readiness: ResMut<Readiness>,
 ) {
     for networking::ResponseReceivedEvent(messages::StatusMessage {
         code,
@@ -311,7 +295,7 @@ fn process_responses(
         let code = StatusCode::from_i32(*code);
         match code {
             Some(StatusCode::Ok) => {
-                process_response_data(data, message, &mut request_state, &mut readiness);
+                process_response_data(data, message, &mut request_state);
             }
             Some(StatusCode::OkWithWarning) => {
                 if message.is_empty() {
@@ -319,7 +303,7 @@ fn process_responses(
                 } else {
                     warn!("Received OK response with warning: {message}");
                 }
-                process_response_data(data, message, &mut request_state, &mut readiness);
+                process_response_data(data, message, &mut request_state);
             }
             Some(StatusCode::ServerError) => {
                 if message.is_empty() {
@@ -360,13 +344,11 @@ fn process_response_data(
     data: &Option<messages::status_message::Data>,
     message: &str,
     request_state: &mut ResMut<RequestState>,
-    readiness: &mut ResMut<Readiness>,
 ) {
     match data {
         Some(messages::status_message::Data::SetReadyStateResponse(_)) => {
             if request_state.readiness_change_requested {
                 debug!("Readiness change successful");
-                readiness.0 = request_state.requested_readiness;
                 request_state.readiness_change_requested = false;
             } else {
                 warn!("Received unexpected SetReadyStateResponse");
@@ -376,8 +358,6 @@ fn process_response_data(
             if request_state.team_switch_requested {
                 debug!("Team switch successful");
                 request_state.team_switch_requested = false;
-                trace!("Un-readying, the server should have done that as well");
-                readiness.0 = false;
             } else {
                 warn!("Received unexpected TeamSwitchResponse");
             }
@@ -409,8 +389,7 @@ fn repeat_cached_events(
     commands.remove_resource::<server_selection::CachedEvents>();
 }
 
-fn reset_state(mut request_state: ResMut<RequestState>, mut readiness: ResMut<Readiness>) {
+fn reset_state(mut request_state: ResMut<RequestState>) {
     request_state.readiness_change_requested = false;
     request_state.team_switch_requested = false;
-    readiness.0 = false;
 }

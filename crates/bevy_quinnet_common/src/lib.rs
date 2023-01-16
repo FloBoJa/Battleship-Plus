@@ -1,19 +1,14 @@
 use std::{fmt, io, net::AddrParseError, sync::PoisonError};
 
-use bevy::prelude::{Deref, DerefMut, Resource};
+use base64::Engine;
 use rcgen::RcgenError;
-use tokio::runtime::Runtime;
-
-use crate::client::ConnectionId;
 
 pub const DEFAULT_MESSAGE_QUEUE_SIZE: usize = 150;
 pub const DEFAULT_KILL_MESSAGE_QUEUE_SIZE: usize = 10;
 pub const DEFAULT_KEEP_ALIVE_INTERVAL_S: u64 = 4;
 
 pub type ClientId = u32;
-
-#[derive(Resource, Deref, DerefMut)]
-pub struct AsyncRuntime(pub Runtime);
+pub type ConnectionId = u64;
 
 /// Enum with possibles errors that can occur in Bevy Quinnet
 #[derive(thiserror::Error, Debug)]
@@ -55,7 +50,7 @@ impl<T> From<PoisonError<T>> for QuinnetError {
 }
 
 /// SHA-256 hash of the certificate data in DER form
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct CertificateFingerprint([u8; 32]);
 
 impl CertificateFingerprint {
@@ -64,7 +59,7 @@ impl CertificateFingerprint {
     }
 
     pub fn to_base64(&self) -> String {
-        base64::encode(self.0)
+        base64::engine::general_purpose::STANDARD.encode(self.0)
     }
 }
 
