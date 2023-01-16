@@ -4,7 +4,7 @@ use tokio::sync::RwLockWriteGuard;
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
-use bevy_quinnet::shared::ClientId;
+use bevy_quinnet_server::ClientId;
 
 use crate::game::data::{Game, PlayerID, Turn};
 use crate::game::ship::ShipID;

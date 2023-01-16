@@ -5,11 +5,16 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "bevy")]
 use bevy::prelude::*;
 use futures::sink::SinkExt;
 use futures_util::StreamExt;
+#[cfg(not(feature = "bevy"))]
+use log::{debug, error, info, trace};
 use quinn::{Endpoint as QuinnEndpoint, ServerConfig};
+#[cfg(feature = "bevy")]
 use serde::Deserialize;
+use tokio::runtime::Runtime;
 use tokio::{
     runtime,
     sync::{
@@ -23,19 +28,17 @@ use battleship_plus_common::{
     codec::{BattleshipPlusCodec, CodecError},
     messages::ProtocolMessage,
 };
+pub use bevy_quinnet_common::{ClientId, QuinnetError};
+use bevy_quinnet_common::{DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE};
 
-#[cfg(not(feature = "no_bevy"))]
-use crate::shared::AsyncRuntime;
-use crate::{
-    server::certificate::retrieve_certificate,
-    shared::{ClientId, QuinnetError, DEFAULT_KILL_MESSAGE_QUEUE_SIZE, DEFAULT_MESSAGE_QUEUE_SIZE},
-};
-
-use self::certificate::{CertificateRetrievalMode, ServerCertificate};
+use self::certificate::{retrieve_certificate, CertificateRetrievalMode, ServerCertificate};
 
 pub mod certificate;
 
 pub const DEFAULT_INTERNAL_MESSAGE_CHANNEL_SIZE: usize = 100;
+
+#[cfg_attr(feature = "bevy", derive(Resource, Deref, DerefMut))]
+pub struct AsyncRuntime(pub Runtime);
 
 /// Connection event raised when a client just connected to the server. Raised in the CoreStage::PreUpdate stage.
 pub struct ConnectionEvent {
@@ -50,7 +53,8 @@ pub struct ConnectionLostEvent {
 }
 
 /// Configuration of the server, used when the server starts
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy", derive(Deserialize))]
 pub struct ServerConfigurationData {
     host: String,
     port: u16,
@@ -69,7 +73,7 @@ impl ServerConfigurationData {
     /// # Examples
     ///
     /// ```
-    /// use bevy_quinnet::server::ServerConfigurationData;
+    /// use bevy_quinnet_server::ServerConfigurationData;
     ///
     /// let config = ServerConfigurationData::new(
     ///         "127.0.0.1".to_string(),
@@ -114,7 +118,7 @@ pub struct Endpoint {
     payloads_receiver: mpsc::Receiver<ClientPayload>,
     close_sender: broadcast::Sender<()>,
 
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     pub(crate) internal_receiver_closed: bool,
     pub(crate) internal_receiver: mpsc::Receiver<InternalAsyncMessage>,
 }
@@ -189,7 +193,7 @@ impl Endpoint {
         }
     }
 
-    #[cfg(feature = "no_bevy")]
+    #[cfg(not(feature = "bevy"))]
     pub async fn next_event(&mut self) -> EndpointEvent {
         tokio::select! {
             biased;
@@ -267,13 +271,14 @@ impl Endpoint {
     }
 }
 
-#[derive(Resource)]
+#[cfg_attr(feature = "bevy", derive(Resource))]
 pub struct Server {
     runtime: runtime::Handle,
     endpoint: Option<Endpoint>,
 }
 
 impl Server {
+    #[cfg(not(feature = "bevy"))]
     pub fn new_standalone() -> Server {
         Server {
             runtime: runtime::Handle::current(),
@@ -303,6 +308,16 @@ impl Server {
         config: ServerConfigurationData,
         cert_mode: CertificateRetrievalMode,
     ) -> Result<ServerCertificate, QuinnetError> {
+        self.start_endpoint_with_alpn(config, cert_mode, Vec::with_capacity(0))
+    }
+
+    /// Run the server with the given [ServerConfigurationData] and [CertificateRetrievalMode]
+    pub fn start_endpoint_with_alpn(
+        &mut self,
+        config: ServerConfigurationData,
+        cert_mode: CertificateRetrievalMode,
+        alpns: Vec<String>,
+    ) -> Result<ServerCertificate, QuinnetError> {
         let server_adr_str = format!("{}:{}", config.local_bind_host, config.port);
         let server_addr = server_adr_str
             .to_socket_addrs()?
@@ -311,10 +326,22 @@ impl Server {
 
         // Endpoint configuration
         let server_cert = retrieve_certificate(&config.host, cert_mode)?;
-        let mut server_config = ServerConfig::with_single_cert(
-            server_cert.cert_chain.clone(),
-            server_cert.priv_key.clone(),
-        )?;
+
+        let mut server_crypto = rustls::ServerConfig::builder()
+            .with_safe_default_cipher_suites()
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(server_cert.cert_chain.clone(), server_cert.priv_key.clone())?;
+        server_crypto.max_early_data_size = u32::MAX;
+
+        for alpn in alpns {
+            server_crypto.alpn_protocols.push(alpn.into_bytes());
+        }
+
+        let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto));
+
         Arc::get_mut(&mut server_config.transport)
             .ok_or(QuinnetError::LockAcquisitionFailure)?
             .max_idle_timeout(Duration::from_secs(60).try_into().ok());
@@ -345,7 +372,7 @@ impl Server {
             payloads_receiver: from_clients_receiver,
             close_sender: endpoint_close_sender,
             internal_receiver: from_async_server,
-            #[cfg(feature = "no_bevy")]
+            #[cfg(not(feature = "bevy"))]
             internal_receiver_closed: false,
         });
 
@@ -569,7 +596,7 @@ async fn client_receiver_task(
     }
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Server {
         endpoint: None,
@@ -577,7 +604,7 @@ fn create_server(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     });
 }
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 // Receive messages from the async server tasks and update the sync server.
 fn update_sync_server(
     mut server: ResMut<Server>,
@@ -596,8 +623,8 @@ fn update_sync_server(
                     endpoint.clients.remove(&client_id);
                     connection_lost_events.send(ConnectionLostEvent { id: client_id });
                 }
-                InternalAsyncMessage::UnsupportedVersionMessage { version, .. } => {
-                    warn!("received message with unsupported version {version}")
+                InternalAsyncMessage::UnsupportedVersionMessage { client_id, version } => {
+                    warn!("received message with unsupported version {version} on connection {client_id}")
                 }
             }
         }
@@ -605,10 +632,10 @@ fn update_sync_server(
 }
 
 #[derive(Default)]
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 pub struct QuinnetServerPlugin {}
 
-#[cfg(not(feature = "no_bevy"))]
+#[cfg(feature = "bevy")]
 impl Plugin for QuinnetServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ConnectionEvent>()
@@ -627,7 +654,7 @@ impl Plugin for QuinnetServerPlugin {
     }
 }
 
-#[cfg(feature = "no_bevy")]
+#[cfg(not(feature = "bevy"))]
 #[derive(Debug)]
 pub enum EndpointEvent {
     Payload(Box<ClientPayload>),

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPlugin};
-use bevy_quinnet::client::ConnectionErrorEvent;
+use bevy_quinnet_client::{Client, ConnectionErrorEvent};
 use egui_extras::{Column, TableBuilder};
 use iyes_loopless::prelude::*;
 use std::str::FromStr;
@@ -73,7 +73,7 @@ fn draw_selection_screen(
     mut ui_state: ResMut<UiState>,
     keyboard: Res<Input<KeyCode>>,
     state: Res<CurrentState<GameState>>,
-    mut client: ResMut<bevy_quinnet::client::Client>,
+    mut client: ResMut<Client>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +18,7 @@ use battleship_plus_common::messages::{
     TeamSwitchResponse,
 };
 use battleship_plus_common::types::{Coordinate, PlayerLobbyState};
-use bevy_quinnet::client::certificate::SkipServerVerification;
+use battleship_plus_common::{protocol_name, protocol_name_with_version};
 
 use crate::config_provider::{default_config_provider, ConfigProvider};
 use crate::game::data::PlayerID;
@@ -171,7 +172,10 @@ impl Client {
         let connection = Self::connect(
             SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into(),
             SocketAddrV4::new(
-                Ipv4Addr::LOCALHOST,
+                match option_env!("TEST_CLIENT_IP4") {
+                    Some(ip_str) => Ipv4Addr::from_str(ip_str).expect("unable to parse IPv4"),
+                    None => Ipv4Addr::LOCALHOST,
+                },
                 cfg.server_config().game_address_v4.port(),
             )
             .into(),
@@ -190,7 +194,10 @@ impl Client {
         let connection = Self::connect(
             SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0).into(),
             SocketAddrV6::new(
-                Ipv6Addr::LOCALHOST,
+                match option_env!("TEST_CLIENT_IP6") {
+                    Some(ip_str) => Ipv6Addr::from_str(ip_str).expect("unable to parse IPv6"),
+                    None => Ipv6Addr::LOCALHOST,
+                },
                 cfg.server_config().game_address_v6.port(),
                 0,
                 0,
@@ -294,9 +301,33 @@ impl Client {
     }
 }
 
+/// Implementation of `ServerCertVerifier` that verifies everything as trustworthy.
+/// Taken from `bevy_quinnet_client`
+pub struct SkipServerVerification;
+
+impl SkipServerVerification {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self)
+    }
+}
+
+impl rustls::client::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
+    }
+}
+
 #[tokio::test]
 async fn lobby_e2e() {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
 
     let _lock = TEST_LOCK.lock().await;
     let cfg = default_config_provider();
@@ -307,12 +338,18 @@ async fn lobby_e2e() {
     let client_count: usize =
         (cfg.game_config().team_size_a + cfg.game_config().team_size_a) as usize;
 
-    let client_config = Arc::new(
-        rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(SkipServerVerification::new())
-            .with_no_client_auth(),
-    );
+    let mut client_config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(SkipServerVerification::new())
+        .with_no_client_auth();
+    client_config
+        .alpn_protocols
+        .push(protocol_name_with_version().into_bytes());
+    client_config
+        .alpn_protocols
+        .push(protocol_name().into_bytes());
+
+    let client_config = Arc::new(client_config);
 
     // create clients and connect to socket
     let mut clients = Vec::with_capacity(client_count);

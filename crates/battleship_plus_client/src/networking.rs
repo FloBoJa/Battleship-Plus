@@ -7,25 +7,24 @@ use std::{
 
 use bevy::prelude::*;
 use bevy::utils::synccell::SyncCell;
+use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
 use bytes::BytesMut;
+use iyes_loopless::prelude::*;
 use tokio::net::UdpSocket;
 use tokio_util::codec::Decoder;
 
-use crate::game_state::GameState;
 use battleship_plus_common::{
     codec::BattleshipPlusCodec,
     messages::{self, EventMessage, ProtocolMessage, ServerAdvertisement, StatusCode},
-    types,
+    protocol_name, protocol_name_with_version, types,
 };
-use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
-use bevy_quinnet::{
-    client::{
-        certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
-        Client, ConnectionConfiguration, ConnectionId, QuinnetClientPlugin,
-    },
-    shared::{AsyncRuntime, QuinnetError},
+use bevy_quinnet_client::{
+    certificate::{CertificateVerificationMode, TrustOnFirstUseConfig},
+    AsyncRuntime, Client, ConnectionConfiguration, ConnectionErrorEvent, ConnectionEvent,
+    ConnectionId, QuinnetClientPlugin, QuinnetError,
 };
-use iyes_loopless::prelude::*;
+
+use crate::game_state::GameState;
 
 pub struct NetworkingPlugin;
 
@@ -247,6 +246,7 @@ impl ServerInformation {
         let connection_id = client.open_connection(
             connection_configuration,
             self.security.get_verification_mode(),
+            vec![protocol_name_with_version(), protocol_name()],
         );
 
         commands
@@ -257,12 +257,12 @@ impl ServerInformation {
 }
 
 fn handle_certificate_errors(
-    mut events: EventReader<bevy_quinnet::client::ConnectionErrorEvent>,
+    mut events: EventReader<ConnectionErrorEvent>,
     mut servers: Query<(Entity, &mut ServerInformation, &Connection)>,
     mut commands: Commands,
     mut client: ResMut<Client>,
 ) {
-    for bevy_quinnet::client::ConnectionErrorEvent(connection_id, message) in events.iter() {
+    for ConnectionErrorEvent(connection_id, message) in events.iter() {
         if let Some((entity, mut server_information, _)) = servers
             .iter_mut()
             .find(|(_, _, Connection(server_connection_id))| connection_id == server_connection_id)
@@ -291,10 +291,10 @@ fn handle_certificate_errors(
 }
 
 fn confirm_security_levels(
-    mut events: EventReader<bevy_quinnet::client::ConnectionEvent>,
+    mut events: EventReader<ConnectionEvent>,
     mut servers: Query<(&mut ServerInformation, &Connection)>,
 ) {
-    for bevy_quinnet::client::ConnectionEvent(connection_id) in events.iter() {
+    for ConnectionEvent(connection_id) in events.iter() {
         if let Some((mut server_information, _)) = servers
             .iter_mut()
             .find(|(_, Connection(server_connection_id))| connection_id == server_connection_id)

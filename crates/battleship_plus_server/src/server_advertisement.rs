@@ -17,6 +17,7 @@ use crate::tasks::{upgrade_oneshot, TaskControl};
 
 /// Starts broadcasting game announcements at a fixed interval.
 /// When a task is started by this call, it returns a Channel to signal the task to stop and a JoinHandle.
+#[cfg(not(feature = "silent"))]
 pub(crate) async fn spawn_timer_task(cfg: &dyn ConfigProvider) -> Option<TaskControl> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let mut stop = upgrade_oneshot(rx);
@@ -104,6 +105,12 @@ pub(crate) async fn spawn_timer_task(cfg: &dyn ConfigProvider) -> Option<TaskCon
     Some(TaskControl::new(tx, handle))
 }
 
+#[cfg(feature = "silent")]
+pub(crate) async fn spawn_timer_task(cfg: &dyn ConfigProvider) -> Option<TaskControl> {
+    None
+}
+
+#[cfg(not(feature = "silent"))]
 pub(crate) async fn dispatch_announcement(
     socket: &UdpSocket,
     port: u16,
