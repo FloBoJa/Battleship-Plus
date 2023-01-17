@@ -54,7 +54,7 @@ fn camera_setup(mut commands: Commands) {
         .spawn(Camera3dBundle {
             projection: Projection::Orthographic(OrthographicProjection::default()),
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0))
-                .with_scale(Vec3::from(Vec3::new(0.5, 0.5, 1.0)))
+                .with_scale(Vec3::new(0.5, 0.5, 1.0))
                 .looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         })
