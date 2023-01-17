@@ -1,21 +1,32 @@
+use std::{collections::HashSet, sync::Arc};
+
 use bevy::prelude::*;
 use bevy_mod_picking::{PickableBundle, PickingEvent};
 use iyes_loopless::prelude::*;
-use rstar::{Envelope, RTree, AABB};
+use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::{
-    types::{self, ShipType},
+    game::{
+        ship::{Orientation, Ship, ShipID},
+        ship_manager::ShipManager,
+    },
+    types::{self, ShipType, Teams},
     util,
 };
 
-use crate::game_state::GameState;
+use crate::{
+    game_state::{GameState, PlayerId},
+    lobby::LobbyState,
+    networking::{CurrentServer, ServerInformation},
+};
 
 pub struct PlacementPhasePlugin;
 
 impl Plugin for PlacementPhasePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ShipEnvelopes>()
+        app.init_resource::<Ships>()
             .add_startup_system(load_assets)
+            .add_enter_system(GameState::PlacementPhase, create_convenience_resources)
             .add_enter_system(GameState::PlacementPhase, spawn_components)
             .add_system(select_ship.run_in_state(GameState::PlacementPhase))
             .add_system(place_ship.run_in_state(GameState::PlacementPhase));
@@ -58,8 +69,14 @@ struct Tile {
 #[derive(Resource, Deref)]
 struct SelectedShip(ShipType);
 
-#[derive(Resource, Deref, Default)]
-struct ShipEnvelopes(RTree<[i32; 2]>);
+#[derive(Resource, Deref, DerefMut, Default)]
+struct Ships(ShipManager);
+
+#[derive(Resource, Deref)]
+struct PlayerTeam(Teams);
+
+#[derive(Resource, Deref)]
+struct Config(Arc<types::Config>);
 
 impl TileBundle {
     fn new(
@@ -85,6 +102,33 @@ fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(GameAssets {
         ocean_scene: assets.load("models/ocean.glb#Scene0"),
     });
+}
+
+fn create_convenience_resources(
+    mut commands: Commands,
+    lobby_state: Res<LobbyState>,
+    player_id: Res<PlayerId>,
+    current_server: Res<CurrentServer>,
+    servers: Query<&ServerInformation>,
+) {
+    let is_team_a = lobby_state
+        .team_state_a
+        .iter()
+        .any(|player_state| player_state.player_id == **player_id);
+    let team = if is_team_a {
+        Teams::TeamA
+    } else {
+        Teams::TeamB
+    };
+    commands.insert_resource(PlayerTeam(team));
+
+    let config = servers
+        .get_component::<ServerInformation>(**current_server)
+        .expect("Current server always has a ServerInformation")
+        .config
+        .clone()
+        .expect("Joined server always has a configuration");
+    commands.insert_resource(Config(Arc::new(config)));
 }
 
 fn spawn_components(
@@ -206,7 +250,10 @@ fn place_ship(
     selected_ship: Option<Res<SelectedShip>>,
     tiles: Query<&Tile>,
     quadrant: Res<Quadrant>,
-    ship_envelopes: ResMut<ShipEnvelopes>,
+    mut ships: ResMut<Ships>,
+    player_id: Res<PlayerId>,
+    player_team: Res<PlayerTeam>,
+    config: Res<Config>,
 ) {
     let selected_ship = match selected_ship {
         Some(ship) => ship,
@@ -223,73 +270,81 @@ fn place_ship(
             Err(_) => continue,
         };
 
-        let length = ship_length(**selected_ship);
-        let ship_envelope = choose_envelope(&quadrant, &ship_envelopes, coordinates, length);
-        let _ship_envelope = match ship_envelope {
-            Some(envelope) => envelope,
+        // TODO: Add config and team association as resources in lobby stage
+        let ship_id = next_ship_id(**selected_ship, &ships, &config, &player_id, &player_team);
+        let ship_id = match ship_id {
+            Some(id) => id,
             None => {
-                warn!("No legal orientation found, try a different tile.");
+                warn!(
+                    "Already placed all available ships of type {:?}",
+                    **selected_ship
+                );
                 continue;
             }
         };
-
-        // TODO: Use ship manager from the common crate for placement.
+        choose_orientation_and_place_ship(
+            &quadrant,
+            &mut ships,
+            **selected_ship,
+            ship_id,
+            coordinates,
+            &config,
+        );
     }
 }
 
-fn ship_length(ship: ShipType) -> i32 {
-    match ship {
-        ShipType::Destroyer => 2,
-        ShipType::Submarine => 3,
-        ShipType::Cruiser => 3,
-        ShipType::Battleship => 4,
-        ShipType::Carrier => 5,
-    }
+fn next_ship_id(
+    ship_type: ShipType,
+    ships: &ResMut<Ships>,
+    config: &Res<Config>,
+    player_id: &Res<PlayerId>,
+    team: &Res<PlayerTeam>,
+) -> Option<ShipID> {
+    let used_ship_ids: HashSet<_> = ships
+        .iter_ships()
+        .filter(|((ship_player_id, _), _)| *ship_player_id == ***player_id)
+        .filter(|(_, ship)| ship.ship_type() == ship_type)
+        .map(|((_, ship_id), _)| *ship_id)
+        .collect();
+    let ship_set = match ***team {
+        Teams::TeamA => &config.ship_set_team_a,
+        Teams::TeamB => &config.ship_set_team_b,
+        Teams::None => unreachable!(),
+    };
+    (0..ship_set.len())
+        .into_iter()
+        .map(|i| (i as u32, ShipType::from_i32(ship_set[i])))
+        .map(|(id, ship_type)| (id, ship_type.expect("Ship sets contain ShipTypes")))
+        .filter(|(_, entry_ship_type)| *entry_ship_type == ship_type)
+        .map(|(id, _)| id)
+        .find(|id| !used_ship_ids.contains(id))
+        .map(|ship_id| (***player_id, ship_id))
 }
 
-fn choose_envelope(
+fn choose_orientation_and_place_ship(
     quadrant: &Res<Quadrant>,
-    ship_envelopes: &ResMut<ShipEnvelopes>,
+    ships: &mut ResMut<Ships>,
+    ship_type: ShipType,
+    ship_id: ShipID,
     stern: [i32; 2],
-    length: i32,
-) -> Option<AABB<[i32; 2]>> {
+    config: &Res<Config>,
+) {
     // TODO: Let player choose orientation.
 
-    let ship_envelope = AABB::from_corners([stern[0], stern[1]], [stern[0] + length, stern[1]]);
-    if is_legal_ship_envelope(&ship_envelope, quadrant, ship_envelopes) {
-        return Some(ship_envelope);
-    }
-
-    let ship_envelope = AABB::from_corners([stern[0], stern[1]], [stern[0], stern[1] + length]);
-    if is_legal_ship_envelope(&ship_envelope, quadrant, ship_envelopes) {
-        return Some(ship_envelope);
-    }
-
-    if stern[0] >= length {
-        let ship_envelope = AABB::from_corners([stern[0], stern[1]], [stern[0] - length, stern[1]]);
-        if is_legal_ship_envelope(&ship_envelope, quadrant, ship_envelopes) {
-            return Some(ship_envelope);
+    let position = (stern[0] as u32, stern[1] as u32);
+    for orientation in [
+        Orientation::North,
+        Orientation::East,
+        Orientation::South,
+        Orientation::West,
+    ] {
+        let ship = Ship::new_from_type(ship_type, ship_id, position, orientation, config.0.clone());
+        let envelope = &ship.envelope();
+        if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
+            trace!("Placed a {ship_type:?} at {:?}", envelope);
+            return;
         }
     }
 
-    if stern[1] >= length {
-        let ship_envelope = AABB::from_corners([stern[0], stern[1]], [stern[0], stern[1] - length]);
-        if is_legal_ship_envelope(&ship_envelope, quadrant, ship_envelopes) {
-            return Some(ship_envelope);
-        }
-    }
-
-    None
-}
-
-fn is_legal_ship_envelope(
-    ship_envelope: &AABB<[i32; 2]>,
-    quadrant: &Res<Quadrant>,
-    ship_envelopes: &ResMut<ShipEnvelopes>,
-) -> bool {
-    quadrant.contains_envelope(ship_envelope)
-        && ship_envelopes
-            .locate_in_envelope_intersecting(ship_envelope)
-            .next()
-            .is_none()
+    warn!("That ship does not fit here, try a different tile");
 }
