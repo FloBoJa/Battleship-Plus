@@ -9,8 +9,7 @@ pub enum GameState {
     JoiningFailed,
     Lobby,
     PlacementPhase,
-    // TODO:
-    // Game,
+    Game,
 }
 
 #[derive(Resource, Deref)]
