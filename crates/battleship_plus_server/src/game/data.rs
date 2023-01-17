@@ -4,17 +4,14 @@ use std::sync::Arc;
 
 use rstar::{Envelope, RTreeObject, AABB};
 
-use battleship_plus_common::{
-    types::{Config, Direction, ShipAssignment, ShipType},
-    util,
-};
+use battleship_plus_common::game::ship::{Ship, ShipID};
+use battleship_plus_common::game::ship_manager::{ShipManager, ShipPlacementError};
+use battleship_plus_common::game::PlayerID;
+use battleship_plus_common::types::{Config, Direction, ShipAssignment, ShipType};
+use battleship_plus_common::util;
 
 use crate::config_provider::default_config_provider;
-use crate::game::ship::{Ship, ShipID};
-use crate::game::ship_manager::{ShipManager, ShipPlacementError};
 use crate::game::states::GameState;
-
-pub type PlayerID = u32;
 
 #[derive(Debug, Clone)]
 pub struct Game {

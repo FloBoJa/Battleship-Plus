@@ -1,5 +1,7 @@
 pub const PROTOCOL_VERSION: u8 = 1;
 
+pub mod game;
+
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.types.rs"));
 }
