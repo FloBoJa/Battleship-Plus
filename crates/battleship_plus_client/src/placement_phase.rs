@@ -2,6 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use bevy::prelude::*;
 use bevy_mod_picking::{PickableBundle, PickingEvent};
+use bevy_quinnet_client::Client;
 use iyes_loopless::prelude::*;
 use rstar::{Envelope, RTreeObject, AABB};
 
@@ -10,26 +11,29 @@ use battleship_plus_common::{
         ship::{Orientation, Ship, ShipID},
         ship_manager::ShipManager,
     },
-    types::{self, ShipType, Teams},
+    messages::{self, EventMessage, GameStart, SetPlacementRequest, StatusCode, StatusMessage},
+    types::{self, ShipAssignment, ShipType, Teams},
     util,
 };
 
 use crate::{
     game_state::{GameState, PlayerId},
     lobby::LobbyState,
-    networking::{CurrentServer, ServerInformation},
+    networking::{self, CurrentServer, ServerInformation},
 };
 
 pub struct PlacementPhasePlugin;
 
 impl Plugin for PlacementPhasePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Ships>()
-            .add_startup_system(load_assets)
-            .add_enter_system(GameState::PlacementPhase, create_convenience_resources)
+        app.add_startup_system(load_assets)
+            .add_enter_system(GameState::PlacementPhase, create_resources)
             .add_enter_system(GameState::PlacementPhase, spawn_components)
             .add_system(select_ship.run_in_state(GameState::PlacementPhase))
-            .add_system(place_ship.run_in_state(GameState::PlacementPhase));
+            .add_system(place_ship.run_in_state(GameState::PlacementPhase))
+            .add_system(send_placement.run_in_state(GameState::PlacementPhase))
+            .add_system(process_responses.run_in_state(GameState::PlacementPhase))
+            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
     }
 }
 
@@ -61,23 +65,6 @@ struct TileBundle {
     pickable: PickableBundle,
 }
 
-#[derive(Component, Default)]
-struct Tile {
-    coordinate: (i32, i32),
-}
-
-#[derive(Resource, Deref)]
-struct SelectedShip(ShipType);
-
-#[derive(Resource, Deref, DerefMut, Default)]
-struct Ships(ShipManager);
-
-#[derive(Resource, Deref)]
-struct PlayerTeam(Teams);
-
-#[derive(Resource, Deref)]
-struct Config(Arc<types::Config>);
-
 impl TileBundle {
     fn new(
         coordinate: (i32, i32),
@@ -98,19 +85,54 @@ impl TileBundle {
     }
 }
 
+#[derive(Component, Default)]
+struct Tile {
+    coordinate: (i32, i32),
+}
+
+#[derive(Resource, Deref)]
+struct SelectedShip(ShipType);
+
+#[derive(Resource, Deref, DerefMut, Default)]
+struct Ships(ShipManager);
+
+#[derive(Resource, Deref)]
+struct PlayerTeam(Teams);
+
+#[derive(Resource, Deref)]
+struct Config(Arc<types::Config>);
+
+enum State {
+    Placing,
+    WaitingForResponse,
+    WaitingForGameStart,
+}
+
+#[derive(Resource)]
+struct PlacementState(State);
+
+impl Default for PlacementState {
+    fn default() -> Self {
+        Self(State::Placing)
+    }
+}
+
 fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(GameAssets {
         ocean_scene: assets.load("models/ocean.glb#Scene0"),
     });
 }
 
-fn create_convenience_resources(
+fn create_resources(
     mut commands: Commands,
     lobby_state: Res<LobbyState>,
     player_id: Res<PlayerId>,
     current_server: Res<CurrentServer>,
     servers: Query<&ServerInformation>,
 ) {
+    commands.init_resource::<Ships>();
+    commands.init_resource::<PlacementState>();
+
     let is_team_a = lobby_state
         .team_state_a
         .iter()
@@ -321,6 +343,27 @@ fn next_ship_id(
         .map(|ship_id| (***player_id, ship_id))
 }
 
+fn are_all_ships_placed(
+    ships: &Res<Ships>,
+    config: &Res<Config>,
+    player_id: &Res<PlayerId>,
+    team: &Res<PlayerTeam>,
+) -> bool {
+    let used_ship_ids: HashSet<_> = ships
+        .iter_ships()
+        .filter(|((ship_player_id, _), _)| *ship_player_id == ***player_id)
+        .map(|((_, ship_id), _)| *ship_id)
+        .collect();
+    let ship_set = match ***team {
+        Teams::TeamA => &config.ship_set_team_a,
+        Teams::TeamB => &config.ship_set_team_b,
+        Teams::None => unreachable!(),
+    };
+    !(0..ship_set.len() as u32)
+        .into_iter()
+        .any(|id| !used_ship_ids.contains(&id))
+}
+
 fn choose_orientation_and_place_ship(
     quadrant: &Res<Quadrant>,
     ships: &mut ResMut<Ships>,
@@ -347,4 +390,182 @@ fn choose_orientation_and_place_ship(
     }
 
     warn!("That ship does not fit here, try a different tile");
+}
+
+fn send_placement(
+    mut commands: Commands,
+    key_input: Res<Input<KeyCode>>,
+    ships: Res<Ships>,
+    config: Res<Config>,
+    player_id: Res<PlayerId>,
+    team: Res<PlayerTeam>,
+    client: Res<Client>,
+    mut placement_state: ResMut<PlacementState>,
+) {
+    if !key_input.just_pressed(KeyCode::Return) {
+        return;
+    }
+    if let State::WaitingForResponse = placement_state.0 {
+        warn!("Still waiting for a response, cannot send placements.");
+        return;
+    }
+    if !are_all_ships_placed(&ships, &config, &player_id, &team) {
+        warn!("Not all ships are placed yet, cannot send placements.");
+        return;
+    }
+    let assignments = ships
+        .iter_ships()
+        .filter(|((ship_player_id, _), _)| *ship_player_id == **player_id)
+        .map(|((_, ship_id), ship)| {
+            let position = ship.position();
+            let coordinate = Some(types::Coordinate {
+                x: position.0 as u32,
+                y: position.1 as u32,
+            });
+            ShipAssignment {
+                ship_number: *ship_id,
+                coordinate,
+                direction: ship.orientation() as i32,
+            }
+        })
+        .collect();
+
+    let message = SetPlacementRequest { assignments };
+    if let Err(error) = client.connection().send_message(message.into()) {
+        error!("Could not send SetPlacementRequest: {error}, disonnecting");
+        commands.insert_resource(NextState(GameState::Unconnected));
+    }
+    placement_state.0 = State::WaitingForResponse;
+}
+
+fn process_responses(
+    mut commands: Commands,
+    mut events: EventReader<networking::ResponseReceivedEvent>,
+    mut placement_state: ResMut<PlacementState>,
+) {
+    for networking::ResponseReceivedEvent(StatusMessage {
+        code,
+        message,
+        data,
+    }) in events.iter()
+    {
+        let original_code = code;
+        let code = StatusCode::from_i32(*code);
+        match code {
+            Some(StatusCode::Ok) => {
+                process_response_data(data, &message, &mut placement_state);
+            }
+            Some(StatusCode::OkWithWarning) => {
+                if message.is_empty() {
+                    warn!("Received OK response with warning but without message");
+                } else {
+                    warn!("Received OK response with warning: {message}");
+                }
+                process_response_data(data, &message, &mut placement_state);
+            }
+            Some(StatusCode::BadRequest) => {
+                if message.is_empty() {
+                    warn!("Illegal ship placement");
+                } else {
+                    warn!("Illegal ship placement: {message}");
+                }
+            }
+            Some(StatusCode::ServerError) => {
+                if message.is_empty() {
+                    error!("Server error, disconnecting");
+                } else {
+                    error!("Server error with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            Some(StatusCode::UnsupportedVersion) => {
+                if message.is_empty() {
+                    error!("Unsupported protocol version, disconnecting");
+                } else {
+                    error!("Unsupported protocol version, disconnecting. Attached message: \"{message}\"");
+                }
+            }
+            Some(other_code) => {
+                if message.is_empty() {
+                    error!("Received inappropriate status code {other_code:?}, disconnecting");
+                } else {
+                    error!("Received inappropriate status code {other_code:?} with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            None => {
+                if message.is_empty() {
+                    error!("Received unknown status code {original_code}, disconnecting");
+                } else {
+                    error!("Received unknown status code {original_code} with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+        }
+    }
+}
+
+fn process_response_data(
+    data: &Option<messages::status_message::Data>,
+    message: &str,
+    placement_state: &mut ResMut<PlacementState>,
+) {
+    match data {
+        Some(messages::status_message::Data::PlacementResponse(_)) => {
+            if let State::WaitingForResponse = placement_state.0 {
+                debug!("Placement successful, waiting for game to begin...");
+                placement_state.0 = State::WaitingForGameStart;
+            } else {
+                warn!("Received unexpected PlacementResponse");
+            }
+        }
+        Some(_other_response) => {
+            // ignore
+        }
+        None => {
+            if message.is_empty() {
+                warn!("No data in OK response");
+            } else {
+                warn!("No data in OK response with message: {message}");
+            }
+            // ignore
+        }
+    }
+}
+
+fn process_game_start_event(
+    mut commands: Commands,
+    mut events: EventReader<EventMessage>,
+    placement_state: Res<PlacementState>,
+) {
+    for event in events.iter() {
+        match event {
+            EventMessage::GameStart(GameStart {
+                state: Some(_state),
+            }) => {
+                match placement_state.0 {
+                    State::WaitingForGameStart => {}
+                    State::WaitingForResponse => {
+                        debug!("Received unexpected GameStart, interpreting it as successful placement")
+                    }
+                    State::Placing => {
+                        warn!("Received unexpected GameStart");
+                        continue;
+                    }
+                }
+
+                // TODO: Game initialization.
+                warn!("Unimplemented: skipping game initialization");
+                commands.insert_resource(NextState(GameState::Game));
+            }
+            EventMessage::GameStart(GameStart { state: None }) => {
+                // TODO: Robustness: request server state manually.
+                error!("Received GameStart without server state, disconnecting");
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            _other_events => {
+                // ignore
+            }
+        }
+    }
 }
