@@ -273,8 +273,7 @@ fn place_ship(
     tiles: Query<&Tile>,
     quadrant: Res<Quadrant>,
     mut ships: ResMut<Ships>,
-    player_id: Res<PlayerId>,
-    player_team: Res<PlayerTeam>,
+    (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     config: Res<Config>,
 ) {
     let selected_ship = match selected_ship {
@@ -397,8 +396,7 @@ fn send_placement(
     key_input: Res<Input<KeyCode>>,
     ships: Res<Ships>,
     config: Res<Config>,
-    player_id: Res<PlayerId>,
-    team: Res<PlayerTeam>,
+    (player_id, team): (Res<PlayerId>, Res<PlayerTeam>),
     client: Res<Client>,
     mut placement_state: ResMut<PlacementState>,
 ) {
@@ -453,7 +451,7 @@ fn process_responses(
         let code = StatusCode::from_i32(*code);
         match code {
             Some(StatusCode::Ok) => {
-                process_response_data(data, &message, &mut placement_state);
+                process_response_data(data, message, &mut placement_state);
             }
             Some(StatusCode::OkWithWarning) => {
                 if message.is_empty() {
@@ -461,7 +459,7 @@ fn process_responses(
                 } else {
                     warn!("Received OK response with warning: {message}");
                 }
-                process_response_data(data, &message, &mut placement_state);
+                process_response_data(data, message, &mut placement_state);
             }
             Some(StatusCode::BadRequest) => {
                 if message.is_empty() {
