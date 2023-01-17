@@ -10,6 +10,8 @@ use rand::thread_rng;
 use tokio::macros::support::thread_rng_n;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
+use battleship_plus_common::game::ship::{Cooldown, Orientation, Ship};
+use battleship_plus_common::game::{ActionValidationError, PlayerID};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
@@ -26,9 +28,8 @@ use bevy_quinnet_server::{
 };
 
 use crate::config_provider::ConfigProvider;
-use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-use crate::game::data::{Game, Player, PlayerID, Turn};
-use crate::game::ship::{Cooldown, Orientation, Ship};
+use crate::game::actions::{Action, ActionExecutionError};
+use crate::game::data::{Game, Player, Turn};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
 

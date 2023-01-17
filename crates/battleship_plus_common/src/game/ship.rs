@@ -3,10 +3,9 @@ use std::sync::Arc;
 
 use rstar::{Envelope, PointDistance, RTreeObject, SelectionFunction, AABB};
 
-use battleship_plus_common::types::*;
+use crate::types::*;
 
-use crate::game::actions::ActionValidationError;
-use crate::game::data::PlayerID;
+use crate::game::{ActionValidationError, PlayerID};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ship {
@@ -38,7 +37,7 @@ pub enum Ship {
 }
 
 impl Ship {
-    pub(crate) fn new_from_type(
+    pub fn new_from_type(
         ship_type: ShipType,
         ship_id: ShipID,
         position: (u32, u32),
@@ -102,6 +101,7 @@ impl Ship {
         }
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> i32 {
         match self {
             Ship::Carrier { .. } => 5,
@@ -166,7 +166,7 @@ impl Ship {
         }
     }
 
-    pub(crate) fn vision_envelope(&self) -> AABB<[i32; 2]> {
+    pub fn vision_envelope(&self) -> AABB<[i32; 2]> {
         let vision_range = self.vision_range();
         let mut envelope = self.envelope();
         let lower = envelope.lower();
@@ -212,7 +212,7 @@ impl Ship {
         }
     }
 
-    pub(crate) fn ship_type(&self) -> ShipType {
+    pub fn ship_type(&self) -> ShipType {
         match self {
             Ship::Carrier { .. } => ShipType::Carrier,
             Ship::Battleship { .. } => ShipType::Battleship,
@@ -382,11 +382,11 @@ impl PointDistance for Ship {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ShipData {
-    pub(crate) id: ShipID,
-    pub(crate) pos_x: i32,
-    pub(crate) pos_y: i32,
-    pub(crate) orientation: Orientation,
-    pub(crate) health: u32,
+    pub id: ShipID,
+    pub pos_x: i32,
+    pub pos_y: i32,
+    pub orientation: Orientation,
+    pub health: u32,
 }
 
 impl Default for ShipData {
@@ -431,7 +431,7 @@ impl From<Direction> for Orientation {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Cooldown {
     Movement { remaining_rounds: u32 },
     Rotate { remaining_rounds: u32 },
@@ -473,11 +473,11 @@ impl<T: RTreeObject + GetShipID> SelectionFunction<T> for SelectShipsByIDFunctio
 
 pub type ShipID = (PlayerID, u32);
 
-pub(crate) trait GetShipID {
+pub trait GetShipID {
     fn id(&self) -> ShipID;
 }
 
-pub(crate) fn ship_distance(envelope: &AABB<[i32; 2]>, point: &[i32; 2]) -> i32 {
+pub fn ship_distance(envelope: &AABB<[i32; 2]>, point: &[i32; 2]) -> i32 {
     let p = envelope.min_point(point);
     max((point[0] - p[0]).abs(), (point[1] - p[1]).abs())
 }

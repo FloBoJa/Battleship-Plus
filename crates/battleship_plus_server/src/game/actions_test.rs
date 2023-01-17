@@ -5,8 +5,10 @@ mod actions_team_switch {
 
     use tokio::sync::RwLock;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player, PlayerID};
+    use battleship_plus_common::game::{ActionValidationError, PlayerID};
+
+    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::data::{Game, Player};
 
     #[tokio::test]
     async fn actions_team_switch() {
@@ -98,10 +100,11 @@ mod actions_player_set_ready_state {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::{ActionValidationError, PlayerID};
     use battleship_plus_common::messages::SetReadyStateRequest;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player, PlayerID};
+    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::data::{Game, Player};
 
     #[tokio::test]
     async fn actions_player_set_ready() {
@@ -172,12 +175,13 @@ mod actions_shoot {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{Cooldown, GetShipID, Ship, ShipData};
+    use battleship_plus_common::game::ship_manager::ShipManager;
+    use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
+    use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
-    use crate::game::ship::{Cooldown, GetShipID, Ship, ShipData};
-    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_shoot() {
@@ -606,13 +610,14 @@ mod actions_move {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
+    use battleship_plus_common::game::ship_manager::ShipManager;
+    use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
     use crate::config_provider::default_config_provider;
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
+    use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
-    use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
-    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_move() {
@@ -1065,12 +1070,13 @@ mod actions_rotate {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
+    use battleship_plus_common::game::ship_manager::ShipManager;
+    use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
+    use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
-    use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
-    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_rotate() {
@@ -1559,11 +1565,11 @@ mod actions_place_ships {
     use rand::thread_rng;
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{GetShipID, Orientation, Ship};
     use battleship_plus_common::types::*;
 
     use crate::game::actions::Action;
     use crate::game::data::{Game, Player};
-    use crate::game::ship::{GetShipID, Orientation, Ship};
     use crate::game::states::GameState;
 
     #[tokio::test]
