@@ -101,6 +101,7 @@ impl Ship {
         }
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> i32 {
         match self {
             Ship::Carrier { .. } => 5,
@@ -430,7 +431,7 @@ impl From<Direction> for Orientation {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Cooldown {
     Movement { remaining_rounds: u32 },
     Rotate { remaining_rounds: u32 },
