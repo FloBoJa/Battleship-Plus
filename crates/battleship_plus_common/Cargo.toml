@@ -8,6 +8,7 @@ bytes = "1.3"
 prost = "0.11"
 tokio-util = { version = "0.7", default_features = false, features = ["codec"] }
 battleship_plus_macros = { path = "../battleship_plus_macros" }
+rstar = "0.9.3"
 
 [build-dependencies]
 prost-build = { version = "0.11" }
