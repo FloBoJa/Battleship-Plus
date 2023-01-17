@@ -1,14 +1,14 @@
 use log::{debug, error};
 use tokio::sync::RwLockWriteGuard;
 
+use battleship_plus_common::game::ActionValidationError;
+use battleship_plus_common::game::{ship::ShipID, PlayerID};
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
 use bevy_quinnet_server::ClientId;
 
-use crate::game::data::{Game, PlayerID, Turn};
-use crate::game::ship::ShipID;
-use crate::game::ship_manager::ShipPlacementError;
+use crate::game::data::{Game, Turn};
 use crate::game::states::GameState;
 
 #[derive(Debug, Clone)]
@@ -70,18 +70,6 @@ pub enum ActionExecutionError {
     Validation(ActionValidationError),
     OutOfState(GameState),
     InconsistentState(String),
-}
-
-#[derive(Debug, Clone)]
-pub enum ActionValidationError {
-    NonExistentPlayer { id: PlayerID },
-    NonExistentShip { id: ShipID },
-    Cooldown { remaining_rounds: u32 },
-    InsufficientPoints { required: u32 },
-    Unreachable,
-    OutOfMap,
-    InvalidShipPlacement(ShipPlacementError),
-    NotPlayersTurn,
 }
 
 impl Action {
