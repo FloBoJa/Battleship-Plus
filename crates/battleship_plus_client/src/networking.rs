@@ -68,7 +68,7 @@ pub struct CurrentServer(pub Entity);
 const ADVERTISEMENT_LIFETIME: Duration = Duration::from_secs(10);
 const CONFIGURATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Empirical<T> {
     Unconfirmed(T),
     Confirmed(T),
@@ -94,7 +94,7 @@ impl<T: Copy> Empirical<T> {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Copy)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy)]
 pub enum SecurityLevel {
     ConnectionFailed,
     NoVerification,
