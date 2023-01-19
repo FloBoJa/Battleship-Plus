@@ -1,5 +1,8 @@
-use std::f32::consts::FRAC_PI_2;
-use std::{collections::HashSet, sync::Arc};
+use std::f32::consts::{FRAC_PI_2, PI};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use bevy::prelude::*;
 use bevy_mod_raycast::{Intersection, RaycastMesh, RaycastMethod, RaycastSource, RaycastSystem};
@@ -9,7 +12,7 @@ use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::{
     game::{
-        ship::{Orientation, Ship, ShipID},
+        ship::{GetShipID, Orientation, Ship, ShipID},
         ship_manager::ShipManager,
     },
     messages::{self, EventMessage, GameStart, SetPlacementRequest, StatusCode, StatusMessage},
@@ -85,10 +88,54 @@ impl Default for PlacementState {
     }
 }
 
+#[derive(Component)]
+struct ShipInfo {
+    _ship_id: ShipID,
+}
+
+#[derive(Resource, Deref)]
+struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
+
 const OCEAN_SIZE: f32 = 320.0;
 const OFFSET_X: f32 = OCEAN_SIZE / 2.0;
 const OFFSET_Y: f32 = OCEAN_SIZE / 2.0;
 const OFFSET_Z: f32 = 50.0;
+
+#[derive(Bundle)]
+struct ShipBundle {
+    model: PbrBundle,
+    ship_info: ShipInfo,
+}
+
+impl ShipBundle {
+    fn new(ship: &Ship, meshes: &Res<ShipMeshes>) -> Self {
+        let position = ship.position();
+        let translation = Vec3::new(
+            position.0 as f32 - OFFSET_X,
+            position.1 as f32 - OFFSET_Y,
+            0.0,
+        );
+        let rotation = Quat::from_rotation_z(match ship.orientation() {
+            Orientation::North => -FRAC_PI_2,
+            Orientation::East => 0.0,
+            Orientation::South => FRAC_PI_2,
+            Orientation::West => PI,
+        });
+        Self {
+            model: PbrBundle {
+                mesh: meshes
+                    .get(&ship.ship_type())
+                    .expect("There are meshes for all configured ship types")
+                    .clone(),
+                transform: Transform::from_translation(translation).with_rotation(rotation),
+                ..default()
+            },
+            ship_info: ShipInfo {
+                _ship_id: ship.id(),
+            },
+        }
+    }
+}
 
 fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(GameAssets {
@@ -102,6 +149,7 @@ fn create_resources(
     player_id: Res<PlayerId>,
     current_server: Res<CurrentServer>,
     servers: Query<&ServerInformation>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     commands.init_resource::<Ships>();
     commands.init_resource::<PlacementState>();
@@ -124,6 +172,25 @@ fn create_resources(
         .clone()
         .expect("Joined server always has a configuration");
     commands.insert_resource(Config(Arc::new(config)));
+
+    let ship_lengths: HashMap<ShipType, usize> = HashMap::from_iter(vec![
+        (ShipType::Destroyer, 2),
+        (ShipType::Submarine, 3),
+        (ShipType::Cruiser, 3),
+        (ShipType::Battleship, 4),
+        (ShipType::Carrier, 5),
+    ]);
+
+    let ship_meshes = ship_lengths
+        .iter()
+        .map(|(ship_type, length)| {
+            (
+                *ship_type,
+                meshes.add(shape::Box::new(*length as f32, 1.0, 5.0).into()),
+            )
+        })
+        .collect();
+    commands.insert_resource(ShipMeshes(ship_meshes));
 }
 
 fn spawn_components(
@@ -239,12 +306,12 @@ fn update_selected_ship_resource(
 }
 
 fn place_ship(
+    mut commands: Commands,
     intersections: Query<&Intersection<RaycastSet>>,
     selected_ship: Option<Res<SelectedShip>>,
-    quadrant: Res<Quadrant>,
+    (quadrant, config, ship_meshes): (Res<Quadrant>, Res<Config>, Res<ShipMeshes>),
     mut ships: ResMut<Ships>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
-    config: Res<Config>,
     mouse_input: Res<Input<MouseButton>>,
 ) {
     let intersection = match intersections.get_single() {
@@ -277,12 +344,13 @@ fn place_ship(
     };
 
     choose_orientation_and_place_ship(
+        &mut commands,
         &quadrant,
         &mut ships,
-        **selected_ship,
-        ship_id,
+        (**selected_ship, ship_id),
         coordinates,
         &config,
+        &ship_meshes,
     );
 }
 
@@ -336,12 +404,13 @@ fn are_all_ships_placed(
 }
 
 fn choose_orientation_and_place_ship(
+    commands: &mut Commands,
     quadrant: &Res<Quadrant>,
     ships: &mut ResMut<Ships>,
-    ship_type: ShipType,
-    ship_id: ShipID,
+    (ship_type, ship_id): (ShipType, ShipID),
     stern: [i32; 2],
     config: &Res<Config>,
+    ship_meshes: &Res<ShipMeshes>,
 ) {
     // TODO: Let player choose orientation.
 
@@ -356,6 +425,19 @@ fn choose_orientation_and_place_ship(
         let envelope = &ship.envelope();
         if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
             trace!("Placed a {ship_type:?} at {:?}", envelope);
+            let ship = ships
+                .iter_ships()
+                .find_map(|(this_ship_id, ship)| {
+                    if *this_ship_id == ship_id {
+                        Some(ship)
+                    } else {
+                        None
+                    }
+                })
+                .expect("This ship was just inserted");
+            commands
+                .spawn(ShipBundle::new(ship, ship_meshes))
+                .insert(Name::new(format!("{:?}: {:?}", ship_type, ship_id)));
             return;
         }
     }
