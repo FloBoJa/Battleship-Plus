@@ -4,7 +4,7 @@ use bevy::{
     window::PresentMode,
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_mod_picking::{DefaultPickingPlugins, PickingCameraBundle};
+use bevy_mod_raycast::{DefaultRaycastingPlugin, RaycastSource};
 use iyes_loopless::prelude::*;
 
 mod game_state;
@@ -32,7 +32,7 @@ fn main() {
         }))
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(WorldInspectorPlugin::default())
-        .add_plugins(DefaultPickingPlugins)
+        .add_plugin(DefaultRaycastingPlugin::<RaycastSet>::default())
         .add_loopless_state(GameState::Unconnected)
         .add_plugin(networking::NetworkingPlugin)
         .add_plugin(server_selection::ServerSelectionPlugin)
@@ -49,6 +49,8 @@ fn main() {
 #[derive(Component)]
 struct FpsText;
 
+struct RaycastSet;
+
 fn camera_setup(mut commands: Commands) {
     commands
         .spawn(Camera3dBundle {
@@ -58,7 +60,7 @@ fn camera_setup(mut commands: Commands) {
                 .looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         })
-        .insert(PickingCameraBundle::default());
+        .insert(RaycastSource::<RaycastSet>::default());
 }
 
 fn fps_counter(mut commands: Commands, asset_server: Res<AssetServer>) {

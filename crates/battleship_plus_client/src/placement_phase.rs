@@ -1,7 +1,8 @@
+use std::f32::consts::FRAC_PI_2;
 use std::{collections::HashSet, sync::Arc};
 
 use bevy::prelude::*;
-use bevy_mod_picking::{PickableBundle, PickingEvent};
+use bevy_mod_raycast::{Intersection, RaycastMesh, RaycastMethod, RaycastSource, RaycastSystem};
 use bevy_quinnet_client::Client;
 use iyes_loopless::prelude::*;
 use rstar::{Envelope, RTreeObject, AABB};
@@ -20,6 +21,7 @@ use crate::{
     game_state::{GameState, PlayerId},
     lobby::LobbyState,
     networking::{self, CurrentServer, ServerInformation},
+    RaycastSet,
 };
 
 pub struct PlacementPhasePlugin;
@@ -29,6 +31,10 @@ impl Plugin for PlacementPhasePlugin {
         app.add_startup_system(load_assets)
             .add_enter_system(GameState::PlacementPhase, create_resources)
             .add_enter_system(GameState::PlacementPhase, spawn_components)
+            .add_system_to_stage(
+                CoreStage::First,
+                update_raycast_with_cursor.before(RaycastSystem::BuildRays::<RaycastSet>),
+            )
             .add_system(select_ship.run_in_state(GameState::PlacementPhase))
             .add_system(place_ship.run_in_state(GameState::PlacementPhase))
             .add_system(send_placement.run_in_state(GameState::PlacementPhase))
@@ -45,49 +51,11 @@ impl Quadrant {
         let corner = (corner.x, corner.y);
         Quadrant(util::quadrant_from_corner(corner, board_size, player_count))
     }
-
-    fn coordinate_iter(&self) -> impl Iterator<Item = (i32, i32)> {
-        let size_x = self.upper()[0] - self.lower()[0];
-        let size_y = self.upper()[1] - self.lower()[1];
-        (0..size_x).flat_map(move |x| (0..size_y).map(move |y| (x, y)))
-    }
 }
 
 #[derive(Resource)]
 struct GameAssets {
     ocean_scene: Handle<Scene>,
-}
-
-#[derive(Bundle, Default)]
-struct TileBundle {
-    tile: Tile,
-    model: PbrBundle,
-    pickable: PickableBundle,
-}
-
-impl TileBundle {
-    fn new(
-        coordinate: (i32, i32),
-        translation: Vec3,
-        mesh: Handle<Mesh>,
-        material: Handle<StandardMaterial>,
-    ) -> TileBundle {
-        TileBundle {
-            tile: Tile { coordinate },
-            model: PbrBundle {
-                mesh,
-                material,
-                transform: Transform::from_translation(translation),
-                ..default()
-            },
-            ..default()
-        }
-    }
-}
-
-#[derive(Component, Default)]
-struct Tile {
-    coordinate: (i32, i32),
 }
 
 #[derive(Resource, Deref)]
@@ -116,6 +84,11 @@ impl Default for PlacementState {
         Self(State::Placing)
     }
 }
+
+const OCEAN_SIZE: f32 = 320.0;
+const OFFSET_X: f32 = OCEAN_SIZE / 2.0;
+const OFFSET_Y: f32 = OCEAN_SIZE / 2.0;
+const OFFSET_Z: f32 = 50.0;
 
 fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(GameAssets {
@@ -156,7 +129,6 @@ fn create_resources(
 fn spawn_components(
     mut commands: Commands,
     assets: Res<GameAssets>,
-    quadrant: Res<Quadrant>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -166,7 +138,7 @@ fn spawn_components(
             ..default()
         })
         .insert(Name::new("Ocean"))
-        .insert(PickableBundle::default());
+        .insert(RaycastMesh::<RaycastSet>::default());
     commands
         .spawn(DirectionalLightBundle {
             transform: Transform::from_rotation(Quat::from_axis_angle(
@@ -181,40 +153,39 @@ fn spawn_components(
         })
         .insert(Name::new("Directional Light"));
 
-    const OCEAN_SIZE: f32 = 320.0;
-    const OFFSET_X: f32 = -OCEAN_SIZE / 2.0;
-    const OFFSET_Y: f32 = -OCEAN_SIZE / 2.0;
-    const OFFSET_Z: f32 = 50.0;
-
-    let quadrant_size = quadrant.upper()[0] - quadrant.lower()[0];
-    let quadrant_size = quadrant_size as f32;
-    let tile_size = OCEAN_SIZE / quadrant_size;
-    let tile_mesh = meshes.add(Mesh::from(shape::Cube { size: tile_size }));
-    let tile_material = materials.add(StandardMaterial {
+    let mesh = meshes.add(Mesh::from(shape::Plane { size: OCEAN_SIZE }));
+    let material = materials.add(StandardMaterial {
         alpha_mode: AlphaMode::Blend,
         base_color: Color::rgba(1.0, 1.0, 1.0, 0.2),
         ..default()
     });
 
     commands
-        .spawn(SpatialBundle::default())
-        .insert(Name::new("Grid"))
-        .with_children(|child_builder| {
-            quadrant.coordinate_iter().for_each(|coordinate| {
-                child_builder
-                    .spawn(TileBundle::new(
-                        coordinate,
-                        Vec3::new(
-                            coordinate.0 as f32 * tile_size + OFFSET_X,
-                            coordinate.1 as f32 * tile_size + OFFSET_Y,
-                            OFFSET_Z,
-                        ),
-                        tile_mesh.clone(),
-                        tile_material.clone(),
-                    ))
-                    .insert(Name::new(format!("{coordinate:?}")));
-            });
-        });
+        .spawn(PbrBundle {
+            mesh,
+            material,
+            transform: Transform::from_xyz(0.0, 0.0, OFFSET_Z)
+                .with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
+            ..default()
+        })
+        .insert(RaycastMesh::<RaycastSet>::default())
+        .insert(Name::new("Grid"));
+}
+
+// Taken from bevy_mod_raycast examples.
+fn update_raycast_with_cursor(
+    mut cursor: EventReader<CursorMoved>,
+    mut query: Query<&mut RaycastSource<RaycastSet>>,
+) {
+    // Grab the most recent cursor event if it exists:
+    let cursor_position = match cursor.iter().last() {
+        Some(cursor_moved) => cursor_moved.position,
+        None => return,
+    };
+
+    for mut pick_source in &mut query {
+        pick_source.cast_method = RaycastMethod::Screenspace(cursor_position);
+    }
 }
 
 fn select_ship(
@@ -268,50 +239,51 @@ fn update_selected_ship_resource(
 }
 
 fn place_ship(
-    mut events: EventReader<PickingEvent>,
+    intersections: Query<&Intersection<RaycastSet>>,
     selected_ship: Option<Res<SelectedShip>>,
-    tiles: Query<&Tile>,
     quadrant: Res<Quadrant>,
     mut ships: ResMut<Ships>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     config: Res<Config>,
+    mouse_input: Res<Input<MouseButton>>,
 ) {
+    let intersection = match intersections.get_single() {
+        Ok(intersection) => intersection,
+        Err(_) => return,
+    };
     let selected_ship = match selected_ship {
         Some(ship) => ship,
         None => return,
     };
-    for event in events.iter() {
-        let entity = match event {
-            PickingEvent::Clicked(entity) => *entity,
-            _ => continue,
-        };
-
-        let coordinates = match tiles.get_component::<Tile>(entity) {
-            Ok(Tile { coordinate: (x, y) }) => [*x, *y],
-            Err(_) => continue,
-        };
-
-        // TODO: Add config and team association as resources in lobby stage
-        let ship_id = next_ship_id(**selected_ship, &ships, &config, &player_id, &player_team);
-        let ship_id = match ship_id {
-            Some(id) => id,
-            None => {
-                warn!(
-                    "Already placed all available ships of type {:?}",
-                    **selected_ship
-                );
-                continue;
-            }
-        };
-        choose_orientation_and_place_ship(
-            &quadrant,
-            &mut ships,
-            **selected_ship,
-            ship_id,
-            coordinates,
-            &config,
-        );
+    if !mouse_input.just_pressed(MouseButton::Left) {
+        return;
     }
+
+    let coordinates = match intersection.position() {
+        Some(Vec3 { x, y, .. }) => [(OFFSET_X + *x) as i32, (OFFSET_Y + *y) as i32],
+        None => return,
+    };
+
+    let ship_id = next_ship_id(**selected_ship, &ships, &config, &player_id, &player_team);
+    let ship_id = match ship_id {
+        Some(id) => id,
+        None => {
+            warn!(
+                "Already placed all available ships of type {:?}",
+                **selected_ship
+            );
+            return;
+        }
+    };
+
+    choose_orientation_and_place_ship(
+        &quadrant,
+        &mut ships,
+        **selected_ship,
+        ship_id,
+        coordinates,
+        &config,
+    );
 }
 
 fn next_ship_id(
@@ -467,6 +439,7 @@ fn process_responses(
                 } else {
                     warn!("Illegal ship placement: {message}");
                 }
+                placement_state.0 = State::Placing;
             }
             Some(StatusCode::ServerError) => {
                 if message.is_empty() {
