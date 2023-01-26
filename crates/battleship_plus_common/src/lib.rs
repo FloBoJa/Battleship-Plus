@@ -52,6 +52,7 @@ pub mod codec {
 
     const HEADER_SIZE: usize = 3;
 
+    #[derive(Debug, Copy, Clone)]
     pub struct BattleshipPlusCodec {
         version: u8,
         length: Option<usize>,

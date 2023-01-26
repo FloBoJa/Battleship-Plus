@@ -9,6 +9,7 @@ use crate::interactive::interactive_main;
 mod cli;
 mod interactive;
 mod config;
+mod advertisement_receiver;
 
 #[tokio::main]
 async fn main() {

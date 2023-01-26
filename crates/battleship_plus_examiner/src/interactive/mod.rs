@@ -6,6 +6,8 @@ use tuirealm::Update;
 
 use app::model::Model;
 
+use crate::interactive::views::server_selection::SeverSelectionMessage;
+
 mod app;
 mod components;
 mod snowflake;
@@ -14,9 +16,10 @@ mod views;
 
 // Let's define the messages handled by our app. NOTE: it must derive `PartialEq`
 #[derive(Debug, PartialEq)]
-pub enum Msg {
+pub enum Message {
     AppClose,
     WindowResized,
+    ServerSelectionMessage(SeverSelectionMessage),
 }
 
 // Let's define the component ids for our application

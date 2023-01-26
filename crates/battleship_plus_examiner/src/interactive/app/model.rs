@@ -16,11 +16,11 @@ use crate::interactive::components::basic_interaction_listener::BasicInteraction
 use crate::interactive::snowflake::snowflake_new_id;
 use crate::interactive::views::server_selection::ServerSelectionView;
 
-use super::Msg;
+use super::Message;
 
 pub struct Model {
     /// Application
-    pub app: Application<i64, Msg, NoUserEvent>,
+    pub app: Application<i64, Message, NoUserEvent>,
     /// Indicates that the application must quit
     pub quit: bool,
     /// Tells whether to redraw interface
@@ -62,8 +62,8 @@ impl Model {
             .is_ok());
     }
 
-    async fn init_app(addr: Option<SocketAddr>) -> (i64, Application<i64, Msg, NoUserEvent>) {
-        let mut app: Application<i64, Msg, NoUserEvent> = Application::init(
+    async fn init_app(addr: Option<SocketAddr>) -> (i64, Application<i64, Message, NoUserEvent>) {
+        let mut app: Application<i64, Message, NoUserEvent> = Application::init(
             EventListenerCfg::default()
                 .default_input_listener(Duration::from_millis(20))
                 .poll_timeout(Duration::from_millis(10))
@@ -102,29 +102,31 @@ impl Model {
                     SubClause::IsMounted(current_view_id),
                 )],
             )
-            .expect("unable to mount ServerSelectionView")
+            .expect("unable to mount ServerSelectionView");
         }
 
+        app.active(&current_view_id)
+            .expect("unable to focus the current view");
         (current_view_id, app)
     }
 }
 
 // Let's implement Update for model
 
-impl Update<Msg> for Model {
-    fn update(&mut self, msg: Option<Msg>) -> Option<Msg> {
+impl Update<Message> for Model {
+    fn update(&mut self, msg: Option<Message>) -> Option<Message> {
         if let Some(msg) = msg {
             // Set redraw
             self.redraw = true;
             // Match message
 
             match msg {
-                Msg::AppClose => {
+                Message::AppClose => {
                     self.quit = true;
                     None
                 }
-                Msg::WindowResized => None,
-                _ => todo!(),
+                Message::WindowResized => None,
+                _ => Some(msg),
             }
         } else {
             None

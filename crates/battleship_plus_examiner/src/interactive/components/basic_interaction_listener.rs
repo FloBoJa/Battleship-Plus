@@ -3,7 +3,7 @@ use tuirealm::event::{Key, KeyEvent, KeyModifiers};
 use tuirealm::tui::layout::Rect;
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, State};
 
-use crate::interactive::Msg;
+use crate::interactive::Message;
 
 pub struct BasicInteraction;
 
@@ -25,14 +25,14 @@ impl MockComponent for BasicInteraction {
     }
 }
 
-impl Component<Msg, NoUserEvent> for BasicInteraction {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
+impl Component<Message, NoUserEvent> for BasicInteraction {
+    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Message> {
         match ev {
             Event::Keyboard(KeyEvent {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
-            }) => Some(Msg::AppClose),
-            Event::WindowResize(_, _) => Some(Msg::WindowResized),
+            }) => Some(Message::AppClose),
+            Event::WindowResize(_, _) => Some(Message::WindowResized),
             _ => unreachable!(),
         }
     }

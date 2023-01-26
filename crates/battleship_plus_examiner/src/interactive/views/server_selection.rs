@@ -1,10 +1,8 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::SocketAddr;
 
 use chrono::Utc;
-use log::{debug, error, warn};
-use tokio::net::UdpSocket;
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Alignment, Style};
 use tuirealm::tui::layout::{Constraint, Direction, Layout, Margin, Rect};
@@ -13,12 +11,14 @@ use tuirealm::tui::text::{Span, Spans, Text};
 use tuirealm::tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, State};
 
+use battleship_plus_common::messages::ServerAdvertisement;
 use battleship_plus_common::types::Config;
 
+use crate::advertisement_receiver::AdvertisementReceiver;
 use crate::config::ADVERTISEMENT_PORT;
 use crate::interactive::snowflake::snowflake_new_id;
 use crate::interactive::styles::styles;
-use crate::interactive::Msg;
+use crate::interactive::Message;
 
 #[derive(Debug, Clone)]
 struct ServerEntry {
@@ -45,10 +45,7 @@ impl PartialEq for ServerEntry {
 #[derive(Debug)]
 pub struct ServerSelectionView {
     ui_id: i64,
-
-    socket_v4: Option<UdpSocket>,
-    socket_v6: Option<UdpSocket>,
-
+    advertisement_receiver: AdvertisementReceiver,
     servers: HashSet<ServerEntry>,
     selected_server: Option<SocketAddr>,
 
@@ -56,10 +53,21 @@ pub struct ServerSelectionView {
     direct_connect_port: String,
 }
 
-impl Component<Msg, NoUserEvent> for ServerSelectionView {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        debug!("{ev:?}");
-        None
+impl Component<Message, NoUserEvent> for ServerSelectionView {
+    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Message> {
+        match ev {
+            Event::Tick => {
+                let new_advertisements = self.poll_sockets();
+                if !new_advertisements.is_empty() {
+                    return Some(Message::ServerSelectionMessage(
+                        SeverSelectionMessage::ServerAdvertisements(new_advertisements),
+                    ));
+                }
+
+                None
+            }
+            _ => None,
+        }
     }
 }
 
@@ -74,59 +82,26 @@ impl MockComponent for ServerSelectionView {
         self.draw_server_list(frame, layout[1]);
     }
 
-    fn query(&self, attr: Attribute) -> Option<AttrValue> {
-        todo!()
+    fn query(&self, _: Attribute) -> Option<AttrValue> {
+        None
     }
 
-    fn attr(&mut self, attr: Attribute, value: AttrValue) {
-        todo!()
-    }
+    fn attr(&mut self, _: Attribute, _: AttrValue) {}
 
     fn state(&self) -> State {
-        todo!()
+        State::None
     }
 
-    fn perform(&mut self, cmd: Cmd) -> CmdResult {
-        todo!()
+    fn perform(&mut self, _: Cmd) -> CmdResult {
+        CmdResult::None
     }
 }
 
 impl ServerSelectionView {
     pub async fn new() -> Self {
-        let socket_v6 = match UdpSocket::bind(SocketAddrV6::new(
-            Ipv6Addr::UNSPECIFIED,
-            ADVERTISEMENT_PORT,
-            0,
-            0,
-        ))
-        .await
-        {
-            Ok(socket) => Some(socket),
-            Err(e) => {
-                error!("unable to bind IPv6 socket for server advertisements");
-                None
-            }
-        };
-
-        let socket_v4 = match UdpSocket::bind(SocketAddrV6::new(
-            Ipv6Addr::UNSPECIFIED,
-            ADVERTISEMENT_PORT,
-            0,
-            0,
-        ))
-        .await
-        {
-            Ok(socket) => Some(socket),
-            Err(e) => {
-                warn!("unable to bind IPv4 socket for server advertisements. Is it blocked by the IPv6 socket?");
-                None
-            }
-        };
-
         Self {
             ui_id: snowflake_new_id(),
-            socket_v4,
-            socket_v6,
+            advertisement_receiver: AdvertisementReceiver::new(ADVERTISEMENT_PORT),
             servers: Default::default(),
             selected_server: None,
             direct_connect_addr: "bsplus.floboja.net".to_string(),
@@ -273,6 +248,10 @@ impl ServerSelectionView {
 
         f.render_widget(server_table, area);
     }
+
+    fn poll_sockets(&mut self) -> Vec<(ServerAdvertisement, SocketAddr)> {
+        self.advertisement_receiver.poll()
+    }
 }
 
 const CONNECT_BUTTON_TEXT: &str = "[ Connect ]";
@@ -319,4 +298,9 @@ fn padded_span(
 
 fn repeat(c: char, count: usize) -> String {
     (0..count).map(|_| c).collect()
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SeverSelectionMessage {
+    ServerAdvertisements(Vec<(ServerAdvertisement, SocketAddr)>),
 }
