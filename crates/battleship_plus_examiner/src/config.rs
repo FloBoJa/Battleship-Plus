@@ -1,0 +1,1 @@
+pub const ADVERTISEMENT_PORT: u16 = 30303;

@@ -8,6 +8,7 @@ use crate::interactive::interactive_main;
 
 mod cli;
 mod interactive;
+mod config;
 
 #[tokio::main]
 async fn main() {
