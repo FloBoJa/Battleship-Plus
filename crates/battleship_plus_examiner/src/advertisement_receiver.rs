@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::str::FromStr;
 
 use futures_util::StreamExt;
 use log::{debug, error, warn};
@@ -22,7 +23,15 @@ impl AdvertisementReceiver {
         tokio::spawn(async move {
             let socket_v6 =
                 match UdpSocket::bind(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0)).await {
-                    Ok(socket) => Some(UdpFramed::new(socket, BattleshipPlusCodec::default())),
+                    Ok(socket) => {
+                        if let Err(e) = socket.join_multicast_v6(
+                            &Ipv6Addr::from_str("ff02:6261:7474:6c65:7368:6970:706c:7573").unwrap(),
+                            0,
+                        ) {
+                            error!("unable to join IPv6 multicast: {e}");
+                        }
+                        Some(UdpFramed::new(socket, BattleshipPlusCodec::default()))
+                    }
                     Err(e) => {
                         error!("unable to bind IPv6 socket for server advertisements: {e}");
                         None
@@ -39,7 +48,7 @@ impl AdvertisementReceiver {
             {
                 Ok(socket) => Some(UdpFramed::new(socket, BattleshipPlusCodec::default())),
                 Err(e) => {
-                    warn!("unable to bind IPv4 socket for server advertisements. Is it blocked by the IPv6 socket?: {e}");
+                    warn!("unable to bind IPv4 socket for server advertisements ({e}). You can safely ignore this on dual-stack systems.");
                     None
                 }
             };

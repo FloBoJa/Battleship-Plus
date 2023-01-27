@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
+use std::ops::Add;
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Alignment, Style};
 use tuirealm::tui::layout::{Constraint, Direction, Layout, Margin, Rect};
@@ -26,6 +27,19 @@ struct ServerEntry {
     addr: SocketAddr,
     display_name: String,
     game_config: Option<Config>,
+}
+
+impl From<(ServerAdvertisement, SocketAddr)> for ServerEntry {
+    fn from((advertisement, addr): (ServerAdvertisement, SocketAddr)) -> Self {
+        let addr = SocketAddr::new(addr.ip(), advertisement.port as u16);
+
+        Self {
+            addr,
+            display_name: advertisement.display_name,
+            valid_until: Utc::now().add(Duration::seconds(30)),
+            game_config: None,
+        }
+    }
 }
 
 impl Eq for ServerEntry {}
@@ -59,8 +73,13 @@ impl Component<Message, NoUserEvent> for ServerSelectionView {
             Event::Tick => {
                 let new_advertisements = self.poll_sockets();
                 if !new_advertisements.is_empty() {
+                    for advertisement in new_advertisements {
+                        let entry = advertisement.into();
+                        self.servers.replace(entry);
+                    }
+
                     return Some(Message::ServerSelectionMessage(
-                        SeverSelectionMessage::ServerAdvertisements(new_advertisements),
+                        SeverSelectionMessage::StateChanged,
                     ));
                 }
 
@@ -302,5 +321,5 @@ fn repeat(c: char, count: usize) -> String {
 
 #[derive(Debug, PartialEq)]
 pub enum SeverSelectionMessage {
-    ServerAdvertisements(Vec<(ServerAdvertisement, SocketAddr)>),
+    StateChanged,
 }

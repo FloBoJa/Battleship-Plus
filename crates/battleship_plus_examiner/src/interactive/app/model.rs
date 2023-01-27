@@ -12,6 +12,7 @@ use tuirealm::{
     event::NoUserEvent, Application, EventListenerCfg, Sub, SubClause, SubEventClause, Update,
 };
 
+use crate::interactive::app::SeverSelectionMessage;
 use crate::interactive::components::basic_interaction_listener::BasicInteraction;
 use crate::interactive::snowflake::snowflake_new_id;
 use crate::interactive::views::server_selection::ServerSelectionView;
@@ -126,6 +127,9 @@ impl Update<Message> for Model {
                     None
                 }
                 Message::WindowResized => None,
+                Message::ServerSelectionMessage(msg) => match msg {
+                    SeverSelectionMessage::StateChanged => None,
+                },
                 _ => Some(msg),
             }
         } else {
