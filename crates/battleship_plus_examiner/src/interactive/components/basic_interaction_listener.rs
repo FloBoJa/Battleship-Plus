@@ -32,7 +32,7 @@ impl Component<Message, NoUserEvent> for BasicInteraction {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
             }) => Some(Message::AppClose),
-            Event::WindowResize(_, _) => Some(Message::WindowResized),
+            Event::WindowResize(_, _) => Some(Message::Redraw),
             _ => unreachable!(),
         }
     }

@@ -21,6 +21,14 @@ use crate::interactive::snowflake::snowflake_new_id;
 use crate::interactive::styles::styles;
 use crate::interactive::Message;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum ServerSelectionIDs {
+    DirectConnectAddress(i64),
+    DirectConnectPort(i64),
+    DirectConnectButton(i64),
+    ServerList(i64),
+}
+
 #[derive(Debug, Clone)]
 struct ServerEntry {
     valid_until: chrono::DateTime<Utc>,
@@ -147,27 +155,27 @@ impl ServerSelectionView {
 
         let address_entry_styles = (*styles::focus::TEXT, *styles::focus::TEXT_PADDING);
 
-        let address_entry = padded_span(
-            self.direct_connect_addr.as_str(),
-            Alignment::Center,
-            direct_connect_paragraph_size.width as usize
-                - PORT_ENTRY_WIDTH
-                - 2
-                - CONNECT_BUTTON_TEXT.len()
-                - 2,
-            address_entry_styles.1,
-            address_entry_styles.0,
-        );
+        //let address_entry = padded_span(
+        //    self.direct_connect_addr.as_str(),
+        //    Alignment::Center,
+        //    direct_connect_paragraph_size.width as usize
+        //        - PORT_ENTRY_WIDTH
+        //        - 2
+        //        - CONNECT_BUTTON_TEXT.len()
+        //        - 2,
+        //    address_entry_styles.1,
+        //    address_entry_styles.0,
+        //);
 
         let port_entry_styles = (*styles::focus::TEXT, *styles::focus::TEXT_PADDING);
 
-        let port_entry = padded_span(
-            self.direct_connect_port.as_str(),
-            Alignment::Center,
-            PORT_ENTRY_WIDTH,
-            port_entry_styles.1,
-            port_entry_styles.0,
-        );
+        //let port_entry = padded_span(
+        //    self.direct_connect_port.as_str(),
+        //    Alignment::Center,
+        //    PORT_ENTRY_WIDTH,
+        //    port_entry_styles.1,
+        //    port_entry_styles.0,
+        //);
 
         let connect_button_style = *styles::focus::TEXT;
 
@@ -180,9 +188,9 @@ impl ServerSelectionView {
             )),
             Spans::from(
                 vec![
-                    address_entry.0,
+                    //address_entry.0,
                     vec![Span::from(":")],
-                    port_entry.0,
+                    //port_entry.0,
                     vec![Span::from(" ")],
                     vec![connect_button],
                 ]
@@ -278,45 +286,6 @@ const CONNECT_BUTTON_TEXT_LENGTH: usize = CONNECT_BUTTON_TEXT.len();
 
 fn connect_button<'a>(style: Style) -> Span<'a> {
     Span::styled(CONNECT_BUTTON_TEXT, style)
-}
-
-fn padded_span(
-    text: &str,
-    align: Alignment,
-    width: usize,
-    padding_style: Style,
-    content_style: Style,
-) -> Spans {
-    if text.len() >= width {
-        return Spans::from(Span::styled(
-            &text[(text.len() - width)..text.len()],
-            content_style,
-        ));
-    }
-
-    let pad_left = match align {
-        Alignment::Left => 0,
-        Alignment::Center => (width - text.len()) / 2,
-        Alignment::Right => width - text.len(),
-    };
-    let mut pad_right = match align {
-        Alignment::Left => width - text.len(),
-        Alignment::Center => (width - text.len()) / 2,
-        Alignment::Right => 0,
-    };
-    if pad_left + pad_right + text.len() < width {
-        pad_right = width - (pad_left + text.len());
-    }
-
-    Spans::from(vec![
-        Span::styled(repeat(' ', pad_left), padding_style),
-        Span::styled(text, content_style),
-        Span::styled(repeat(' ', pad_right), padding_style),
-    ])
-}
-
-fn repeat(c: char, count: usize) -> String {
-    (0..count).map(|_| c).collect()
 }
 
 #[derive(Debug, PartialEq)]

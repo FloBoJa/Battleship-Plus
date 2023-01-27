@@ -9,7 +9,8 @@ use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::tui::widgets::{Block, Borders};
 use tuirealm::SubClause::Always;
 use tuirealm::{
-    event::NoUserEvent, Application, EventListenerCfg, Sub, SubClause, SubEventClause, Update,
+    event::NoUserEvent, Application, EventListenerCfg, MockComponent, Sub, SubClause,
+    SubEventClause, Update,
 };
 
 use crate::interactive::app::SeverSelectionMessage;
@@ -126,7 +127,7 @@ impl Update<Message> for Model {
                     self.quit = true;
                     None
                 }
-                Message::WindowResized => None,
+                Message::Redraw => None,
                 Message::ServerSelectionMessage(msg) => match msg {
                     SeverSelectionMessage::StateChanged => None,
                 },

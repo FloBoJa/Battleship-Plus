@@ -18,7 +18,7 @@ mod views;
 #[derive(Debug, PartialEq)]
 pub enum Message {
     AppClose,
-    WindowResized,
+    Redraw,
     ServerSelectionMessage(SeverSelectionMessage),
 }
 
