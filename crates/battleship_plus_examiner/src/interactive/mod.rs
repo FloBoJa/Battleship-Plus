@@ -6,7 +6,7 @@ use tuirealm::Update;
 
 use app::model::Model;
 
-use crate::interactive::views::server_selection::SeverSelectionMessage;
+use crate::interactive::components::server_selection_server_list::SeverSelectionMessage;
 
 mod app;
 mod components;

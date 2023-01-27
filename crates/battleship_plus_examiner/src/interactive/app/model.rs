@@ -8,15 +8,11 @@ use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::tui::widgets::{Block, Borders};
 use tuirealm::SubClause::Always;
-use tuirealm::{
-    event::NoUserEvent, Application, EventListenerCfg, MockComponent, Sub, SubClause,
-    SubEventClause, Update,
-};
+use tuirealm::{event::NoUserEvent, Application, EventListenerCfg, Sub, SubEventClause, Update};
 
 use crate::interactive::app::SeverSelectionMessage;
 use crate::interactive::components::basic_interaction_listener::BasicInteraction;
 use crate::interactive::snowflake::snowflake_new_id;
-use crate::interactive::views::server_selection::ServerSelectionView;
 
 use super::Message;
 
@@ -30,16 +26,16 @@ pub struct Model {
     /// Used to draw to terminal
     pub terminal: TerminalBridge,
 
-    current_view_id: i64,
+    current_layout: crate::interactive::views::layout::Layout,
 }
 
 impl Model {
     pub async fn new(addr: Option<SocketAddr>) -> Self {
-        let (current_view_id, app) = Self::init_app(addr).await;
+        let (current_layout, app) = Self::init_app(addr).await;
 
         Self {
             app,
-            current_view_id,
+            current_layout,
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
@@ -57,14 +53,19 @@ impl Model {
                     .split(f.size());
 
                 f.render_widget(draw_logs(), layout[1]);
-                let body = layout[0];
 
-                self.app.view(&self.current_view_id, f, body)
+                let body = layout[0];
+                self.current_layout.draw(&mut self.app, f, body);
             })
             .is_ok());
     }
 
-    async fn init_app(addr: Option<SocketAddr>) -> (i64, Application<i64, Message, NoUserEvent>) {
+    async fn init_app(
+        addr: Option<SocketAddr>,
+    ) -> (
+        crate::interactive::views::layout::Layout,
+        Application<i64, Message, NoUserEvent>,
+    ) {
         let mut app: Application<i64, Message, NoUserEvent> = Application::init(
             EventListenerCfg::default()
                 .default_input_listener(Duration::from_millis(20))
@@ -89,27 +90,15 @@ impl Model {
         )
         .expect("unable to mount resize listener");
 
-        let current_view_id: i64;
+        let layout;
         // Mount components
         if let Some(addr) = addr {
             todo!()
         } else {
-            let server_selection_view = ServerSelectionView::new().await;
-            current_view_id = server_selection_view.id();
-            app.mount(
-                current_view_id,
-                Box::new(server_selection_view),
-                vec![Sub::new(
-                    SubEventClause::Keyboard(KeyEvent::new(Key::Null, KeyModifiers::all())),
-                    SubClause::IsMounted(current_view_id),
-                )],
-            )
-            .expect("unable to mount ServerSelectionView");
+            layout = crate::interactive::views::layout::Layout::server_selection(&mut app);
         }
 
-        app.active(&current_view_id)
-            .expect("unable to focus the current view");
-        (current_view_id, app)
+        (layout, app)
     }
 }
 

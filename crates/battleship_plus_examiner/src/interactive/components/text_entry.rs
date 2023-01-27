@@ -15,16 +15,16 @@ use tuirealm::{
 
 use crate::interactive::Message;
 
-pub struct TextEntry {
+pub struct TextBox {
     props: Props,
     char_validator: Box<dyn Fn(char) -> bool>,
-    value_validator: Box<dyn Fn(&str) -> bool>,
+    on_submit: Option<Box<dyn Fn(String)>>,
 }
 
 const TEXT: &str = "TEXT";
 const CURSOR: &str = "CURSOR";
 
-impl MockComponent for TextEntry {
+impl MockComponent for TextBox {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
         let state = self.state().unwrap_map();
         let state_string = state.get(TEXT).unwrap().clone().unwrap_string();
@@ -295,12 +295,21 @@ impl MockComponent for TextEntry {
                     CmdResult::Changed(self.state())
                 }
             }
+            Cmd::Submit => {
+                if let Some(on_submit) = self.on_submit.as_ref() {
+                    (on_submit)(match self.query(Attribute::Text) {
+                        None => String::new(),
+                        Some(text) => text.unwrap_string(),
+                    });
+                }
+                CmdResult::None
+            }
             _ => CmdResult::None,
         }
     }
 }
 
-impl Component<Message, NoUserEvent> for TextEntry {
+impl Component<Message, NoUserEvent> for TextBox {
     fn on(&mut self, event: Event<NoUserEvent>) -> Option<Message> {
         match event {
             Event::Keyboard(key_event) => match key_event.code {
@@ -415,44 +424,89 @@ impl Component<Message, NoUserEvent> for TextEntry {
 
                     Some(Message::Redraw)
                 }
+
+                Key::Enter => {
+                    self.perform(Cmd::Submit);
+                    None
+                }
                 _ => None,
             },
             Event::WindowResize(_, _) => None,
             Event::FocusGained => None,
             Event::FocusLost => None,
-            Event::Paste(_) => None,
+            Event::Paste(text) => {
+                self.attr(Attribute::Text, AttrValue::String(text));
+                Some(Message::Redraw)
+            }
             _ => None,
         }
     }
 }
 
-impl Default for TextEntry {
+impl Default for TextBox {
     fn default() -> Self {
-        TextEntry::new(Box::new(|_| true), Box::new(|_| true))
+        TextBox::new(Box::new(|_| true), None)
     }
 }
 
-impl TextEntry {
+impl TextBox {
     pub fn new(
         char_validator: Box<dyn Fn(char) -> bool>,
-        value_validator: Box<dyn Fn(&str) -> bool>,
+        on_submit: Option<Box<dyn Fn(String)>>,
     ) -> Self {
-        Self::with_text(String::new(), char_validator, value_validator)
+        Self::with_text(String::new(), char_validator, on_submit)
     }
 
-    pub fn with_text(
-        text: String,
+    pub fn with_text<S: AsRef<str>>(
+        text: S,
         char_validator: Box<dyn Fn(char) -> bool>,
-        value_validator: Box<dyn Fn(&str) -> bool>,
+        on_submit: Option<Box<dyn Fn(String)>>,
     ) -> Self {
         let mut props = Props::default();
-        props.set(Attribute::Text, AttrValue::String(text));
+        props.set(
+            Attribute::Text,
+            AttrValue::String(text.as_ref().to_string()),
+        );
+        props.set(
+            Attribute::Custom(CURSOR),
+            AttrValue::Payload(PropPayload::One(PropValue::U32(
+                text.as_ref().chars().count() as u32 - 1,
+            ))),
+        );
 
         Self {
             props,
             char_validator,
-            value_validator,
+            on_submit,
         }
+    }
+
+    pub fn button<S: AsRef<str>>(text: S, on_submit: Box<dyn Fn(String)>) -> Self {
+        Self::with_text(text, Box::new(|_| false), Some(on_submit))
+    }
+
+    pub fn label<S: AsRef<str>>(text: S) -> Self {
+        Self::with_text(text, Box::new(|_| false), None)
+    }
+
+    pub fn align(mut self, alignment: Alignment) -> Self {
+        self.attr(Attribute::TextAlign, AttrValue::Alignment(alignment));
+        self
+    }
+
+    pub fn background_style(mut self, style: Style) -> Self {
+        self.attr(Attribute::Background, AttrValue::Style(style));
+        self
+    }
+
+    pub fn foreground_style(mut self, style: Style) -> Self {
+        self.attr(Attribute::Foreground, AttrValue::Style(style));
+        self
+    }
+
+    pub fn cursor_style(mut self, style: Style) -> Self {
+        self.attr(Attribute::HighlightedColor, AttrValue::Style(style));
+        self
     }
 }
 
