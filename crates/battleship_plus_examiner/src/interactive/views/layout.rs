@@ -7,7 +7,10 @@ use crate::interactive::Message;
 
 #[derive(Debug)]
 pub enum Layout {
-    ServerSelection(Vec<ServerSelectionID>),
+    ServerSelection {
+        focus_rotation: Vec<ServerSelectionID>,
+        ids: Vec<ServerSelectionID>,
+    },
 }
 
 impl Layout {
@@ -18,11 +21,38 @@ impl Layout {
         area: Rect,
     ) {
         match self {
-            Layout::ServerSelection(ids) => server_selection::draw(ids, app, frame, area),
+            Layout::ServerSelection { ids, .. } => server_selection::draw(ids, app, frame, area),
         }
     }
 
-    pub fn server_selection(app: &mut Application<i64, Message, NoUserEvent>) -> Layout {
-        server_selection::create(app)
+    pub fn next_focus(&mut self) -> Option<i64> {
+        match self {
+            Layout::ServerSelection { focus_rotation, .. } => {
+                if focus_rotation.is_empty() {
+                    return None;
+                }
+
+                let id = focus_rotation.remove(0);
+                focus_rotation.push(id);
+                focus_rotation.first().map(|id| id.id())
+            }
+        }
+    }
+
+    pub fn previous_focus(&mut self) -> Option<i64> {
+        match self {
+            Layout::ServerSelection { focus_rotation, .. } => {
+                if let Some(id) = focus_rotation.pop() {
+                    focus_rotation.insert(0, id);
+                    focus_rotation.first().map(|id| id.id())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub async fn server_selection(app: &mut Application<i64, Message, NoUserEvent>) -> Layout {
+        server_selection::create(app).await
     }
 }

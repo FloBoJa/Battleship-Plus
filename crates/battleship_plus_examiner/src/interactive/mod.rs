@@ -6,12 +6,9 @@ use tuirealm::Update;
 
 use app::model::Model;
 
-use crate::interactive::components::server_selection_server_list::SeverSelectionMessage;
-
 mod app;
 mod components;
 mod snowflake;
-mod styles;
 mod views;
 
 // Let's define the messages handled by our app. NOTE: it must derive `PartialEq`
@@ -19,16 +16,9 @@ mod views;
 pub enum Message {
     AppClose,
     Redraw,
-    ServerSelectionMessage(SeverSelectionMessage),
-}
-
-// Let's define the component ids for our application
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
-pub enum Id {
-    Clock,
-    DigitCounter,
-    LetterCounter,
-    Label,
+    NextFocus,
+    PreviousFocus,
+    ConnectToServer(SocketAddr),
 }
 
 pub(crate) async fn interactive_main(addr: Option<SocketAddr>) -> eyre::Result<()> {

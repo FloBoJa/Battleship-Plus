@@ -18,7 +18,7 @@ use crate::interactive::Message;
 pub struct TextBox {
     props: Props,
     char_validator: Box<dyn Fn(char) -> bool>,
-    on_submit: Option<Box<dyn Fn(String)>>,
+    on_submit: Option<Box<dyn Fn(String) -> Option<Message>>>,
 }
 
 const TEXT: &str = "TEXT";
@@ -66,9 +66,13 @@ impl MockComponent for TextBox {
             None => Style::default(),
             Some(style) => style.unwrap_style(),
         };
-        let cursor_style = match self.query(Attribute::HighlightedColor) {
-            None => Style::default(),
-            Some(style) => style.unwrap_style(),
+        let cursor_style = if self.query(Attribute::Focus).unwrap().unwrap_flag() {
+            match self.query(Attribute::HighlightedColor) {
+                None => Style::default(),
+                Some(style) => style.unwrap_style(),
+            }
+        } else {
+            content_style.clone()
         };
 
         let pad_left = match align {
@@ -295,15 +299,10 @@ impl MockComponent for TextBox {
                     CmdResult::Changed(self.state())
                 }
             }
-            Cmd::Submit => {
-                if let Some(on_submit) = self.on_submit.as_ref() {
-                    (on_submit)(match self.query(Attribute::Text) {
-                        None => String::new(),
-                        Some(text) => text.unwrap_string(),
-                    });
-                }
-                CmdResult::None
-            }
+            Cmd::Submit => CmdResult::Submit(State::One(StateValue::String(
+                self.query(Attribute::Text)
+                    .map_or(String::new(), |attr| attr.unwrap_string()),
+            ))),
             _ => CmdResult::None,
         }
     }
@@ -426,9 +425,25 @@ impl Component<Message, NoUserEvent> for TextBox {
                 }
 
                 Key::Enter => {
-                    self.perform(Cmd::Submit);
+                    if let CmdResult::Submit(State::One(StateValue::String(addr))) =
+                        self.perform(Cmd::Submit)
+                    {
+                        if let Some(on_submit) = self.on_submit.as_ref() {
+                            return (on_submit)(addr);
+                        }
+                    }
+
                     None
                 }
+
+                Key::Tab => {
+                    if key_event.modifiers.contains(KeyModifiers::SHIFT) {
+                        Some(Message::PreviousFocus)
+                    } else {
+                        Some(Message::NextFocus)
+                    }
+                }
+
                 _ => None,
             },
             Event::WindowResize(_, _) => None,
@@ -452,7 +467,7 @@ impl Default for TextBox {
 impl TextBox {
     pub fn new(
         char_validator: Box<dyn Fn(char) -> bool>,
-        on_submit: Option<Box<dyn Fn(String)>>,
+        on_submit: Option<Box<dyn Fn(String) -> Option<Message>>>,
     ) -> Self {
         Self::with_text(String::new(), char_validator, on_submit)
     }
@@ -460,7 +475,7 @@ impl TextBox {
     pub fn with_text<S: AsRef<str>>(
         text: S,
         char_validator: Box<dyn Fn(char) -> bool>,
-        on_submit: Option<Box<dyn Fn(String)>>,
+        on_submit: Option<Box<dyn Fn(String) -> Option<Message>>>,
     ) -> Self {
         let mut props = Props::default();
         props.set(
@@ -481,7 +496,10 @@ impl TextBox {
         }
     }
 
-    pub fn button<S: AsRef<str>>(text: S, on_submit: Box<dyn Fn(String)>) -> Self {
+    pub fn button<S: AsRef<str>>(
+        text: S,
+        on_submit: Box<dyn Fn(String) -> Option<Message>>,
+    ) -> Self {
         Self::with_text(text, Box::new(|_| false), Some(on_submit))
     }
 
@@ -508,41 +526,6 @@ impl TextBox {
         self.attr(Attribute::HighlightedColor, AttrValue::Style(style));
         self
     }
-}
-
-fn padded_span(
-    text: &str,
-    align: Alignment,
-    width: usize,
-    padding_style: Style,
-    content_style: Style,
-) -> Spans {
-    if text.len() >= width {
-        return Spans::from(Span::styled(
-            &text[(text.len() - width)..text.len()],
-            content_style,
-        ));
-    }
-
-    let pad_left = match align {
-        Alignment::Left => 0,
-        Alignment::Center => (width - text.len()) / 2,
-        Alignment::Right => width - text.len(),
-    };
-    let mut pad_right = match align {
-        Alignment::Left => width - text.len(),
-        Alignment::Center => (width - text.len()) / 2,
-        Alignment::Right => 0,
-    };
-    if pad_left + pad_right + text.len() < width {
-        pad_right = width - (pad_left + text.len());
-    }
-
-    Spans::from(vec![
-        Span::styled(repeat(' ', pad_left), padding_style),
-        Span::styled(text, content_style),
-        Span::styled(repeat(' ', pad_right), padding_style),
-    ])
 }
 
 fn repeat(c: char, count: usize) -> String {

@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use log::debug;
 use tui_logger::TuiLoggerWidget;
 use tuirealm::event::{Key, KeyEvent, KeyModifiers};
 use tuirealm::props::{Color, Style};
@@ -10,7 +11,6 @@ use tuirealm::tui::widgets::{Block, Borders};
 use tuirealm::SubClause::Always;
 use tuirealm::{event::NoUserEvent, Application, EventListenerCfg, Sub, SubEventClause, Update};
 
-use crate::interactive::app::SeverSelectionMessage;
 use crate::interactive::components::basic_interaction_listener::BasicInteraction;
 use crate::interactive::snowflake::snowflake_new_id;
 
@@ -95,7 +95,7 @@ impl Model {
         if let Some(addr) = addr {
             todo!()
         } else {
-            layout = crate::interactive::views::layout::Layout::server_selection(&mut app);
+            layout = crate::interactive::views::layout::Layout::server_selection(&mut app).await;
         }
 
         (layout, app)
@@ -117,9 +117,24 @@ impl Update<Message> for Model {
                     None
                 }
                 Message::Redraw => None,
-                Message::ServerSelectionMessage(msg) => match msg {
-                    SeverSelectionMessage::StateChanged => None,
-                },
+                Message::NextFocus => {
+                    if let Some(id) = self.current_layout.next_focus() {
+                        self.app.blur().expect("unable to take focus from element");
+                        self.app.active(&id).expect("unable to focus {id}");
+                    }
+                    None
+                }
+                Message::PreviousFocus => {
+                    if let Some(id) = self.current_layout.previous_focus() {
+                        self.app.blur().expect("unable to take focus from element");
+                        self.app.active(&id).expect("unable to focus {id}");
+                    }
+                    None
+                }
+                Message::ConnectToServer(addr) => {
+                    debug!("Connecting to server {addr}…");
+                    None
+                }
                 _ => Some(msg),
             }
         } else {

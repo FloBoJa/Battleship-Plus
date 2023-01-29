@@ -26,8 +26,8 @@ impl MockComponent for BasicInteraction {
 }
 
 impl Component<Message, NoUserEvent> for BasicInteraction {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Message> {
-        match ev {
+    fn on(&mut self, event: Event<NoUserEvent>) -> Option<Message> {
+        match event {
             Event::Keyboard(KeyEvent {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::CONTROL,

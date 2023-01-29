@@ -1,24 +1,27 @@
+use std::cmp::max;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::ops::Add;
+use std::str::FromStr;
 
 use chrono::{Duration, Utc};
-use tuirealm::command::{Cmd, CmdResult};
-use tuirealm::props::{Alignment, Style};
-use tuirealm::tui::layout::{Constraint, Direction, Layout, Margin, Rect};
-use tuirealm::tui::style::Modifier;
-use tuirealm::tui::text::{Span, Spans, Text};
-use tuirealm::tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
-use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, State};
+use log::warn;
+use tuirealm::command::{Cmd, CmdResult, Position};
+use tuirealm::event::{Key, KeyModifiers};
+use tuirealm::props::{Color, Style};
+use tuirealm::tui::layout::{Constraint, Rect};
+use tuirealm::tui::widgets::{Block, Borders, Cell, Row, Table};
+use tuirealm::{
+    command, AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, Props,
+    State, StateValue,
+};
 
 use battleship_plus_common::messages::ServerAdvertisement;
 use battleship_plus_common::types::Config;
 
 use crate::advertisement_receiver::AdvertisementReceiver;
 use crate::config::ADVERTISEMENT_PORT;
-use crate::interactive::snowflake::snowflake_new_id;
-use crate::interactive::styles::styles;
 use crate::interactive::Message;
 
 #[derive(Debug, Clone)]
@@ -36,7 +39,7 @@ impl From<(ServerAdvertisement, SocketAddr)> for ServerEntry {
         Self {
             addr,
             display_name: advertisement.display_name,
-            valid_until: Utc::now().add(Duration::seconds(30)),
+            valid_until: Utc::now().add(Duration::seconds(10)),
             game_config: None,
         }
     }
@@ -57,164 +60,82 @@ impl PartialEq for ServerEntry {
 }
 
 #[derive(Debug)]
-pub struct ServerSelectionView {
-    ui_id: i64,
+pub struct ServerAnnouncements {
+    props: Props,
     advertisement_receiver: AdvertisementReceiver,
     servers: HashSet<ServerEntry>,
     selected_server: Option<SocketAddr>,
-
-    direct_connect_addr: String,
-    direct_connect_port: String,
 }
 
-impl Component<Message, NoUserEvent> for ServerSelectionView {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Message> {
-        match ev {
+impl Component<Message, NoUserEvent> for ServerAnnouncements {
+    fn on(&mut self, event: Event<NoUserEvent>) -> Option<Message> {
+        match event {
             Event::Tick => {
-                let new_advertisements = self.poll_sockets();
-                if !new_advertisements.is_empty() {
-                    for advertisement in new_advertisements {
-                        let entry = advertisement.into();
-                        self.servers.replace(entry);
+                if !matches!(self.perform(Cmd::Tick), CmdResult::None) {
+                    Some(Message::Redraw)
+                } else {
+                    None
+                }
+            }
+            Event::Keyboard(key_event) => match key_event.code {
+                Key::Tab => {
+                    if key_event.modifiers.contains(KeyModifiers::SHIFT) {
+                        Some(Message::PreviousFocus)
+                    } else {
+                        Some(Message::NextFocus)
                     }
-
-                    return Some(Message::ServerSelectionMessage(
-                        SeverSelectionMessage::StateChanged,
-                    ));
                 }
 
-                None
-            }
+                Key::Up => {
+                    self.perform(Cmd::Move(command::Direction::Up));
+                    Some(Message::Redraw)
+                }
+                Key::Down => {
+                    self.perform(Cmd::Move(command::Direction::Down));
+                    Some(Message::Redraw)
+                }
+                Key::Right | Key::Enter => {
+                    if let CmdResult::Submit(State::One(StateValue::String(addr))) =
+                        self.perform(Cmd::Submit)
+                    {
+                        match SocketAddr::from_str(addr.as_str()) {
+                            Ok(addr) => return Some(Message::ConnectToServer(addr)),
+                            Err(e) => {
+                                warn!("unable to parse address \"{addr}\": {e}");
+                            }
+                        }
+                    }
+
+                    None
+                }
+
+                _ => None,
+            },
             _ => None,
         }
     }
 }
 
-impl MockComponent for ServerSelectionView {
+impl MockComponent for ServerAnnouncements {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(4), Constraint::Min(1)])
-            .split(area);
-
-        self.draw_direct_connect(frame, layout[0]);
-        self.draw_server_list(frame, layout[1]);
-    }
-
-    fn query(&self, _: Attribute) -> Option<AttrValue> {
-        None
-    }
-
-    fn attr(&mut self, _: Attribute, _: AttrValue) {}
-
-    fn state(&self) -> State {
-        State::None
-    }
-
-    fn perform(&mut self, _: Cmd) -> CmdResult {
-        CmdResult::None
-    }
-}
-
-impl ServerSelectionView {
-    pub async fn new() -> Self {
-        Self {
-            ui_id: snowflake_new_id(),
-            advertisement_receiver: AdvertisementReceiver::new(ADVERTISEMENT_PORT),
-            servers: Default::default(),
-            selected_server: None,
-            direct_connect_addr: "bsplus.floboja.net".to_string(),
-            direct_connect_port: "30305".to_string(),
-        }
-    }
-
-    pub fn id(&self) -> i64 {
-        self.ui_id
-    }
-
-    fn draw_direct_connect(&self, f: &mut Frame, area: Rect) {
-        let direct_connect_paragraph_size = area.inner(&Margin {
-            vertical: 1,
-            horizontal: 3,
-        });
-
-        const PORT_ENTRY_WIDTH: usize = 7;
-
-        let direct_connect_box = Block::default()
-            .borders(Borders::ALL)
-            .title("[ Direct Connect ]")
-            .border_style(*styles::not_focus::BOX);
-
-        let address_entry_styles = (*styles::focus::TEXT, *styles::focus::TEXT_PADDING);
-
-        //let address_entry = padded_span(
-        //    self.direct_connect_addr.as_str(),
-        //    Alignment::Center,
-        //    direct_connect_paragraph_size.width as usize
-        //        - PORT_ENTRY_WIDTH
-        //        - 2
-        //        - CONNECT_BUTTON_TEXT.len()
-        //        - 2,
-        //    address_entry_styles.1,
-        //    address_entry_styles.0,
-        //);
-
-        let port_entry_styles = (*styles::focus::TEXT, *styles::focus::TEXT_PADDING);
-
-        //let port_entry = padded_span(
-        //    self.direct_connect_port.as_str(),
-        //    Alignment::Center,
-        //    PORT_ENTRY_WIDTH,
-        //    port_entry_styles.1,
-        //    port_entry_styles.0,
-        //);
-
-        let connect_button_style = *styles::focus::TEXT;
-
-        let connect_button = connect_button(connect_button_style);
-
-        let direct_connect_paragraph = Paragraph::new(Text::from(vec![
-            Spans::from(Span::styled(
-                "Connect to a server via its address",
-                Style::default().add_modifier(Modifier::BOLD),
-            )),
-            Spans::from(
-                vec![
-                    //address_entry.0,
-                    vec![Span::from(":")],
-                    //port_entry.0,
-                    vec![Span::from(" ")],
-                    vec![connect_button],
-                ]
-                .iter()
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>(),
-            ),
-        ]))
-        .alignment(Alignment::Left);
-
-        f.render_widget(direct_connect_box, area);
-        f.render_widget(direct_connect_paragraph, direct_connect_paragraph_size);
-    }
-
-    fn draw_server_list(&self, f: &mut Frame, area: Rect) {
-        let server_list_box = Block::default()
-            .borders(Borders::ALL)
-            .title("[ Server List ]")
-            .border_style(*styles::focus::BOX);
-
         const INDICATOR: &str = " >> ";
         const INDICATOR_LENGTH: usize = INDICATOR.len();
 
         let mut selected_row = None;
+        let mut addr_length = 1;
         let rows: Vec<_> = self
             .servers
             .iter()
             .enumerate()
             .map(|(i, entry)| {
-                let selected =
-                    self.selected_server.is_some() && self.selected_server.unwrap() == entry.addr;
+                addr_length = max(addr_length, entry.addr.to_string().len());
+
+                let selected = self
+                    .query(Attribute::Focus)
+                    .unwrap_or(AttrValue::Flag(false))
+                    .unwrap_flag()
+                    && self.selected_server.is_some()
+                    && self.selected_server.unwrap() == entry.addr;
 
                 if selected {
                     selected_row = Some(i);
@@ -228,14 +149,9 @@ impl ServerSelectionView {
                     },
                     Cell::from(entry.addr.to_string()),
                     Cell::from(entry.display_name.as_str()),
-                    if selected {
-                        Cell::from(connect_button(Style::default()))
-                    } else {
-                        Cell::default()
-                    },
                 ])
                 .style(if selected {
-                    *styles::focus::TEXT
+                    Style::default().bg(Color::Blue).fg(Color::LightYellow)
                 } else {
                     Style::default()
                 })
@@ -250,37 +166,145 @@ impl ServerSelectionView {
             }
         }
 
-        let free_space = area.width as usize - 6 - INDICATOR_LENGTH - CONNECT_BUTTON_TEXT_LENGTH;
-        let addr_length = free_space / 3;
-        let name_length = free_space - addr_length;
+        addr_length += 4;
+        let free_space = area.width as usize - 6 - INDICATOR_LENGTH;
+        let name_length = free_space.saturating_sub(addr_length);
 
         let constraints = [
             Constraint::Length(INDICATOR_LENGTH as u16),
             Constraint::Length(addr_length as u16),
             Constraint::Length(name_length as u16),
-            Constraint::Length(CONNECT_BUTTON_TEXT_LENGTH as u16),
         ];
 
         let server_table = Table::new(rows.iter().skip(skip).take(visible_rows as usize).cloned())
-            .block(server_list_box)
+            .block(Block::default().borders(Borders::NONE))
             .widths(&constraints);
 
-        f.render_widget(server_table, area);
+        frame.render_widget(server_table, area);
+    }
+
+    fn query(&self, attr: Attribute) -> Option<AttrValue> {
+        self.props.get(attr)
+    }
+
+    fn attr(&mut self, attr: Attribute, value: AttrValue) {
+        self.props.set(attr, value)
+    }
+
+    fn state(&self) -> State {
+        self.selected_server.map_or(State::None, |addr| {
+            State::One(StateValue::String(addr.to_string()))
+        })
+    }
+
+    fn perform(&mut self, cmd: Cmd) -> CmdResult {
+        match cmd {
+            Cmd::Tick => {
+                let mut changed = false;
+
+                let new_advertisements = self.poll_sockets();
+                changed = if !new_advertisements.is_empty() {
+                    for advertisement in new_advertisements {
+                        let entry = advertisement.into();
+                        self.servers.replace(entry);
+                    }
+
+                    if self.selected_server.is_none() {
+                        self.selected_server = self.servers.iter().next().map(|e| e.addr)
+                    }
+
+                    true
+                } else {
+                    false
+                };
+
+                self.servers
+                    .clone()
+                    .iter()
+                    .filter(|e| e.valid_until < Utc::now())
+                    .for_each(|e| {
+                        self.servers.remove(e);
+                        if self.selected_server == Some(e.addr) {
+                            self.selected_server = None;
+                        }
+                        changed |= true;
+                    });
+
+                match changed {
+                    true => CmdResult::Changed(self.state()),
+                    false => CmdResult::None,
+                }
+            }
+
+            Cmd::Scroll(direction) | Cmd::Move(direction) => {
+                match (self.selected_server, direction) {
+                    (None, _) => {
+                        self.selected_server = self.servers.iter().next().map(|e| e.addr);
+                        CmdResult::Changed(self.state())
+                    }
+                    (Some(selected), _) if !self.servers.iter().any(|e| e.addr == selected) => {
+                        self.selected_server = self.servers.iter().next().map(|e| e.addr);
+                        CmdResult::Changed(self.state())
+                    }
+                    (Some(selected), command::Direction::Down) => {
+                        self.selected_server = self
+                            .servers
+                            .iter()
+                            .cycle()
+                            .skip_while(|e| e.addr != selected)
+                            .nth(1)
+                            .map(|e| e.addr);
+                        CmdResult::Changed(self.state())
+                    }
+                    (Some(selected), command::Direction::Up) => {
+                        self.selected_server = self
+                            .servers
+                            .iter()
+                            .collect::<Vec<_>>()
+                            .iter()
+                            .rev()
+                            .cycle()
+                            .skip_while(|e| e.addr != selected)
+                            .nth(1)
+                            .map(|e| e.addr);
+                        CmdResult::Changed(self.state())
+                    }
+                    (Some(_), command::Direction::Right) => self.perform(Cmd::Submit),
+                    _ => CmdResult::None,
+                }
+            }
+            Cmd::GoTo(position) => match position {
+                Position::Begin => {
+                    self.selected_server = self.servers.iter().next().map(|e| e.addr);
+                    CmdResult::Changed(self.state())
+                }
+                Position::End => {
+                    self.selected_server = self.servers.iter().last().map(|e| e.addr);
+                    CmdResult::Changed(self.state())
+                }
+                Position::At(at) => {
+                    self.selected_server = self.servers.iter().nth(at).map(|e| e.addr);
+                    CmdResult::Changed(self.state())
+                }
+            },
+            Cmd::Submit if self.selected_server.is_some() => CmdResult::Submit(self.state()),
+
+            _ => CmdResult::None,
+        }
+    }
+}
+
+impl ServerAnnouncements {
+    pub async fn new() -> Self {
+        Self {
+            props: Props::default(),
+            advertisement_receiver: AdvertisementReceiver::new(ADVERTISEMENT_PORT),
+            servers: Default::default(),
+            selected_server: None,
+        }
     }
 
     fn poll_sockets(&mut self) -> Vec<(ServerAdvertisement, SocketAddr)> {
         self.advertisement_receiver.poll()
     }
-}
-
-const CONNECT_BUTTON_TEXT: &str = "[ Connect ]";
-const CONNECT_BUTTON_TEXT_LENGTH: usize = CONNECT_BUTTON_TEXT.len();
-
-fn connect_button<'a>(style: Style) -> Span<'a> {
-    Span::styled(CONNECT_BUTTON_TEXT, style)
-}
-
-#[derive(Debug, PartialEq)]
-pub enum SeverSelectionMessage {
-    StateChanged,
 }
