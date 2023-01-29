@@ -136,6 +136,7 @@ impl Client {
             match msg {
                 ProtocolMessage::PlacementPhase(PlacementPhase {
                     corner: Some(corner),
+                    ..
                 }) => {
                     assert!(!quadrant_assignments.values().any(|c| c.clone() == corner));
                     quadrant_assignments.insert(c.state.player_id, corner);
