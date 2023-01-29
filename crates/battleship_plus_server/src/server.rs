@@ -621,7 +621,7 @@ fn broadcast_lobby_change_event(
 
 fn broadcast_game_preparation_start(
     players: Vec<&mut Player>,
-    mut quadrants: Vec<(u32, u32)>,
+    mut quadrants: Vec<(u32, u32, u32)>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     if players.len() > quadrants.len() {
@@ -644,6 +644,7 @@ fn broadcast_game_preparation_start(
                         x: p.quadrant.unwrap().0,
                         y: p.quadrant.unwrap().1,
                     }),
+                    quadrant_size: p.quadrant.unwrap().2,
                 }
                 .into(),
             ))
