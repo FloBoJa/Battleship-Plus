@@ -50,9 +50,9 @@ impl Plugin for PlacementPhasePlugin {
 pub struct Quadrant(AABB<[i32; 2]>);
 
 impl Quadrant {
-    pub fn new(corner: types::Coordinate, board_size: u32, player_count: u32) -> Quadrant {
+    pub fn new(corner: types::Coordinate, quadrant_size: u32) -> Quadrant {
         let corner = (corner.x, corner.y);
-        Quadrant(util::quadrant_from_corner(corner, board_size, player_count))
+        Quadrant(util::quadrant_from_corner(corner, quadrant_size))
     }
 }
 
