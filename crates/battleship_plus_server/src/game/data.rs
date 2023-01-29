@@ -99,7 +99,7 @@ impl Game {
         AABB::from_corners([0; 2], [(self.config.board_size - 1) as i32; 2])
     }
 
-    pub fn quadrants(&self) -> Vec<(u32, u32)> {
+    pub fn quadrants(&self) -> Vec<(u32, u32, u32)> {
         let player_count = self.config.team_size_a + self.config.team_size_b;
         let quadrant_size = util::quadrant_size(self.config.board_size, player_count);
         let quadrants_per_row = util::quadrants_per_row(player_count);
@@ -112,6 +112,7 @@ impl Game {
                     (
                         tile_offset + (x * quadrant_size),
                         tile_offset + (y * quadrant_size),
+                        quadrant_size,
                     )
                 })
             })
@@ -162,9 +163,8 @@ impl Game {
         };
 
         let player = self.players.get(&player_id).unwrap();
-        let corner = player.quadrant.unwrap();
-        let player_count = self.config.team_size_a + self.config.team_size_b;
-        let quadrant = util::quadrant_from_corner(corner, self.config.board_size, player_count);
+        let (corner_x, corner_y, quadrant_size) = player.quadrant.unwrap();
+        let quadrant = util::quadrant_from_corner((corner_x, corner_y), quadrant_size);
 
         if (0..ship_set.len())
             .map(|ship_number| (player_id, ship_number as u32) as ShipID)
@@ -229,7 +229,7 @@ pub struct Player {
     pub(crate) id: PlayerID,
     pub(crate) name: String,
     pub(crate) is_ready: bool,
-    pub(crate) quadrant: Option<(u32, u32)>,
+    pub(crate) quadrant: Option<(u32, u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
