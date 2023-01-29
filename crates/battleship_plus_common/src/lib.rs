@@ -233,16 +233,12 @@ pub mod util {
         board_size / quadrants_per_row(player_count)
     }
 
-    pub fn quadrant_from_corner(
-        corner: (u32, u32),
-        board_size: u32,
-        player_count: u32,
-    ) -> AABB<[i32; 2]> {
+    pub fn quadrant_from_corner(corner: (u32, u32), quadrant_size: u32) -> AABB<[i32; 2]> {
         AABB::from_corners(
             [corner.0 as i32, corner.1 as i32],
             [
-                (corner.0 + quadrant_size(board_size, player_count)) as i32,
-                (corner.1 + quadrant_size(board_size, player_count)) as i32,
+                (corner.0 + quadrant_size) as i32,
+                (corner.1 + quadrant_size) as i32,
             ],
         )
     }
