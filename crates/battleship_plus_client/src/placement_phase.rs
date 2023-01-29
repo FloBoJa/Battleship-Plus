@@ -108,11 +108,12 @@ struct ShipBundle {
 }
 
 impl ShipBundle {
-    fn new(ship: &Ship, meshes: &Res<ShipMeshes>) -> Self {
+    fn new(ship: &Ship, meshes: &Res<ShipMeshes>, quadrant_size: i32) -> Self {
+        let scale = OCEAN_SIZE / quadrant_size as f32;
         let position = ship.position();
         let translation = Vec3::new(
-            position.0 as f32 - OFFSET_X,
-            position.1 as f32 - OFFSET_Y,
+            position.0 as f32 * scale - OFFSET_X,
+            position.1 as f32 * scale - OFFSET_Y,
             0.0,
         );
         let rotation = Quat::from_rotation_z(match ship.orientation() {
@@ -121,13 +122,16 @@ impl ShipBundle {
             Orientation::South => FRAC_PI_2,
             Orientation::West => PI,
         });
+        let scale = Vec3::new(scale, scale, scale);
         Self {
             model: PbrBundle {
                 mesh: meshes
                     .get(&ship.ship_type())
                     .expect("There are meshes for all configured ship types")
                     .clone(),
-                transform: Transform::from_translation(translation).with_rotation(rotation),
+                transform: Transform::from_translation(translation)
+                    .with_rotation(rotation)
+                    .with_scale(scale),
                 ..default()
             },
             ship_info: ShipInfo {
@@ -326,8 +330,16 @@ fn place_ship(
         return;
     }
 
+    let quadrant_size = quadrant.upper()[0] - quadrant.lower()[0];
     let coordinates = match intersection.position() {
-        Some(Vec3 { x, y, .. }) => [(OFFSET_X + *x) as i32, (OFFSET_Y + *y) as i32],
+        Some(Vec3 { x, y, .. }) => {
+            let mut coordinates = [(OFFSET_X + *x), (OFFSET_Y + *y)];
+            coordinates[0] /= OCEAN_SIZE;
+            coordinates[1] /= OCEAN_SIZE;
+            coordinates[0] *= quadrant_size as f32;
+            coordinates[1] *= quadrant_size as f32;
+            [coordinates[0] as i32, coordinates[1] as i32]
+        }
         None => return,
     };
 
@@ -423,6 +435,7 @@ fn choose_orientation_and_place_ship(
     ] {
         let ship = Ship::new_from_type(ship_type, ship_id, position, orientation, config.0.clone());
         let envelope = &ship.envelope();
+        let quadrant_size = quadrant.upper()[0] - quadrant.lower()[0];
         if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
             trace!("Placed a {ship_type:?} at {:?}", envelope);
             let ship = ships
@@ -436,7 +449,7 @@ fn choose_orientation_and_place_ship(
                 })
                 .expect("This ship was just inserted");
             commands
-                .spawn(ShipBundle::new(ship, ship_meshes))
+                .spawn(ShipBundle::new(ship, ship_meshes, quadrant_size))
                 .insert(Name::new(format!("{:?}: {:?}", ship_type, ship_id)));
             return;
         }
