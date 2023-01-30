@@ -237,8 +237,8 @@ pub mod util {
         AABB::from_corners(
             [corner.0 as i32, corner.1 as i32],
             [
-                (corner.0 + quadrant_size) as i32,
-                (corner.1 + quadrant_size) as i32,
+                (corner.0 + quadrant_size - 1) as i32,
+                (corner.1 + quadrant_size - 1) as i32,
             ],
         )
     }
