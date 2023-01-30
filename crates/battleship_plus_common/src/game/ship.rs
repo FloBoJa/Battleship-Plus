@@ -259,8 +259,8 @@ impl Ship {
             | Ship::Cruiser { data, .. }
             | Ship::Submarine { data, .. }
             | Ship::Destroyer { data, .. } => match orientation {
-                Orientation::North => (data.pos_x, data.pos_y - movement),
-                Orientation::South => (data.pos_x, data.pos_y + movement),
+                Orientation::North => (data.pos_x, data.pos_y + movement),
+                Orientation::South => (data.pos_x, data.pos_y - movement),
                 Orientation::East => (data.pos_x + movement, data.pos_y),
                 Orientation::West => (data.pos_x - movement, data.pos_y),
             },
@@ -352,8 +352,8 @@ impl Ship {
         orientation: Orientation,
     ) -> AABB<[i32; 2]> {
         match orientation {
-            Orientation::North => AABB::from_corners([x, y - (self.len() - 1)], [x, y]),
-            Orientation::South => AABB::from_corners([x, y], [x, y + (self.len() - 1)]),
+            Orientation::North => AABB::from_corners([x, y + (self.len() - 1)], [x, y]),
+            Orientation::South => AABB::from_corners([x, y], [x, y - (self.len() - 1)]),
             Orientation::East => AABB::from_corners([x, y], [x + (self.len() - 1), y]),
             Orientation::West => AABB::from_corners([x, y], [x - (self.len() - 1), y]),
         }
