@@ -636,7 +636,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -701,7 +701,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -766,7 +766,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -886,9 +886,10 @@ mod actions_move {
                 ..Default::default()
             }),
             data: ShipData {
+                id: (player.id, 0),
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -905,10 +906,10 @@ mod actions_move {
                 ..Default::default()
             }),
             data: ShipData {
-                id: (0, 1),
+                id: (player.id, 1),
                 pos_x: (config.board_size - 1) as i32,
                 pos_y: (config.board_size - 1) as i32,
-                orientation: Orientation::North,
+                orientation: Orientation::South,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1031,7 +1032,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1186,7 +1187,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1216,7 +1217,7 @@ mod actions_rotate {
             assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
         }
@@ -1236,7 +1237,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
         }
@@ -1259,7 +1260,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1289,7 +1290,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert!(!g
                 .ships
@@ -1323,7 +1324,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert!(!g
                 .ships
@@ -1387,7 +1388,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1430,7 +1431,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1470,7 +1471,7 @@ mod actions_rotate {
                 id: (0, 2),
                 pos_x: 1,
                 pos_y: 1,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1493,7 +1494,7 @@ mod actions_rotate {
         assert!(Action::Rotate {
             ship_id: (player.id, 0),
             properties: RotateProperties {
-                direction: i32::from(RotateDirection::CounterClockwise),
+                direction: i32::from(RotateDirection::Clockwise),
             },
         }
         .apply_on(&mut g)
