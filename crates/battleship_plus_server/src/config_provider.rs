@@ -134,7 +134,7 @@ pub(crate) mod default {
                 }),
                 ship_set_team_a: default_ship_set(),
                 ship_set_team_b: default_ship_set(),
-                board_size: if cfg!(test) { 128 } else { 16 },
+                board_size: if cfg!(test) { 128 } else { 422 },
                 action_point_gain: 1,
                 team_size_a: if cfg!(test) { 2 } else { 1 },
                 team_size_b: if cfg!(test) { 2 } else { 0 },
