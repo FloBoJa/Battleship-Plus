@@ -34,6 +34,7 @@ impl Plugin for PlacementPhasePlugin {
         app.add_startup_system(load_assets)
             .add_enter_system(GameState::PlacementPhase, create_resources)
             .add_enter_system(GameState::PlacementPhase, spawn_components)
+            .add_exit_system(GameState::PlacementPhase, despawn_components)
             .add_system_to_stage(
                 CoreStage::First,
                 update_raycast_with_cursor.before(RaycastSystem::BuildRays::<RaycastSet>),
@@ -42,7 +43,8 @@ impl Plugin for PlacementPhasePlugin {
             .add_system(place_ship.run_in_state(GameState::PlacementPhase))
             .add_system(send_placement.run_in_state(GameState::PlacementPhase))
             .add_system(process_responses.run_in_state(GameState::PlacementPhase))
-            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
+            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase))
+            .add_system(leave_game.run_in_state(GameState::PlacementPhase));
     }
 }
 
@@ -141,6 +143,9 @@ impl ShipBundle {
     }
 }
 
+#[derive(Component)]
+struct DespawnOnExit;
+
 fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(GameAssets {
         ocean_scene: assets.load("models/ocean.glb#Scene0"),
@@ -219,7 +224,8 @@ fn spawn_components(
             ..default()
         })
         .insert(Name::new("Ocean"))
-        .insert(RaycastMesh::<RaycastSet>::default());
+        .insert(RaycastMesh::<RaycastSet>::default())
+        .insert(DespawnOnExit);
     commands
         .spawn(DirectionalLightBundle {
             transform: Transform::from_rotation(Quat::from_axis_angle(
@@ -232,12 +238,13 @@ fn spawn_components(
             },
             ..default()
         })
-        .insert(Name::new("Directional Light"));
+        .insert(Name::new("Directional Light"))
+        .insert(DespawnOnExit);
 
     let mesh = meshes.add(Mesh::from(shape::Plane { size: OCEAN_SIZE }));
     let material = materials.add(StandardMaterial {
         alpha_mode: AlphaMode::Blend,
-        base_color: Color::rgba(1.0, 1.0, 1.0, 0.2),
+        base_color: Color::NONE,
         ..default()
     });
 
@@ -250,7 +257,17 @@ fn spawn_components(
             ..default()
         })
         .insert(RaycastMesh::<RaycastSet>::default())
-        .insert(Name::new("Grid"));
+        .insert(Name::new("Grid"))
+        .insert(DespawnOnExit);
+}
+
+fn despawn_components(
+    mut commands: Commands,
+    entities_to_despawn: Query<Entity, With<DespawnOnExit>>,
+) {
+    for entity in entities_to_despawn.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
 }
 
 // Taken from bevy_mod_raycast examples.
@@ -643,5 +660,12 @@ fn process_game_start_event(
                 // ignore
             }
         }
+    }
+}
+
+fn leave_game(mut commands: Commands, input: Res<Input<KeyCode>>) {
+    if input.just_pressed(KeyCode::Escape) {
+        info!("Disconnecting from the server on user request");
+        commands.insert_resource(NextState(GameState::Unconnected));
     }
 }
