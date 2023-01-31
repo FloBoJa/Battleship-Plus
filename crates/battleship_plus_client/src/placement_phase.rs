@@ -458,7 +458,6 @@ fn place_ship(
         commands
             .spawn(ShipBundle::new(ship, &ship_meshes, quadrant_size))
             .insert(Name::new(format!("{:?}: {ship_id:?}", selected.ship)));
-        return;
     } else {
         warn!("That ship does not fit here, try a different tile");
     };
