@@ -5,8 +5,8 @@ use std::{
     time::Duration,
 };
 
-use bevy::prelude::*;
 use bevy::utils::synccell::SyncCell;
+use bevy::{prelude::*, window::WindowCloseRequested};
 use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
 use bytes::BytesMut;
 use iyes_loopless::prelude::*;
@@ -51,7 +51,8 @@ impl Plugin for NetworkingPlugin {
             .add_system(process_server_configurations)
             .add_enter_system(GameState::Joining, join_server)
             .add_enter_system(GameState::JoiningFailed, try_leave_server)
-            .add_enter_system(GameState::Unconnected, try_leave_server);
+            .add_enter_system(GameState::Unconnected, try_leave_server)
+            .add_system(cleanup_on_exit);
     }
 }
 
@@ -873,4 +874,16 @@ fn try_leave_server(
         commands.entity(**server).remove::<Connection>();
     }
     commands.remove_resource::<CurrentServer>();
+}
+
+fn cleanup_on_exit(
+    mut events: EventReader<WindowCloseRequested>,
+    commands: Commands,
+    server: Option<Res<CurrentServer>>,
+    connections: Query<(Entity, &Connection)>,
+    client: ResMut<Client>,
+) {
+    if events.iter().next().is_some() {
+        try_leave_server(commands, server, connections, client)
+    }
 }
