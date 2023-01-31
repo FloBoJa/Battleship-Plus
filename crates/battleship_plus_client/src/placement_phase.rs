@@ -40,6 +40,8 @@ impl Plugin for PlacementPhasePlugin {
                 update_raycast_with_cursor.before(RaycastSystem::BuildRays::<RaycastSet>),
             )
             .add_system(select_ship.run_in_state(GameState::PlacementPhase))
+            .add_system(rotate_ship.run_in_state(GameState::PlacementPhase))
+            .add_system(preview_ship.run_in_state(GameState::PlacementPhase))
             .add_system(place_ship.run_in_state(GameState::PlacementPhase))
             .add_system(send_placement.run_in_state(GameState::PlacementPhase))
             .add_system(process_responses.run_in_state(GameState::PlacementPhase))
@@ -56,6 +58,10 @@ impl Quadrant {
         let corner = (corner.x, corner.y);
         Quadrant(util::quadrant_from_corner(corner, quadrant_size))
     }
+
+    pub fn side_length(&self) -> i32 {
+        self.upper()[0] + 1 - self.lower()[0]
+    }
 }
 
 #[derive(Resource)]
@@ -63,8 +69,11 @@ struct GameAssets {
     ocean_scene: Handle<Scene>,
 }
 
-#[derive(Resource, Deref)]
-struct SelectedShip(ShipType);
+#[derive(Resource)]
+struct SelectedShip {
+    ship: ShipType,
+    orientation: Orientation,
+}
 
 #[derive(Resource, Deref, DerefMut, Default)]
 struct Ships(ShipManager);
@@ -103,39 +112,46 @@ const OFFSET_X: f32 = OCEAN_SIZE / 2.0;
 const OFFSET_Y: f32 = OCEAN_SIZE / 2.0;
 const OFFSET_Z: f32 = 50.0;
 
+fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>, quadrant_size: i32) -> PbrBundle {
+    let scale = OCEAN_SIZE / quadrant_size as f32;
+    let position = ship.position();
+    let translation = Vec3::new(
+        (position.0 as f32 + 0.5) * scale - OFFSET_X,
+        (position.1 as f32 + 0.5) * scale - OFFSET_Y,
+        0.0,
+    );
+    let rotation = Quat::from_rotation_z(match ship.orientation() {
+        Orientation::North => FRAC_PI_2,
+        Orientation::East => 0.0,
+        Orientation::South => -FRAC_PI_2,
+        Orientation::West => PI,
+    });
+    let scale = Vec3::new(scale, scale, 1.0);
+    PbrBundle {
+        mesh: meshes
+            .get(&ship.ship_type())
+            .expect("There are meshes for all configured ship types")
+            .clone(),
+        transform: Transform::from_translation(translation)
+            .with_rotation(rotation)
+            .with_scale(scale),
+        ..default()
+    }
+}
+
 #[derive(Bundle)]
 struct ShipBundle {
     model: PbrBundle,
     ship_info: ShipInfo,
 }
 
+#[derive(Component)]
+struct ShipPreview;
+
 impl ShipBundle {
     fn new(ship: &Ship, meshes: &Res<ShipMeshes>, quadrant_size: i32) -> Self {
-        let scale = OCEAN_SIZE / quadrant_size as f32;
-        let position = ship.position();
-        let translation = Vec3::new(
-            (position.0 as f32 + 0.5) * scale - OFFSET_X,
-            (position.1 as f32 + 0.5) * scale - OFFSET_Y,
-            0.0,
-        );
-        let rotation = Quat::from_rotation_z(match ship.orientation() {
-            Orientation::North => FRAC_PI_2,
-            Orientation::East => 0.0,
-            Orientation::South => -FRAC_PI_2,
-            Orientation::West => PI,
-        });
-        let scale = Vec3::new(scale, scale, 1.0);
         Self {
-            model: PbrBundle {
-                mesh: meshes
-                    .get(&ship.ship_type())
-                    .expect("There are meshes for all configured ship types")
-                    .clone(),
-                transform: Transform::from_translation(translation)
-                    .with_rotation(rotation)
-                    .with_scale(scale),
-                ..default()
-            },
+            model: new_ship_model(ship, meshes, quadrant_size),
             ship_info: ShipInfo {
                 _ship_id: ship.id(),
             },
@@ -288,109 +304,179 @@ fn update_raycast_with_cursor(
 
 fn select_ship(
     mut commands: Commands,
-    mut selected_ship_resource: Option<ResMut<SelectedShip>>,
+    mut selected_ship: Option<ResMut<SelectedShip>>,
     key_input: Res<Input<KeyCode>>,
 ) {
     if key_input.just_pressed(KeyCode::Key1) {
-        update_selected_ship_resource(
-            &mut commands,
-            &mut selected_ship_resource,
-            ShipType::Destroyer,
-        );
+        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Destroyer);
     } else if key_input.just_pressed(KeyCode::Key2) {
-        update_selected_ship_resource(
-            &mut commands,
-            &mut selected_ship_resource,
-            ShipType::Submarine,
-        );
+        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Submarine);
     } else if key_input.just_pressed(KeyCode::Key3) {
-        update_selected_ship_resource(
-            &mut commands,
-            &mut selected_ship_resource,
-            ShipType::Cruiser,
-        );
+        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Cruiser);
     } else if key_input.just_pressed(KeyCode::Key4) {
-        update_selected_ship_resource(
-            &mut commands,
-            &mut selected_ship_resource,
-            ShipType::Battleship,
-        );
+        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Battleship);
     } else if key_input.just_pressed(KeyCode::Key5) {
-        update_selected_ship_resource(
-            &mut commands,
-            &mut selected_ship_resource,
-            ShipType::Carrier,
-        );
+        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Carrier);
     }
 }
 
-fn update_selected_ship_resource(
+fn update_ship_selection(
     commands: &mut Commands,
-    selected_ship_resource: &mut Option<ResMut<SelectedShip>>,
+    selected: &mut Option<ResMut<SelectedShip>>,
     ship: ShipType,
 ) {
-    match selected_ship_resource {
-        None => commands.insert_resource(SelectedShip(ship)),
-        Some(resource) => resource.0 = ship,
+    match selected {
+        None => commands.insert_resource(SelectedShip {
+            ship,
+            orientation: Orientation::North,
+        }),
+        Some(selected) => selected.ship = ship,
     };
     trace!("Selected {ship:?}");
+}
+
+fn rotate_ship(selected: Option<ResMut<SelectedShip>>, key_input: Res<Input<KeyCode>>) {
+    if !key_input.just_pressed(KeyCode::R) {
+        return;
+    }
+    let mut selected = match selected {
+        Some(ship) => ship,
+        None => return,
+    };
+    let counter_clockwise = key_input.pressed(KeyCode::LShift);
+
+    selected.orientation = if counter_clockwise {
+        match selected.orientation {
+            Orientation::North => Orientation::West,
+            Orientation::East => Orientation::North,
+            Orientation::South => Orientation::East,
+            Orientation::West => Orientation::South,
+        }
+    } else {
+        match selected.orientation {
+            Orientation::North => Orientation::East,
+            Orientation::East => Orientation::South,
+            Orientation::South => Orientation::West,
+            Orientation::West => Orientation::North,
+        }
+    };
+}
+
+fn preview_ship(
+    mut commands: Commands,
+    preview: Query<(Entity, With<ShipPreview>)>,
+    intersections: Query<&Intersection<RaycastSet>>,
+    selected: Option<ResMut<SelectedShip>>,
+    (quadrant, config, ship_meshes): (Res<Quadrant>, Res<Config>, Res<ShipMeshes>),
+) {
+    let position = board_position_from_intersection(intersections, quadrant.side_length());
+    let (selected, position) = if let (Some(selected), Some(position)) = (selected, position) {
+        (selected, (position[0] as u32, position[1] as u32))
+    } else {
+        // It is inappropriate to show a selection, nothing is selected or the mouse is not on the board.
+        if let Ok((entity, ())) = preview.get_single() {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    };
+
+    let ship = Ship::new_from_type(
+        selected.ship,
+        (u32::MAX, u32::MAX),
+        position,
+        selected.orientation,
+        config.0.clone(),
+    );
+    let new_model = new_ship_model(&ship, &ship_meshes, quadrant.side_length());
+
+    if preview.is_empty() {
+        commands.spawn(ShipPreview)
+    } else {
+        commands.entity(preview.single().0)
+    }
+    .insert(new_model);
 }
 
 fn place_ship(
     mut commands: Commands,
     intersections: Query<&Intersection<RaycastSet>>,
-    selected_ship: Option<Res<SelectedShip>>,
+    selected: Option<Res<SelectedShip>>,
     (quadrant, config, ship_meshes): (Res<Quadrant>, Res<Config>, Res<ShipMeshes>),
     mut ships: ResMut<Ships>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     mouse_input: Res<Input<MouseButton>>,
 ) {
-    let intersection = match intersections.get_single() {
-        Ok(intersection) => intersection,
-        Err(_) => return,
-    };
-    let selected_ship = match selected_ship {
+    let selected = match selected {
         Some(ship) => ship,
         None => return,
     };
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
-
-    let quadrant_size = quadrant.upper()[0] + 1 - quadrant.lower()[0];
-    let coordinates = match intersection.position() {
-        Some(Vec3 { x, y, .. }) => {
-            let mut coordinates = [(OFFSET_X + *x), (OFFSET_Y + *y)];
-            coordinates[0] /= OCEAN_SIZE;
-            coordinates[1] /= OCEAN_SIZE;
-            coordinates[0] *= quadrant_size as f32;
-            coordinates[1] *= quadrant_size as f32;
-            [coordinates[0] as i32, coordinates[1] as i32]
-        }
+    let position = match board_position_from_intersection(intersections, quadrant.side_length()) {
+        Some(position) => (position[0] as u32, position[1] as u32),
         None => return,
     };
 
-    let ship_id = next_ship_id(**selected_ship, &ships, &config, &player_id, &player_team);
+    let ship_id = next_ship_id(selected.ship, &ships, &config, &player_id, &player_team);
     let ship_id = match ship_id {
         Some(id) => id,
         None => {
             warn!(
                 "Already placed all available ships of type {:?}",
-                **selected_ship
+                selected.ship
             );
             return;
         }
     };
 
-    choose_orientation_and_place_ship(
-        &mut commands,
-        &quadrant,
-        &mut ships,
-        (**selected_ship, ship_id),
-        coordinates,
-        &config,
-        &ship_meshes,
+    let ship = Ship::new_from_type(
+        selected.ship,
+        ship_id,
+        position,
+        selected.orientation,
+        config.0.clone(),
     );
+    let envelope = &ship.envelope();
+    let quadrant_size = quadrant.upper()[0] + 1 - quadrant.lower()[0];
+    if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
+        trace!(
+            "Placed a {:?} at {position:?} with orientation {:?}. {envelope:?}",
+            selected.ship,
+            selected.orientation
+        );
+        let ship = ships
+            .iter_ships()
+            .find_map(|(this_ship_id, ship)| {
+                if *this_ship_id == ship_id {
+                    Some(ship)
+                } else {
+                    None
+                }
+            })
+            .expect("This ship was just inserted");
+        commands
+            .spawn(ShipBundle::new(ship, &ship_meshes, quadrant_size))
+            .insert(Name::new(format!("{:?}: {ship_id:?}", selected.ship)));
+        return;
+    } else {
+        warn!("That ship does not fit here, try a different tile");
+    };
+}
+
+fn board_position_from_intersection(
+    intersections: Query<&Intersection<RaycastSet>>,
+    quadrant_size: i32,
+) -> Option<[i32; 2]> {
+    let intersection = intersections.get_single().ok()?;
+    intersection.position().map(|Vec3 { x, y, .. }| {
+        let mut position = [(OFFSET_X + x), (OFFSET_Y + y)];
+        position[0] /= OCEAN_SIZE;
+        position[1] /= OCEAN_SIZE;
+        position[0] *= quadrant_size as f32;
+        position[1] *= quadrant_size as f32;
+        [position[0] as i32, position[1] as i32]
+    })
 }
 
 fn next_ship_id(
@@ -440,49 +526,6 @@ fn are_all_ships_placed(
     !(0..ship_set.len() as u32)
         .into_iter()
         .any(|id| !used_ship_ids.contains(&id))
-}
-
-fn choose_orientation_and_place_ship(
-    commands: &mut Commands,
-    quadrant: &Res<Quadrant>,
-    ships: &mut ResMut<Ships>,
-    (ship_type, ship_id): (ShipType, ShipID),
-    stern: [i32; 2],
-    config: &Res<Config>,
-    ship_meshes: &Res<ShipMeshes>,
-) {
-    // TODO: Let player choose orientation.
-
-    let position = (stern[0] as u32, stern[1] as u32);
-    for orientation in [
-        Orientation::North,
-        Orientation::East,
-        Orientation::South,
-        Orientation::West,
-    ] {
-        let ship = Ship::new_from_type(ship_type, ship_id, position, orientation, config.0.clone());
-        let envelope = &ship.envelope();
-        let quadrant_size = quadrant.upper()[0] + 1 - quadrant.lower()[0];
-        if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
-            trace!("Placed a {ship_type:?} at {position:?} with orientation {orientation:?}. {envelope:?}");
-            let ship = ships
-                .iter_ships()
-                .find_map(|(this_ship_id, ship)| {
-                    if *this_ship_id == ship_id {
-                        Some(ship)
-                    } else {
-                        None
-                    }
-                })
-                .expect("This ship was just inserted");
-            commands
-                .spawn(ShipBundle::new(ship, ship_meshes, quadrant_size))
-                .insert(Name::new(format!("{ship_type:?}: {ship_id:?}")));
-            return;
-        }
-    }
-
-    warn!("That ship does not fit here, try a different tile");
 }
 
 fn send_placement(
