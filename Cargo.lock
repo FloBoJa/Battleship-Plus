@@ -242,6 +242,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "battleship_plus_client_minimal"
+version = "0.1.0"
+dependencies = [
+ "battleship_plus_common",
+ "bevy",
+ "bevy-inspector-egui",
+ "bevy_egui",
+ "bevy_quinnet_client",
+ "bytes",
+ "egui",
+ "egui_extras",
+ "futures",
+ "iyes_loopless",
+ "pnet_datalink",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "battleship_plus_common"
 version = "0.1.0"
 dependencies = [
