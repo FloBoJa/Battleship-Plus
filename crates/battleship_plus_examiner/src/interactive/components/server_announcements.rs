@@ -361,7 +361,7 @@ impl ServerAnnouncements {
 
             match connection {
                 Ok(connection) => {
-                    connection.close(VarInt::from_u32(0), &[0; 0]);
+                    connection.close(VarInt::from_u32(0), &Vec::with_capacity(0));
                     return security;
                 }
                 Err(e) => {
@@ -454,7 +454,8 @@ struct ServerEntry {
 
 impl From<(ServerAdvertisement, SocketAddr)> for ServerEntry {
     fn from((advertisement, addr): (ServerAdvertisement, SocketAddr)) -> Self {
-        let addr = SocketAddr::new(addr.ip(), advertisement.port as u16);
+        let mut addr = addr;
+        addr.set_port(advertisement.port as u16);
 
         Self {
             addr,
