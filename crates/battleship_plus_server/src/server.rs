@@ -10,6 +10,8 @@ use rand::thread_rng;
 use tokio::macros::support::thread_rng_n;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
+use battleship_plus_common::game::ship::{Cooldown, Orientation, Ship};
+use battleship_plus_common::game::{ActionValidationError, PlayerID};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
@@ -26,9 +28,8 @@ use bevy_quinnet_server::{
 };
 
 use crate::config_provider::ConfigProvider;
-use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-use crate::game::data::{Game, Player, PlayerID, Turn};
-use crate::game::ship::{Cooldown, Orientation, Ship};
+use crate::game::actions::{Action, ActionExecutionError};
+use crate::game::data::{Game, Player, Turn};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
 
@@ -620,7 +621,7 @@ fn broadcast_lobby_change_event(
 
 fn broadcast_game_preparation_start(
     players: Vec<&mut Player>,
-    mut quadrants: Vec<(u32, u32)>,
+    mut quadrants: Vec<(u32, u32, u32)>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     if players.len() > quadrants.len() {
@@ -643,6 +644,7 @@ fn broadcast_game_preparation_start(
                         x: p.quadrant.unwrap().0,
                         y: p.quadrant.unwrap().1,
                     }),
+                    quadrant_size: p.quadrant.unwrap().2,
                 }
                 .into(),
             ))

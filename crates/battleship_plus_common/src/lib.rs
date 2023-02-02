@@ -1,5 +1,7 @@
 pub const PROTOCOL_VERSION: u8 = 1;
 
+pub mod game;
+
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/battleshipplus.types.rs"));
 }
@@ -217,6 +219,28 @@ pub mod codec {
             .expect("The message could not be empty");
 
         assert_eq!(expected_message, decoded_message);
+    }
+}
+
+pub mod util {
+    use rstar::AABB;
+
+    pub fn quadrants_per_row(player_count: u32) -> u32 {
+        (player_count as f64).sqrt().ceil() as u32
+    }
+
+    pub fn quadrant_size(board_size: u32, player_count: u32) -> u32 {
+        board_size / quadrants_per_row(player_count)
+    }
+
+    pub fn quadrant_from_corner(corner: (u32, u32), quadrant_size: u32) -> AABB<[i32; 2]> {
+        AABB::from_corners(
+            [corner.0 as i32, corner.1 as i32],
+            [
+                (corner.0 + quadrant_size - 1) as i32,
+                (corner.1 + quadrant_size - 1) as i32,
+            ],
+        )
     }
 }
 

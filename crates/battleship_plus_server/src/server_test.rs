@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use battleship_plus_common::codec::BattleshipPlusCodec;
+use battleship_plus_common::game::PlayerID;
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     JoinRequest, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
@@ -21,7 +22,6 @@ use battleship_plus_common::types::{Coordinate, PlayerLobbyState};
 use battleship_plus_common::{protocol_name, protocol_name_with_version};
 
 use crate::config_provider::{default_config_provider, ConfigProvider};
-use crate::game::data::PlayerID;
 use crate::server::spawn_server_task;
 
 type TestLock = Arc<Mutex<()>>;
@@ -136,6 +136,7 @@ impl Client {
             match msg {
                 ProtocolMessage::PlacementPhase(PlacementPhase {
                     corner: Some(corner),
+                    ..
                 }) => {
                     assert!(!quadrant_assignments.values().any(|c| c.clone() == corner));
                     quadrant_assignments.insert(c.state.player_id, corner);
