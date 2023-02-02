@@ -21,22 +21,32 @@ impl AdvertisementReceiver {
             tokio::sync::broadcast::channel::<(ServerAdvertisement, SocketAddr)>(128);
 
         tokio::spawn(async move {
-            let socket_v6 =
-                match UdpSocket::bind(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0)).await {
-                    Ok(socket) => {
-                        if let Err(e) = socket.join_multicast_v6(
-                            &Ipv6Addr::from_str("ff02:6261:7474:6c65:7368:6970:706c:7573").unwrap(),
-                            0,
-                        ) {
-                            error!("unable to join IPv6 multicast: {e}");
-                        }
-                        Some(UdpFramed::new(socket, BattleshipPlusCodec::default()))
+            let socket_v6 = match UdpSocket::bind(SocketAddrV6::new(
+                Ipv6Addr::UNSPECIFIED,
+                port,
+                0,
+                0,
+            ))
+            .await
+            {
+                Ok(socket) => {
+                    let multicast_address =
+                        Ipv6Addr::from_str("ff02:6261:7474:6c65:7368:6970:706c:7573").unwrap();
+                    for interface in pnet_datalink::interfaces() {
+                        socket
+                            .join_multicast_v6(&multicast_address, interface.index)
+                            .unwrap_or_else(|error| {
+                                warn!("Could not join UDPv6 multicast on interface {interface} : {error}");
+                            });
                     }
-                    Err(e) => {
-                        error!("unable to bind IPv6 socket for server advertisements: {e}");
-                        None
-                    }
-                };
+
+                    Some(UdpFramed::new(socket, BattleshipPlusCodec::default()))
+                }
+                Err(e) => {
+                    error!("unable to bind IPv6 socket for server advertisements: {e}");
+                    None
+                }
+            };
 
             let socket_v4 = match UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port))
                 .await
