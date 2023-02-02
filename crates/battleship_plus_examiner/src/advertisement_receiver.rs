@@ -1,5 +1,5 @@
 use std::borrow::BorrowMut;
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::str::FromStr;
 
 use futures_util::StreamExt;
@@ -38,13 +38,8 @@ impl AdvertisementReceiver {
                     }
                 };
 
-            let socket_v4 = match UdpSocket::bind(SocketAddrV6::new(
-                Ipv6Addr::UNSPECIFIED,
-                port,
-                0,
-                0,
-            ))
-            .await
+            let socket_v4 = match UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port))
+                .await
             {
                 Ok(socket) => Some(UdpFramed::new(socket, BattleshipPlusCodec::default())),
                 Err(e) => {
@@ -97,7 +92,7 @@ fn process_msg(
         None => *socket = None,
         Some(Err(e)) => error!("unable to receive server advertisement: {e}"),
         Some(Ok((Some(ProtocolMessage::ServerAdvertisement(advertisement)), addr))) => {
-            if let Err(_) = advertisements_tx.send((advertisement, addr)) {
+            if advertisements_tx.send((advertisement, addr)).is_err() {
                 debug!("dropping server advertisement because there is no receiver");
                 *socket = None;
             }
