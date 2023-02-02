@@ -5,8 +5,10 @@ mod actions_team_switch {
 
     use tokio::sync::RwLock;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player, PlayerID};
+    use battleship_plus_common::game::{ActionValidationError, PlayerID};
+
+    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::data::{Game, Player};
 
     #[tokio::test]
     async fn actions_team_switch() {
@@ -98,10 +100,11 @@ mod actions_player_set_ready_state {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::{ActionValidationError, PlayerID};
     use battleship_plus_common::messages::SetReadyStateRequest;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
-    use crate::game::data::{Game, Player, PlayerID};
+    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::data::{Game, Player};
 
     #[tokio::test]
     async fn actions_player_set_ready() {
@@ -172,12 +175,13 @@ mod actions_shoot {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{Cooldown, GetShipID, Ship, ShipData};
+    use battleship_plus_common::game::ship_manager::ShipManager;
+    use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
+    use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
-    use crate::game::ship::{Cooldown, GetShipID, Ship, ShipData};
-    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_shoot() {
@@ -606,13 +610,14 @@ mod actions_move {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
+    use battleship_plus_common::game::ship_manager::ShipManager;
+    use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
     use crate::config_provider::default_config_provider;
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
+    use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
-    use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
-    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_move() {
@@ -631,7 +636,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -696,7 +701,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -761,7 +766,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -881,9 +886,10 @@ mod actions_move {
                 ..Default::default()
             }),
             data: ShipData {
+                id: (player.id, 0),
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -900,10 +906,10 @@ mod actions_move {
                 ..Default::default()
             }),
             data: ShipData {
-                id: (0, 1),
+                id: (player.id, 1),
                 pos_x: (config.board_size - 1) as i32,
                 pos_y: (config.board_size - 1) as i32,
-                orientation: Orientation::North,
+                orientation: Orientation::South,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1026,7 +1032,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1065,12 +1071,13 @@ mod actions_rotate {
 
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
+    use battleship_plus_common::game::ship_manager::ShipManager;
+    use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError, ActionValidationError};
+    use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
-    use crate::game::ship::{Cooldown, GetShipID, Orientation, Ship, ShipData};
-    use crate::game::ship_manager::ShipManager;
 
     #[tokio::test]
     async fn actions_rotate() {
@@ -1180,7 +1187,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1210,7 +1217,7 @@ mod actions_rotate {
             assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
         }
@@ -1230,7 +1237,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
         }
@@ -1253,7 +1260,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1283,7 +1290,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert!(!g
                 .ships
@@ -1317,7 +1324,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert!(!g
                 .ships
@@ -1381,7 +1388,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1424,7 +1431,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1464,7 +1471,7 @@ mod actions_rotate {
                 id: (0, 2),
                 pos_x: 1,
                 pos_y: 1,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1487,7 +1494,7 @@ mod actions_rotate {
         assert!(Action::Rotate {
             ship_id: (player.id, 0),
             properties: RotateProperties {
-                direction: i32::from(RotateDirection::CounterClockwise),
+                direction: i32::from(RotateDirection::Clockwise),
             },
         }
         .apply_on(&mut g)
@@ -1559,11 +1566,11 @@ mod actions_place_ships {
     use rand::thread_rng;
     use tokio::sync::RwLock;
 
+    use battleship_plus_common::game::ship::{GetShipID, Orientation, Ship};
     use battleship_plus_common::types::*;
 
     use crate::game::actions::Action;
     use crate::game::data::{Game, Player};
-    use crate::game::ship::{GetShipID, Orientation, Ship};
     use crate::game::states::GameState;
 
     #[tokio::test]
