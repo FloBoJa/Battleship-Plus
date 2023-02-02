@@ -239,8 +239,8 @@ pub struct Client {
 impl Client {
     #[cfg(not(feature = "bevy"))]
     pub fn new_standalone(
-        event_tx: Sender<QuinnetClientEvent>,
-        certificate_interaction_tx: Sender<CertInteractionEvent>,
+        event_tx: broadcast::Sender<QuinnetClientEvent>,
+        certificate_interaction_tx: broadcast::Sender<CertInteractionEvent>,
     ) -> Self {
         Client {
             connections: HashMap::new(),
@@ -492,6 +492,21 @@ fn configure_client(
     to_sync_client: mpsc::Sender<InternalAsyncMessage>,
     alpns: Vec<String>,
 ) -> Result<ClientConfig, Box<dyn Error>> {
+    configure_client_internal(cert_mode, Some(to_sync_client), alpns)
+}
+
+pub fn configure_client_standalone(
+    cert_mode: CertificateVerificationMode,
+    alpns: Vec<String>,
+) -> Result<ClientConfig, Box<dyn Error>> {
+    configure_client_internal(cert_mode, None, alpns)
+}
+
+fn configure_client_internal(
+    cert_mode: CertificateVerificationMode,
+    to_sync_client: Option<mpsc::Sender<InternalAsyncMessage>>,
+    alpns: Vec<String>,
+) -> Result<ClientConfig, Box<dyn Error>> {
     match cert_mode {
         CertificateVerificationMode::SkipVerification => {
             let crypto = rustls::ClientConfig::builder()
@@ -536,12 +551,19 @@ fn configure_client(
             let (store, store_file) = load_known_hosts_store_from_config(config.known_hosts)?;
             let crypto = rustls::ClientConfig::builder()
                 .with_safe_defaults()
-                .with_custom_certificate_verifier(TofuServerVerification::new(
-                    store,
-                    config.verifier_behaviour,
-                    to_sync_client,
-                    store_file,
-                ))
+                .with_custom_certificate_verifier(match to_sync_client {
+                    None => TofuServerVerification::new_standalone(
+                        store,
+                        config.verifier_behaviour,
+                        store_file,
+                    ),
+                    Some(to_sync_client) => TofuServerVerification::new(
+                        store,
+                        config.verifier_behaviour,
+                        to_sync_client,
+                        store_file,
+                    ),
+                })
                 .with_no_client_auth();
 
             Ok(crypto)
@@ -823,6 +845,7 @@ fn update_sync_client(
     }
 }
 
+#[cfg(feature = "bevy")]
 fn create_client(mut commands: Commands, runtime: Res<AsyncRuntime>) {
     commands.insert_resource(Client {
         connections: HashMap::new(),

@@ -6,10 +6,10 @@ use log::debug;
 use crate::cli::{Cli, Commands};
 use crate::interactive::interactive_main;
 
-mod cli;
-mod interactive;
-mod config;
 mod advertisement_receiver;
+mod cli;
+mod config;
+mod interactive;
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +17,7 @@ async fn main() {
 
     match cli.commands {
         Commands::Interactive => {
-            tui_logger::init_logger(log::LevelFilter::Debug).unwrap();
+            tui_logger::init_logger(log::LevelFilter::Trace).unwrap();
             tui_logger::set_default_level(log::LevelFilter::Debug);
             debug!("Entering interactive mode...");
 

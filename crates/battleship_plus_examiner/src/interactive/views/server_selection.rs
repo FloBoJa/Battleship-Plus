@@ -1,13 +1,12 @@
 use std::net::ToSocketAddrs;
 
 use log::warn;
-use once_cell::sync::Lazy;
 use tuirealm::props::{Alignment, Color, Style, TextModifiers};
 use tuirealm::tui::layout::{Constraint, Direction, Margin, Rect};
 use tuirealm::{tui, Application, Frame, NoUserEvent, Sub, SubClause, SubEventClause};
 
+use crate::interactive::components::server_announcements::ServerAnnouncements;
 use crate::interactive::components::server_selection_background::ServerSelectionBackground;
-use crate::interactive::components::server_selection_server_list::ServerAnnouncements;
 use crate::interactive::components::text_entry::TextBox;
 use crate::interactive::snowflake::snowflake_new_id;
 use crate::interactive::views::layout::Layout;
@@ -21,10 +20,6 @@ pub struct ServerSelectionDrawAreas {
     pub server_list_box: Rect,
     pub server_list_box_inner: Rect,
 }
-
-pub(crate) const CONNECT: &str = "[ CONNECT ]";
-pub(crate) const CONNECT_LENGTH: usize = CONNECT.len();
-pub(crate) static PORT_ENTRY_LENGTH: Lazy<usize> = Lazy::new(|| u16::MAX.to_string().len());
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ServerSelectionID {
@@ -64,7 +59,7 @@ pub(crate) fn draw_areas(area: Rect) -> ServerSelectionDrawAreas {
         server_list_box: vertical_layout[1],
         server_list_box_inner: vertical_layout[1].inner(&Margin {
             vertical: 1,
-            horizontal: 3,
+            horizontal: 1,
         }),
     }
 }

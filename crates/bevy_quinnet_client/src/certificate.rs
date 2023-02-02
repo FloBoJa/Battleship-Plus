@@ -19,8 +19,9 @@ use log::warn;
 use rustls::ServerName as RustlsServerName;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::ProtectedString;
 use bevy_quinnet_common::{CertificateFingerprint, QuinnetError};
+
+use crate::ProtectedString;
 
 use super::{ConnectionId, InternalAsyncMessage, DEFAULT_KNOWN_HOSTS_FILE};
 
@@ -223,7 +224,7 @@ impl rustls::client::ServerCertVerifier for SkipServerVerification {
 pub(crate) struct TofuServerVerification {
     store: CertStore,
     verifier_behaviour: HashMap<CertVerificationStatus, CertVerifierBehaviour>,
-    to_sync_client: mpsc::Sender<InternalAsyncMessage>,
+    to_sync_client: Option<mpsc::Sender<InternalAsyncMessage>>,
 
     /// If present, the file where new fingerprints should be stored
     hosts_file: Option<Arc<Mutex<String>>>,
@@ -239,7 +240,20 @@ impl TofuServerVerification {
         Arc::new(Self {
             store,
             verifier_behaviour,
-            to_sync_client,
+            to_sync_client: Some(to_sync_client),
+            hosts_file,
+        })
+    }
+
+    pub fn new_standalone(
+        store: CertStore,
+        verifier_behaviour: HashMap<CertVerificationStatus, CertVerifierBehaviour>,
+        hosts_file: Option<Arc<Mutex<String>>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            store,
+            verifier_behaviour,
+            to_sync_client: None,
             hosts_file,
         })
     }
@@ -259,18 +273,29 @@ impl TofuServerVerification {
             }
             CertVerifierBehaviour::RequestClientAction => {
                 let (action_sender, cert_action_recv) = oneshot::channel::<CertVerifierAction>();
-                self.to_sync_client
-                    .try_send(InternalAsyncMessage::CertificateInteractionRequest {
+                match self.to_sync_client.as_ref() {
+                    Some(to_sync_client) => {
+                        to_sync_client
+                            .try_send(InternalAsyncMessage::CertificateInteractionRequest {
+                                status,
+                                info: cert_info.clone(),
+                                action_sender,
+                            })
+                            .unwrap();
+                        match block_on(cert_action_recv) {
+                            Ok(action) => {
+                                self.apply_verifier_immediate_action(&action, status, cert_info)
+                            }
+                            Err(err) => Err(rustls::Error::InvalidCertificateData(format!(
+                                "Failed to receive CertVerifierAction: {err}",
+                            ))),
+                        }
+                    }
+                    None => self.apply_verifier_immediate_action(
+                        &CertVerifierAction::AbortConnection,
                         status,
-                        info: cert_info.clone(),
-                        action_sender,
-                    })
-                    .unwrap();
-                match block_on(cert_action_recv) {
-                    Ok(action) => self.apply_verifier_immediate_action(&action, status, cert_info),
-                    Err(err) => Err(rustls::Error::InvalidCertificateData(format!(
-                        "Failed to receive CertVerifierAction: {err}",
-                    ))),
+                        cert_info,
+                    ),
                 }
             }
         }
@@ -283,18 +308,23 @@ impl TofuServerVerification {
         cert_info: CertVerificationInfo,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
         match action {
-            CertVerifierAction::AbortConnection => {
-                match self.to_sync_client.try_send(
-                    InternalAsyncMessage::CertificateConnectionAbort { status, cert_info },
-                ) {
-                    Ok(_) => Err(rustls::Error::InvalidCertificateData(
-                        "CertVerifierAction requested to abort the connection".to_string(),
-                    )),
-                    Err(_) => Err(rustls::Error::General(
-                        "Failed to signal CertificateConnectionAbort".to_string(),
-                    )),
+            CertVerifierAction::AbortConnection => match self.to_sync_client.as_ref() {
+                Some(to_sync_client) => {
+                    match to_sync_client.try_send(
+                        InternalAsyncMessage::CertificateConnectionAbort { status, cert_info },
+                    ) {
+                        Ok(_) => Err(rustls::Error::InvalidCertificateData(
+                            "CertVerifierAction requested to abort the connection".to_string(),
+                        )),
+                        Err(_) => Err(rustls::Error::General(
+                            "Failed to signal CertificateConnectionAbort".to_string(),
+                        )),
+                    }
                 }
-            }
+                None => Err(rustls::Error::InvalidCertificateData(
+                    "default CertVerifierAction requested to abort the connection".to_string(),
+                )),
+            },
             CertVerifierAction::TrustOnce => Ok(rustls::client::ServerCertVerified::assertion()),
             CertVerifierAction::TrustAndStore => {
                 // If we need to store them to a file
@@ -315,14 +345,19 @@ impl TofuServerVerification {
                     }
                 }
                 // In all cases raise an event containing the new certificate entry
-                match self
-                    .to_sync_client
-                    .try_send(InternalAsyncMessage::CertificateTrustUpdate(cert_info))
-                {
-                    Ok(_) => Ok(rustls::client::ServerCertVerified::assertion()),
-                    Err(_) => Err(rustls::Error::General(
-                        "Failed to signal new trusted certificate entry".to_string(),
-                    )),
+
+                match self.to_sync_client.as_ref() {
+                    Some(to_sync_client) => {
+                        match to_sync_client
+                            .try_send(InternalAsyncMessage::CertificateTrustUpdate(cert_info))
+                        {
+                            Ok(_) => Ok(rustls::client::ServerCertVerified::assertion()),
+                            Err(_) => Err(rustls::Error::General(
+                                "Failed to signal new trusted certificate entry".to_string(),
+                            )),
+                        }
+                    }
+                    None => Ok(rustls::client::ServerCertVerified::assertion()),
                 }
             }
         }

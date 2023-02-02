@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use log::debug;
-use tui_logger::TuiLoggerWidget;
+use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget};
 use tuirealm::event::{Key, KeyEvent, KeyModifiers};
 use tuirealm::props::{Color, Style};
 use tuirealm::terminal::TerminalBridge;
@@ -49,7 +49,7 @@ impl Model {
             .draw(|f| {
                 let layout = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints(vec![Constraint::Percentage(75), Constraint::Percentage(25)])
+                    .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(33)])
                     .split(f.size());
 
                 f.render_widget(draw_logs(), layout[1]);
@@ -145,6 +145,7 @@ impl Update<Message> for Model {
 
 fn draw_logs<'a>() -> TuiLoggerWidget<'a> {
     TuiLoggerWidget::default()
+        .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
         .style_error(Style::default().fg(Color::Red))
         .style_debug(Style::default().fg(Color::Green))
         .style_warn(Style::default().fg(Color::Yellow))
