@@ -32,8 +32,20 @@ pub struct PlacementPhasePlugin;
 impl Plugin for PlacementPhasePlugin {
     fn build(&self, app: &mut App) {
         app.add_startup_system(load_assets)
-            .add_enter_system(GameState::PlacementPhase, create_resources)
+            .add_system_to_stage(
+                CoreStage::First,
+                create_resources.run_in_state(GameState::Lobby).run_if(
+                    |next_state: Option<Res<NextState<GameState>>>| {
+                        if let Some(next_state) = next_state {
+                            matches!(*next_state, NextState(GameState::PlacementPhase))
+                        } else {
+                            false
+                        }
+                    },
+                ),
+            )
             .add_enter_system(GameState::PlacementPhase, spawn_components)
+            .add_enter_system(GameState::PlacementPhase, move_camera)
             .add_exit_system(GameState::PlacementPhase, despawn_components)
             .add_system_to_stage(
                 CoreStage::First,
@@ -108,33 +120,23 @@ struct ShipInfo {
 struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
 
 const OCEAN_SIZE: f32 = 320.0;
-const OFFSET_X: f32 = OCEAN_SIZE / 2.0;
-const OFFSET_Y: f32 = OCEAN_SIZE / 2.0;
 const OFFSET_Z: f32 = 50.0;
 
-fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>, quadrant_size: i32) -> PbrBundle {
-    let scale = OCEAN_SIZE / quadrant_size as f32;
+fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>) -> PbrBundle {
     let position = ship.position();
-    let translation = Vec3::new(
-        (position.0 as f32 + 0.5) * scale - OFFSET_X,
-        (position.1 as f32 + 0.5) * scale - OFFSET_Y,
-        0.0,
-    );
+    let translation = Vec3::new(position.0 as f32 + 0.5, position.1 as f32 + 0.5, 0.0);
     let rotation = Quat::from_rotation_z(match ship.orientation() {
         Orientation::North => FRAC_PI_2,
         Orientation::East => 0.0,
         Orientation::South => -FRAC_PI_2,
         Orientation::West => PI,
     });
-    let scale = Vec3::new(scale, scale, 1.0);
     PbrBundle {
         mesh: meshes
             .get(&ship.ship_type())
             .expect("There are meshes for all configured ship types")
             .clone(),
-        transform: Transform::from_translation(translation)
-            .with_rotation(rotation)
-            .with_scale(scale),
+        transform: Transform::from_translation(translation).with_rotation(rotation),
         ..default()
     }
 }
@@ -149,9 +151,9 @@ struct ShipBundle {
 struct ShipPreview;
 
 impl ShipBundle {
-    fn new(ship: &Ship, meshes: &Res<ShipMeshes>, quadrant_size: i32) -> Self {
+    fn new(ship: &Ship, meshes: &Res<ShipMeshes>) -> Self {
         Self {
-            model: new_ship_model(ship, meshes, quadrant_size),
+            model: new_ship_model(ship, meshes),
             ship_info: ShipInfo {
                 _ship_id: ship.id(),
             },
@@ -230,13 +232,23 @@ fn create_resources(
 
 fn spawn_components(
     mut commands: Commands,
+    quadrant: Res<Quadrant>,
+    config: Res<Config>,
     assets: Res<GameAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    let scale = config.board_size as f32 / OCEAN_SIZE;
+    let transform = Transform::from_translation(Vec3::new(
+        scale * OCEAN_SIZE / 2.0,
+        scale * OCEAN_SIZE / 2.0,
+        0.0,
+    ))
+    .with_scale(Vec3::new(scale, scale, 1.0));
     commands
         .spawn(SceneBundle {
             scene: assets.ocean_scene.clone(),
+            transform,
             ..default()
         })
         .insert(Name::new("Ocean"))
@@ -257,24 +269,42 @@ fn spawn_components(
         .insert(Name::new("Directional Light"))
         .insert(DespawnOnExit);
 
-    let mesh = meshes.add(Mesh::from(shape::Plane { size: OCEAN_SIZE }));
+    let mesh = meshes.add(Mesh::from(shape::Plane {
+        size: quadrant.side_length() as f32,
+    }));
     let material = materials.add(StandardMaterial {
         alpha_mode: AlphaMode::Blend,
-        base_color: Color::NONE,
+        base_color: Color::rgba_u8(42, 0, 142, 69),
         ..default()
     });
+    let click_plane_offset = quadrant.side_length() as f32 / 2.0;
 
     commands
         .spawn(PbrBundle {
             mesh,
             material,
-            transform: Transform::from_xyz(0.0, 0.0, OFFSET_Z)
-                .with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
+            transform: Transform::from_xyz(
+                quadrant.lower()[0] as f32 + click_plane_offset,
+                quadrant.lower()[1] as f32 + click_plane_offset,
+                OFFSET_Z,
+            )
+            .with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
             ..default()
         })
         .insert(RaycastMesh::<RaycastSet>::default())
         .insert(Name::new("Grid"))
         .insert(DespawnOnExit);
+}
+
+fn move_camera(mut camera: Query<(&mut Transform, With<Camera3d>)>, quadrant: Res<Quadrant>) {
+    // TODO: Scale the camera so that the quadrant is entirely visible (?).
+    let half_quadrant_size = quadrant.side_length() as f32 / 2.0;
+    let mut camera_transform = camera.single_mut().0;
+    camera_transform.translation = Vec3::new(
+        quadrant.lower()[0] as f32 + half_quadrant_size,
+        quadrant.lower()[1] as f32 + half_quadrant_size,
+        camera_transform.translation.z,
+    );
 }
 
 fn despawn_components(
@@ -367,9 +397,9 @@ fn preview_ship(
     preview: Query<(Entity, With<ShipPreview>)>,
     intersections: Query<&Intersection<RaycastSet>>,
     selected: Option<ResMut<SelectedShip>>,
-    (quadrant, config, ship_meshes): (Res<Quadrant>, Res<Config>, Res<ShipMeshes>),
+    (config, ship_meshes): (Res<Config>, Res<ShipMeshes>),
 ) {
-    let position = board_position_from_intersection(intersections, quadrant.side_length());
+    let position = board_position_from_intersection(intersections);
     let (selected, position) = if let (Some(selected), Some(position)) = (selected, position) {
         (selected, (position[0] as u32, position[1] as u32))
     } else {
@@ -387,7 +417,7 @@ fn preview_ship(
         selected.orientation,
         config.0.clone(),
     );
-    let new_model = new_ship_model(&ship, &ship_meshes, quadrant.side_length());
+    let new_model = new_ship_model(&ship, &ship_meshes);
 
     if preview.is_empty() {
         commands.spawn(ShipPreview)
@@ -413,7 +443,7 @@ fn place_ship(
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
-    let position = match board_position_from_intersection(intersections, quadrant.side_length()) {
+    let position = match board_position_from_intersection(intersections) {
         Some(position) => (position[0] as u32, position[1] as u32),
         None => return,
     };
@@ -438,7 +468,6 @@ fn place_ship(
         config.0.clone(),
     );
     let envelope = &ship.envelope();
-    let quadrant_size = quadrant.upper()[0] + 1 - quadrant.lower()[0];
     if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
         trace!(
             "Placed a {:?} at {position:?} with orientation {:?}. {envelope:?}",
@@ -456,7 +485,7 @@ fn place_ship(
             })
             .expect("This ship was just inserted");
         commands
-            .spawn(ShipBundle::new(ship, &ship_meshes, quadrant_size))
+            .spawn(ShipBundle::new(ship, &ship_meshes))
             .insert(Name::new(format!("{:?}: {ship_id:?}", selected.ship)));
     } else {
         warn!("That ship does not fit here, try a different tile");
@@ -465,17 +494,11 @@ fn place_ship(
 
 fn board_position_from_intersection(
     intersections: Query<&Intersection<RaycastSet>>,
-    quadrant_size: i32,
 ) -> Option<[i32; 2]> {
     let intersection = intersections.get_single().ok()?;
-    intersection.position().map(|Vec3 { x, y, .. }| {
-        let mut position = [(OFFSET_X + x), (OFFSET_Y + y)];
-        position[0] /= OCEAN_SIZE;
-        position[1] /= OCEAN_SIZE;
-        position[0] *= quadrant_size as f32;
-        position[1] *= quadrant_size as f32;
-        [position[0] as i32, position[1] as i32]
-    })
+    intersection
+        .position()
+        .map(|Vec3 { x, y, .. }| [*x as i32, *y as i32])
 }
 
 fn next_ship_id(
