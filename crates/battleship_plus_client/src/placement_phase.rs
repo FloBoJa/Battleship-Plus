@@ -5,6 +5,7 @@ use std::{
 };
 
 use bevy::prelude::*;
+use bevy_egui::EguiContext;
 use bevy_mod_raycast::{Intersection, RaycastMesh, RaycastMethod, RaycastSource, RaycastSystem};
 use bevy_quinnet_client::Client;
 use iyes_loopless::prelude::*;
@@ -51,14 +52,12 @@ impl Plugin for PlacementPhasePlugin {
                 CoreStage::First,
                 update_raycast_with_cursor.before(RaycastSystem::BuildRays::<RaycastSet>),
             )
-            .add_system(select_ship.run_in_state(GameState::PlacementPhase))
-            .add_system(rotate_ship.run_in_state(GameState::PlacementPhase))
+            .add_system(draw_menu.run_in_state(GameState::PlacementPhase))
             .add_system(preview_ship.run_in_state(GameState::PlacementPhase))
             .add_system(place_ship.run_in_state(GameState::PlacementPhase))
             .add_system(send_placement.run_in_state(GameState::PlacementPhase))
             .add_system(process_responses.run_in_state(GameState::PlacementPhase))
-            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase))
-            .add_system(leave_game.run_in_state(GameState::PlacementPhase));
+            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
     }
 }
 
@@ -98,11 +97,13 @@ struct Config(Arc<types::Config>);
 
 enum State {
     Placing,
+    PlacedAllShips,
+    RequestedSubmission,
     WaitingForResponse,
     WaitingForGameStart,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 struct PlacementState(State);
 
 impl Default for PlacementState {
@@ -178,8 +179,8 @@ fn create_resources(
     servers: Query<&ServerInformation>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    commands.init_resource::<Ships>();
-    commands.init_resource::<PlacementState>();
+    commands.insert_resource(Ships::default());
+    commands.insert_resource(PlacementState::default());
 
     let is_team_a = lobby_state
         .team_state_a
@@ -305,6 +306,7 @@ fn move_camera(mut camera: Query<(&mut Transform, With<Camera3d>)>, quadrant: Re
         quadrant.lower()[1] as f32 + half_quadrant_size,
         camera_transform.translation.z,
     );
+    camera_transform.scale = Vec3::new(0.7, 0.7, 1.0);
 }
 
 fn despawn_components(
@@ -332,48 +334,105 @@ fn update_raycast_with_cursor(
     }
 }
 
-fn select_ship(
+fn draw_menu(
     mut commands: Commands,
-    mut selected_ship: Option<ResMut<SelectedShip>>,
+    mut egui_context: ResMut<EguiContext>,
+    mut selected: Option<ResMut<SelectedShip>>,
+    mut placement_state: ResMut<PlacementState>,
     key_input: Res<Input<KeyCode>>,
 ) {
-    if key_input.just_pressed(KeyCode::Key1) {
-        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Destroyer);
-    } else if key_input.just_pressed(KeyCode::Key2) {
-        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Submarine);
-    } else if key_input.just_pressed(KeyCode::Key3) {
-        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Cruiser);
-    } else if key_input.just_pressed(KeyCode::Key4) {
-        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Battleship);
-    } else if key_input.just_pressed(KeyCode::Key5) {
-        update_ship_selection(&mut commands, &mut selected_ship, ShipType::Carrier);
-    }
+    egui::TopBottomPanel::bottom(egui::Id::new("placement_menu")).show(
+        egui_context.ctx_mut(),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.horizontal_centered(|mut ui| {
+                    ui.set_height(50.0);
+
+                    let mut resources = (&mut ui, &mut commands, &mut selected, &key_input);
+                    add_selection_button(ShipType::Destroyer, KeyCode::Key1, &mut resources);
+                    add_selection_button(ShipType::Submarine, KeyCode::Key2, &mut resources);
+                    add_selection_button(ShipType::Cruiser, KeyCode::Key3, &mut resources);
+                    add_selection_button(ShipType::Battleship, KeyCode::Key4, &mut resources);
+                    add_selection_button(ShipType::Carrier, KeyCode::Key5, &mut resources);
+
+                    ui.separator();
+
+                    ui.label("Rotate:");
+                    let clockwise_button = ui.button("\u{21A9}");
+                    let counter_clockwise_button = ui.button("\u{21AA}");
+                    if clockwise_button.clicked() {
+                        update_ship_rotation(&mut selected, false);
+                    } else if counter_clockwise_button.clicked() {
+                        update_ship_rotation(&mut selected, true);
+                    } else if key_input.just_pressed(KeyCode::R) {
+                        let counter_clockwise = key_input.pressed(KeyCode::LShift);
+                        update_ship_rotation(&mut selected, counter_clockwise);
+                    }
+                });
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.set_height(50.0);
+
+                    let format = egui::text::TextFormat {
+                        color: egui::Color32::RED,
+                        ..default()
+                    };
+                    let mut text = egui::text::LayoutJob::default();
+                    text.append("Leave Game", 0.0, format);
+
+                    if ui.button(text).clicked() {
+                        info!("Disconnecting from the server on user request");
+                        commands.insert_resource(NextState(GameState::Unconnected));
+                    }
+
+                    let submit_button = ui.add_enabled(
+                        matches!(**placement_state, State::PlacedAllShips),
+                        egui::Button::new("Submit Placement"),
+                    );
+                    if submit_button.clicked() {
+                        **placement_state = State::RequestedSubmission;
+                    }
+                });
+            });
+        },
+    );
 }
 
-fn update_ship_selection(
-    commands: &mut Commands,
-    selected: &mut Option<ResMut<SelectedShip>>,
+fn add_selection_button(
     ship: ShipType,
+    key: KeyCode,
+    (ui, commands, selected, key_input): &mut (
+        &mut &mut egui::Ui,
+        &mut Commands,
+        &mut Option<ResMut<SelectedShip>>,
+        &Res<Input<KeyCode>>,
+    ),
 ) {
-    match selected {
-        None => commands.insert_resource(SelectedShip {
-            ship,
-            orientation: Orientation::North,
-        }),
-        Some(selected) => selected.ship = ship,
+    let color = match selected {
+        Some(selected) if selected.ship == ship => egui::Color32::WHITE,
+        _ => egui::Color32::GRAY,
     };
-    trace!("Selected {ship:?}");
+    let format = egui::text::TextFormat { color, ..default() };
+    let mut text = egui::text::LayoutJob::default();
+    text.append(&format!("{ship:?}"), 0.0, format);
+
+    if (ui.button(text)).clicked() || key_input.just_pressed(key) {
+        match selected {
+            None => commands.insert_resource(SelectedShip {
+                ship,
+                orientation: Orientation::North,
+            }),
+            Some(selected) => selected.ship = ship,
+        };
+        trace!("Selected {ship:?}");
+    }
 }
 
-fn rotate_ship(selected: Option<ResMut<SelectedShip>>, key_input: Res<Input<KeyCode>>) {
-    if !key_input.just_pressed(KeyCode::R) {
-        return;
-    }
-    let mut selected = match selected {
+fn update_ship_rotation(selected: &mut Option<ResMut<SelectedShip>>, counter_clockwise: bool) {
+    let selected = match selected {
         Some(ship) => ship,
         None => return,
     };
-    let counter_clockwise = key_input.pressed(KeyCode::LShift);
 
     selected.orientation = if counter_clockwise {
         match selected.orientation {
@@ -432,10 +491,13 @@ fn place_ship(
     intersections: Query<&Intersection<RaycastSet>>,
     selected: Option<Res<SelectedShip>>,
     (quadrant, config, ship_meshes): (Res<Quadrant>, Res<Config>, Res<ShipMeshes>),
-    mut ships: ResMut<Ships>,
+    (mut ships, mut placement_state): (ResMut<Ships>, ResMut<PlacementState>),
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     mouse_input: Res<Input<MouseButton>>,
 ) {
+    if !matches!(**placement_state, State::Placing) {
+        return;
+    }
     let selected = match selected {
         Some(ship) => ship,
         None => return,
@@ -468,28 +530,38 @@ fn place_ship(
         config.0.clone(),
     );
     let envelope = &ship.envelope();
-    if quadrant.contains_envelope(envelope) && ships.place_ship(ship_id, ship).is_ok() {
-        trace!(
-            "Placed a {:?} at {position:?} with orientation {:?}. {envelope:?}",
-            selected.ship,
-            selected.orientation
-        );
-        let ship = ships
-            .iter_ships()
-            .find_map(|(this_ship_id, ship)| {
-                if *this_ship_id == ship_id {
-                    Some(ship)
-                } else {
-                    None
+    if quadrant.contains_envelope(envelope) {
+        match ships.place_ship(ship_id, ship) {
+            Ok(()) => {
+                trace!(
+                    "Placed a {:?} at {position:?} with orientation {:?}. {envelope:?}",
+                    selected.ship,
+                    selected.orientation
+                );
+                let ship = ships
+                    .iter_ships()
+                    .find_map(|(this_ship_id, ship)| {
+                        if *this_ship_id == ship_id {
+                            Some(ship)
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("This ship was just inserted");
+                commands
+                    .spawn(ShipBundle::new(ship, &ship_meshes))
+                    .insert(Name::new(format!("{:?}: {ship_id:?}", selected.ship)))
+                    .insert(DespawnOnExit);
+                // FIXME: On exit, ships are mistakenly retained for next join.
+                if are_all_ships_placed(&ships, &config, &player_id, &player_team) {
+                    **placement_state = State::PlacedAllShips;
                 }
-            })
-            .expect("This ship was just inserted");
-        commands
-            .spawn(ShipBundle::new(ship, &ship_meshes))
-            .insert(Name::new(format!("{:?}: {ship_id:?}", selected.ship)));
+            }
+            Err(error) => warn!("Could not place ship: {error:?}"),
+        }
     } else {
-        warn!("That ship does not fit here, try a different tile");
-    };
+        warn!("That ship does not fit here, try a different tile or orientation.");
+    }
 }
 
 fn board_position_from_intersection(
@@ -530,7 +602,7 @@ fn next_ship_id(
 }
 
 fn are_all_ships_placed(
-    ships: &Res<Ships>,
+    ships: &ResMut<Ships>,
     config: &Res<Config>,
     player_id: &Res<PlayerId>,
     team: &Res<PlayerTeam>,
@@ -552,22 +624,12 @@ fn are_all_ships_placed(
 
 fn send_placement(
     mut commands: Commands,
-    key_input: Res<Input<KeyCode>>,
     ships: Res<Ships>,
-    config: Res<Config>,
-    (player_id, team): (Res<PlayerId>, Res<PlayerTeam>),
+    player_id: Res<PlayerId>,
     client: Res<Client>,
     mut placement_state: ResMut<PlacementState>,
 ) {
-    if !key_input.just_pressed(KeyCode::Return) {
-        return;
-    }
-    if let State::WaitingForResponse = placement_state.0 {
-        warn!("Still waiting for a response, cannot send placements.");
-        return;
-    }
-    if !are_all_ships_placed(&ships, &config, &player_id, &team) {
-        warn!("Not all ships are placed yet, cannot send placements.");
+    if !matches!(**placement_state, State::RequestedSubmission) {
         return;
     }
     let assignments = ships
@@ -592,7 +654,7 @@ fn send_placement(
         error!("Could not send SetPlacementRequest: {error}, disonnecting");
         commands.insert_resource(NextState(GameState::Unconnected));
     }
-    placement_state.0 = State::WaitingForResponse;
+    **placement_state = State::WaitingForResponse;
 }
 
 fn process_responses(
@@ -701,12 +763,12 @@ fn process_game_start_event(
             EventMessage::GameStart(GameStart {
                 state: Some(_state),
             }) => {
-                match placement_state.0 {
+                match **placement_state {
                     State::WaitingForGameStart => {}
                     State::WaitingForResponse => {
                         debug!("Received unexpected GameStart, interpreting it as successful placement")
                     }
-                    State::Placing => {
+                    _ => {
                         warn!("Received unexpected GameStart");
                         continue;
                     }
@@ -725,12 +787,5 @@ fn process_game_start_event(
                 // ignore
             }
         }
-    }
-}
-
-fn leave_game(mut commands: Commands, input: Res<Input<KeyCode>>) {
-    if input.just_pressed(KeyCode::Escape) {
-        info!("Disconnecting from the server on user request");
-        commands.insert_resource(NextState(GameState::Unconnected));
     }
 }
