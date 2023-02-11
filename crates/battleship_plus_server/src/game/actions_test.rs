@@ -33,14 +33,20 @@ mod actions_team_switch {
         }
 
         // switch team a -> b
-        assert!(Action::TeamSwitch { player_id }.apply_on(&mut g).is_ok());
+        assert!(matches!(
+            Action::TeamSwitch { player_id }.apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(!g.team_a.contains(&player_id));
             assert!(g.team_b.contains(&player_id));
         }
 
         // switch team b -> a
-        assert!(Action::TeamSwitch { player_id }.apply_on(&mut g).is_ok());
+        assert!(matches!(
+            Action::TeamSwitch { player_id }.apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(g.team_a.contains(&player_id));
             assert!(!g.team_b.contains(&player_id));
@@ -123,23 +129,27 @@ mod actions_player_set_ready_state {
         let mut g = g.write().await;
 
         // set player ready
-        assert!(Action::SetReady {
-            player_id,
-            request: SetReadyStateRequest { ready_state: true },
-        }
-        .apply_on(&mut g)
-        .is_ok());
+        assert!(matches!(
+            Action::SetReady {
+                player_id,
+                request: SetReadyStateRequest { ready_state: true },
+            }
+            .apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(g.players.get(&player_id).unwrap().is_ready);
         }
 
         // set player not ready
-        assert!(Action::SetReady {
-            player_id,
-            request: SetReadyStateRequest { ready_state: false },
-        }
-        .apply_on(&mut g)
-        .is_ok());
+        assert!(matches!(
+            Action::SetReady {
+                player_id,
+                request: SetReadyStateRequest { ready_state: false },
+            }
+            .apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(!g.players.get(&player_id).unwrap().is_ready);
         }
@@ -180,6 +190,7 @@ mod actions_shoot {
     use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
+    use crate::game::actions::ActionResult;
     use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
 
@@ -249,7 +260,7 @@ mod actions_shoot {
         let mut g = g.write().await;
 
         // shoot ship_target1
-        assert!(Action::Shoot {
+        let result = Action::Shoot {
             ship_id: (player.id, 0),
             properties: ShootProperties {
                 target: Some(Coordinate {
@@ -258,8 +269,22 @@ mod actions_shoot {
                 }),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.contains(&ship_target1.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&ship_target1.id()));
+            assert!(inflicted_damage_at
+                .contains(&(ship_target1.data().pos_x, ship_target1.data().pos_y)));
+        }
 
         // check ship_target1 destroyed and ship_target2 untouched
         {
@@ -272,7 +297,7 @@ mod actions_shoot {
         }
 
         // shoot ship_target2
-        assert!(Action::Shoot {
+        let result = Action::Shoot {
             ship_id: (player.id, 0),
             properties: ShootProperties {
                 target: Some(Coordinate {
@@ -281,8 +306,22 @@ mod actions_shoot {
                 }),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.contains_key(&ship_target2.id()));
+            assert!(inflicted_damage_at
+                .contains(&(ship_target2.data().pos_x, ship_target2.data().pos_y)));
+        }
 
         // check ship_target1 destroyed and ship_target2 health reduced
         {
@@ -295,14 +334,16 @@ mod actions_shoot {
         }
 
         // missed shot
-        assert!(Action::Shoot {
-            ship_id: (player.id, 0),
-            properties: ShootProperties {
-                target: Some(Coordinate { x: 20, y: 20 }),
-            },
-        }
-        .apply_on(&mut g)
-        .is_ok());
+        assert!(matches!(
+            Action::Shoot {
+                ship_id: (player.id, 0),
+                properties: ShootProperties {
+                    target: Some(Coordinate { x: 20, y: 20 }),
+                },
+            }
+            .apply_on(&mut g),
+            Ok(None)
+        ));
 
         // board untouched
         {
@@ -616,7 +657,7 @@ mod actions_move {
     use battleship_plus_common::types::*;
 
     use crate::config_provider::default_config_provider;
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionResult};
     use crate::game::data::{Game, Player, Turn};
 
     #[tokio::test]
@@ -629,6 +670,7 @@ mod actions_move {
                         cooldown: 0,
                         action_points: 0,
                     }),
+                    vision_range: 2,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -652,14 +694,27 @@ mod actions_move {
         let mut g = g.write().await;
 
         // move ship forward
-        assert!(Action::Move {
+        let result = Action::Move {
             ship_id: (player.id, 0),
             properties: MoveProperties {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.is_empty());
+            assert!(!gain_vision_at.is_empty());
+        }
 
         // check ship's new position
         {
@@ -667,14 +722,30 @@ mod actions_move {
         }
 
         // move ship backward
-        assert!(Action::Move {
+        let result = Action::Move {
             ship_id: (player.id, 0),
             properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(!lost_vision_at.is_empty());
+            assert!(!gain_vision_at.is_empty());
+        }
+
+        // TODO: check for exact vision changes
+        panic!("TODO: refine tests");
 
         // check ship's new position
         {
