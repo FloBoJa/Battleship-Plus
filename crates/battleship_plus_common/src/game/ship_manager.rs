@@ -3,10 +3,9 @@ use std::fmt::{Display, Formatter};
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
-use crate::types::{Coordinate, MoveDirection, RotateDirection};
-
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 use crate::game::ActionValidationError;
+use crate::types::{Coordinate, MoveDirection, RotateDirection};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {
@@ -75,7 +74,7 @@ impl ShipManager {
     pub fn destroy_colliding_ships_in_envelope(
         &mut self,
         envelope: &AABB<[i32; 2]>,
-    ) -> Option<Vec<ShipID>> {
+    ) -> Option<Vec<Ship>> {
         let colliding_ships: Vec<_> = self
             .ships_geo_lookup
             .locate_in_envelope_intersecting(envelope)
@@ -94,7 +93,7 @@ impl ShipManager {
                 let _ = self.ships_geo_lookup.remove(&ShipTreeNode::from(&ship));
             });
 
-            Some(colliding_ships)
+            Some(destroyed_ships)
         } else {
             None
         }
@@ -190,9 +189,9 @@ impl ShipManager {
                         &self.ships.remove(&ship_node.ship_id).unwrap(),
                     ));
 
-                    ShotResult::Destroyed(ship_node.ship_id)
+                    ShotResult::Destroyed(ship_node.ship_id, balancing.shoot_damage)
                 } else {
-                    ShotResult::Hit(ship_node.ship_id)
+                    ShotResult::Hit(ship_node.ship_id, balancing.shoot_damage)
                 }
             }))
     }
@@ -329,8 +328,8 @@ impl ShipManager {
 #[derive(Debug, Clone)]
 pub enum ShotResult {
     Miss,
-    Hit(ShipID),
-    Destroyed(ShipID),
+    Hit(ShipID, u32),
+    Destroyed(ShipID, u32),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]

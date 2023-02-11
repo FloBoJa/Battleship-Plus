@@ -1109,9 +1109,9 @@ mod actions_rotate {
             turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
-        let g = g.write().await;
+        let mut game = g.write().await;
 
-        let rotate = |mut g, d| {
+        let mut rotate: Box<dyn FnMut(&mut Game, RotateDirection)> = Box::new(|game, d| {
             // rotate ship counter clockwise
             assert!(Action::Rotate {
                 ship_id: (player.id, 0),
@@ -1119,51 +1119,49 @@ mod actions_rotate {
                     direction: i32::from(d),
                 },
             }
-            .apply_on(&mut g)
+            .apply_on(game)
             .is_ok());
+        });
 
-            g
-        };
-
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::East
         );
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::North
         );
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::West
         );
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::South
         );
 
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::West
         );
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::North
         );
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::East
         );
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::South
         );
     }

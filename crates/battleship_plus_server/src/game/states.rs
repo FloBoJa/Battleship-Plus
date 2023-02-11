@@ -5,7 +5,7 @@ use tokio::sync::RwLockWriteGuard;
 
 use battleship_plus_common::messages::{EventMessage, ProtocolMessage};
 
-use crate::game::actions::{Action, ActionExecutionError};
+use crate::game::actions::{Action, ActionExecutionError, ActionResult};
 use crate::game::data::Game;
 
 #[derive(Debug, Copy, Clone)]
@@ -94,7 +94,7 @@ impl GameState {
         &self,
         action: Action,
         game: &mut RwLockWriteGuard<Game>,
-    ) -> Result<(), ActionExecutionError> {
+    ) -> Result<Option<ActionResult>, ActionExecutionError> {
         if !self.is_action_valid(&action) {
             return Err(ActionExecutionError::OutOfState(*self));
         }
