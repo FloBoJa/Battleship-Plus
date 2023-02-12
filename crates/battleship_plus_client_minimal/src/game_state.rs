@@ -8,7 +8,7 @@ pub enum GameState {
     Lobby,
     PlacementPhase,
     // TODO:
-    Game,
+    // Game,
 }
 
 #[derive(Resource, Deref)]
