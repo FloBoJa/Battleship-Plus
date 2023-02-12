@@ -1,15 +1,10 @@
-use std::ptr::null;
 use std::thread::sleep;
 use std::time::Duration;
 use std::option::Option;
-use bevy::pbr::LightEntity::Directional;
 use bevy::prelude::*;
-use bevy::utils::tracing::event;
-use futures::future::select;
 use iyes_loopless::prelude::*;
 use battleship_plus_common::*;
 use battleship_plus_common::messages::*;
-use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::types::*;
 use bevy_quinnet_client::Client;
 use crate::game_state::GameState;
@@ -26,6 +21,7 @@ impl Plugin for GamePlugin {
         ;
     }
 }
+
 #[derive(Resource, Default)]
 pub struct GameInfo {
     ship_selected_id: u32,
@@ -39,6 +35,7 @@ fn main(
 ) {
     //DEBUG
 
+    request_server_state(&mut client);
     sleep(Duration::from_secs(1));
     select_ship(&mut game_info, 1);
     request_ship_action_move(&mut client,&mut game_info, MoveProperties{ direction: 0 })
@@ -99,7 +96,7 @@ fn process_game_response_data(
 }
 
 fn request_server_state(
-    mut client: ResMut<Client>,
+    client: &mut ResMut<Client>,
 ) {
     let con = client.get_connection().expect("");
 
