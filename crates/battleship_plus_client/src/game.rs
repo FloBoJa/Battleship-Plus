@@ -21,6 +21,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameInfo>()
             .add_system(process_game_events.run_in_state(GameState::Game))
+            .add_system(process_game_responses.run_in_state(GameState::Game))
             .add_startup_system(main.run_in_state(GameState::Game))
         ;
     }
