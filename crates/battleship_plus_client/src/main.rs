@@ -12,6 +12,7 @@ mod lobby;
 mod networking;
 mod placement_phase;
 mod server_selection;
+mod game;
 
 use game_state::GameState;
 
