@@ -39,26 +39,32 @@ impl ShipManager {
         }
     }
 
-    pub fn get_ship_parts_seen_by(&self, ships: &[&Ship]) -> Vec<Coordinate> {
-        ships
+    pub fn get_ship_parts_seen_by(&self, ships_ids: &[ShipID]) -> Vec<Coordinate> {
+        ships_ids
             .iter()
-            .flat_map(|ship| {
-                let vision_envelope = ship.vision_envelope();
+            .flat_map(|ship_id| {
+                if let Some(ship) = self.get_by_id(ship_id) {
+                    let vision_envelope = ship.vision_envelope();
 
-                self.ships_geo_lookup
-                    .locate_in_envelope_intersecting(&vision_envelope)
-                    .flat_map(|ship| {
-                        let lower = ship.envelope().lower();
-                        let upper = ship.envelope().upper();
+                    self.ships_geo_lookup
+                        .locate_in_envelope_intersecting(&vision_envelope)
+                        .filter(|ship| ship.ship_id != *ship_id)
+                        .flat_map(|ship| {
+                            let lower = ship.envelope().lower();
+                            let upper = ship.envelope().upper();
 
-                        (lower[0]..upper[0])
-                            .flat_map(move |x| (lower[1]..upper[1]).map(move |y| (x, y)))
-                    })
-                    .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
-                    .map(|(x, y)| Coordinate {
-                        x: x as u32,
-                        y: y as u32,
-                    })
+                            (lower[0]..=upper[0])
+                                .flat_map(move |x| (lower[1]..=upper[1]).map(move |y| (x, y)))
+                        })
+                        .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
+                        .map(|(x, y)| Coordinate {
+                            x: x as u32,
+                            y: y as u32,
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                }
             })
             .collect()
     }
