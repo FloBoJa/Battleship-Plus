@@ -160,7 +160,7 @@ impl Action {
                         action_points,
                         ship_id,
                         properties.direction(),
-                        &board_bounds,
+                        board_bounds,
                     )
                 },
             ),
@@ -236,9 +236,7 @@ fn general_movement<
 
     let mut action_points = game.turn.as_ref().unwrap().action_points_left;
 
-    let old_vision = game
-        .ships
-        .get_ship_parts_seen_by([ship_id.clone()].as_slice());
+    let old_vision = game.ships.get_ship_parts_seen_by([*ship_id].as_slice());
     let trajectory = match do_movement(game, &mut action_points, ship_id, &board_bounds) {
         Ok(trajectory) => trajectory,
         Err(e) => return Err(ActionExecutionError::Validation(e)),
@@ -248,9 +246,7 @@ fn general_movement<
     // update player stats
     game.players.insert(player_id, player);
 
-    let new_vision = game
-        .ships
-        .get_ship_parts_seen_by([ship_id.clone()].as_slice());
+    let new_vision = game.ships.get_ship_parts_seen_by([*ship_id].as_slice());
 
     let destroyed_ships = game.ships.destroy_colliding_ships_in_envelope(&trajectory);
 
