@@ -15,6 +15,9 @@ mod game;
 
 use game_state::GameState;
 
+//IP
+//bsplus.floboja.net:30305
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -36,6 +39,7 @@ fn main() {
         .add_plugin(networking::NetworkingPlugin)
         .add_plugin(server_selection::ServerSelectionPlugin)
         .add_plugin(lobby::LobbyPlugin)
+        .add_plugin(placement_phase::PlacementPlugin)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
         .insert_resource(lobby::UserName("Userus Namus XXVII.".to_string()))
@@ -85,6 +89,6 @@ fn text_update_system(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text,
 
 fn debug_state_change(state: Res<CurrentState<GameState>>) {
     if state.is_changed() {
-        debug!("State changed to {state:?}");
+        println!("State changed to {state:?}");
     }
 }
