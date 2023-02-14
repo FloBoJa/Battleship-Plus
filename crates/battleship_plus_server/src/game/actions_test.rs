@@ -713,7 +713,7 @@ mod actions_move {
             assert!(inflicted_damage_by_ship.is_empty());
             assert!(inflicted_damage_at.is_empty());
             assert!(lost_vision_at.is_empty());
-            assert!(!gain_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
         }
 
         // check ship's new position
@@ -740,16 +740,126 @@ mod actions_move {
             assert!(ships_destroyed.is_empty());
             assert!(inflicted_damage_by_ship.is_empty());
             assert!(inflicted_damage_at.is_empty());
-            assert!(!lost_vision_at.is_empty());
-            assert!(!gain_vision_at.is_empty());
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
         }
-
-        // TODO: check for exact vision changes
-        panic!("TODO: refine tests");
 
         // check ship's new position
         {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0))
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_move_vision() {
+        let player = Player::default();
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    vision_range: 2,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                id: (player.id, 0),
+                pos_x: 10,
+                pos_y: 10,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+        let ship1 = Ship::Destroyer {
+            data: ShipData {
+                id: (player.id, 1),
+                pos_x: 10,
+                pos_y: 7,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+            balancing: Default::default(),
+        };
+        let ship2 = Ship::Destroyer {
+            data: ShipData {
+                id: (player.id, 2),
+                pos_x: 10,
+                pos_y: 14,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+            balancing: Default::default(),
+        };
+
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: ShipManager::new_with_ships(vec![ship.clone(), ship1.clone(), ship2.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
+            ..Default::default()
+        }));
+        let mut g = g.write().await;
+
+        // move ship forward
+        let result = Action::Move {
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.contains(&Coordinate { x: 10, y: 8 }));
+            assert!(gain_vision_at.contains(&Coordinate { x: 10, y: 14 }));
+        }
+
+        // check ship's new position
+        {
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (10, 11))
+        }
+
+        // move ship forward
+        let result = Action::Move {
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.contains(&Coordinate { x: 10, y: 15 }));
+        }
+
+        // check ship's new position
+        {
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (10, 12))
         }
     }
 
