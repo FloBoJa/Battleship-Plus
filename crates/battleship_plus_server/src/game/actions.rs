@@ -368,8 +368,8 @@ impl ActionResult {
                 .map_or(HashSet::with_capacity(0), |ships| {
                     HashSet::from_iter(ships.iter().map(|s| s.id()))
                 }),
-            gain_vision_at: left_unique(new_vision, old_vision),
-            lost_vision_at: left_unique(old_vision, new_vision),
+            gain_vision_at: difference(new_vision, old_vision),
+            lost_vision_at: difference(old_vision, new_vision),
         }
     }
 
@@ -399,7 +399,7 @@ fn envelope_to_points(envelope: &AABB<[i32; 2]>) -> impl Iterator<Item = (i32, i
         .flat_map(|x| (envelope.upper()[0]..=envelope.upper()[1]).map(move |y| (x, y)))
 }
 
-fn left_unique<T: PartialEq + Clone>(left: &[T], right: &[T]) -> Vec<T> {
+fn difference<T: PartialEq + Clone>(left: &[T], right: &[T]) -> Vec<T> {
     left.iter()
         .filter(|c| !right.contains(c))
         .cloned()
