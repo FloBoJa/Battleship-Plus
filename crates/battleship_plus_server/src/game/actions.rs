@@ -196,9 +196,9 @@ impl Action {
                             ShotResult::Hit(ship_id, damage) => {
                                 Ok(Some(ActionResult::hit(ship_id, &target, damage)))
                             }
-                            ShotResult::Destroyed(ship_id, damage) => {
-                                Ok(Some(ActionResult::destroyed(ship_id, &target, damage)))
-                            }
+                            ShotResult::Destroyed(ship_id, damage, ship_parts) => Ok(Some(
+                                ActionResult::destroyed(ship_id, &target, damage, ship_parts),
+                            )),
                         }
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
@@ -383,13 +383,18 @@ impl ActionResult {
         }
     }
 
-    fn destroyed(ship_id: ShipID, target: &[i32; 2], damage: u32) -> Self {
+    fn destroyed(
+        ship_id: ShipID,
+        target: &[i32; 2],
+        damage: u32,
+        vision_lost: Vec<Coordinate>,
+    ) -> Self {
         ActionResult {
             inflicted_damage_at: vec![(target[0], target[1])],
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::from([ship_id]),
             gain_vision_at: Vec::with_capacity(0),
-            lost_vision_at: Vec::with_capacity(0),
+            lost_vision_at: vision_lost,
         }
     }
 }
