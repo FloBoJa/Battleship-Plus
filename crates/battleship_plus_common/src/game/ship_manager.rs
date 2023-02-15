@@ -49,17 +49,9 @@ impl ShipManager {
                     self.ships_geo_lookup
                         .locate_in_envelope_intersecting(&vision_envelope)
                         .filter(|ship| ship.ship_id != *ship_id)
-                        .flat_map(|ship| {
-                            let lower = ship.envelope().lower();
-                            let upper = ship.envelope().upper();
-
-                            (lower[0]..=upper[0])
-                                .flat_map(move |x| (lower[1]..=upper[1]).map(move |y| (x, y)))
-                        })
-                        .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
-                        .map(|(x, y)| Coordinate {
-                            x: x as u32,
-                            y: y as u32,
+                        .flat_map(|ship| envelope_to_points(ship.envelope))
+                        .filter(move |Coordinate { x, y }| {
+                            vision_envelope.contains_point(&[*x as i32, *y as i32])
                         })
                         .collect()
                 } else {
@@ -428,4 +420,13 @@ impl Display for ShipPlacementError {
             }
         })
     }
+}
+
+pub fn envelope_to_points(envelope: AABB<[i32; 2]>) -> impl Iterator<Item = Coordinate> + 'static {
+    (envelope.lower()[0]..=envelope.upper()[0]).flat_map(move |x| {
+        (envelope.lower()[1]..=envelope.upper()[1]).map(move |y| Coordinate {
+            x: x as u32,
+            y: y as u32,
+        })
+    })
 }
