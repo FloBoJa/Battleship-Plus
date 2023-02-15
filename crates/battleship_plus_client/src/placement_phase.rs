@@ -23,7 +23,7 @@ use battleship_plus_common::{
 
 use crate::{
     game_state::{GameState, PlayerId},
-    lobby::LobbyState,
+    lobby::{self, LobbyState},
     networking::{self, CurrentServer, ServerInformation},
     RaycastSet,
 };
@@ -47,6 +47,7 @@ impl Plugin for PlacementPhasePlugin {
             )
             .add_enter_system(GameState::PlacementPhase, spawn_components)
             .add_enter_system(GameState::PlacementPhase, move_camera)
+            .add_enter_system(GameState::PlacementPhase, repeat_cached_events)
             .add_exit_system(GameState::PlacementPhase, despawn_components)
             .add_system_to_stage(
                 CoreStage::First,
@@ -60,6 +61,9 @@ impl Plugin for PlacementPhasePlugin {
             .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
     }
 }
+
+#[derive(Resource, Deref)]
+pub struct CachedEvents(Vec<messages::EventMessage>);
 
 #[derive(Resource, Deref)]
 pub struct Quadrant(AABB<[i32; 2]>);
@@ -764,6 +768,7 @@ fn process_game_start_event(
     mut events: EventReader<EventMessage>,
     placement_state: Res<PlacementState>,
 ) {
+    let mut transition_happened = false;
     for event in events.iter() {
         match event {
             EventMessage::GameStart(GameStart {
@@ -783,6 +788,8 @@ fn process_game_start_event(
                 // TODO: Game initialization.
                 warn!("Unimplemented: skipping game initialization");
                 commands.insert_resource(NextState(GameState::Game));
+                transition_happened = true;
+                break;
             }
             EventMessage::GameStart(GameStart { state: None }) => {
                 // TODO: Robustness: request server state manually.
@@ -794,4 +801,22 @@ fn process_game_start_event(
             }
         }
     }
+    if transition_happened {
+        trace!("Repeating events that happened during state transition");
+        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
+        commands.insert_resource(CachedEvents(events));
+    }
+}
+
+fn repeat_cached_events(
+    mut commands: Commands,
+    cached_events: Option<Res<lobby::CachedEvents>>,
+    mut event_writer: EventWriter<messages::EventMessage>,
+) {
+    let cached_events = match cached_events {
+        Some(events) => events.clone(),
+        None => return,
+    };
+    event_writer.send_batch(cached_events.into_iter());
+    commands.remove_resource::<lobby::CachedEvents>();
 }
