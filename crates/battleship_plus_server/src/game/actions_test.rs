@@ -1278,7 +1278,7 @@ mod actions_rotate {
     use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionResult};
     use crate::game::data::{Game, Player, Turn};
 
     #[tokio::test]
@@ -1624,6 +1624,7 @@ mod actions_rotate {
                         cooldown: 0,
                         action_points: 0,
                     }),
+                    vision_range: 2,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -1691,14 +1692,30 @@ mod actions_rotate {
         let mut g = g.write().await;
 
         // rotate ship
-        assert!(Action::Rotate {
+        let result = Action::Rotate {
             ship_id: (player.id, 0),
             properties: RotateProperties {
                 direction: i32::from(RotateDirection::Clockwise),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.contains(&Coordinate { x: 2, y: 0 }));
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.contains(&rotating_ship.id()));
+            assert!(ships_destroyed.contains(&ship_to_be_destroyed.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&rotating_ship.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&ship_to_be_destroyed.id()));
+            assert!(inflicted_damage_at.contains(&Coordinate { x: 2, y: 0 }));
+            assert!(inflicted_damage_at.contains(&Coordinate { x: 3, y: 0 }));
+        }
 
         // check results
         {
