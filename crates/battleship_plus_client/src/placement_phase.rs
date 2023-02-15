@@ -640,7 +640,8 @@ fn send_placement(
     // The ship ID is given implicitly by the position in the set.
     // The code assumes that IDs 1..n are all present exactly once.
     assignments.sort_by_key(|(ship_id, _)| **ship_id);
-    let assignments = assignments.iter()
+    let assignments = assignments
+        .iter()
         .map(|(_, ship)| {
             let position = ship.position();
             let coordinate = Some(types::Coordinate {
