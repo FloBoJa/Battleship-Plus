@@ -1,7 +1,3 @@
-use std::hash::{Hash, Hasher};
-
-use crate::types::Coordinate;
-
 pub const PROTOCOL_VERSION: u8 = 1;
 
 pub mod game;
@@ -254,13 +250,4 @@ pub fn protocol_name_with_version() -> String {
 
 pub fn protocol_name() -> String {
     String::from("bs_plus")
-}
-
-impl Eq for Coordinate {}
-
-impl Hash for Coordinate {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u32(self.x);
-        state.write_u32(self.y);
-    }
 }
