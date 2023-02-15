@@ -278,7 +278,8 @@ mod actions_shoot {
             gain_vision_at,
         })) = result
         {
-            assert!(lost_vision_at.is_empty());
+            assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 5 }));
+            assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 6 }));
             assert!(gain_vision_at.is_empty());
             assert!(ships_destroyed.contains(&ship_target1.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship_target1.id()));
