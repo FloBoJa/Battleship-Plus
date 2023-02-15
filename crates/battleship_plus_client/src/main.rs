@@ -7,12 +7,12 @@ use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_raycast::{DefaultRaycastingPlugin, RaycastSource};
 use iyes_loopless::prelude::*;
 
+mod game;
 mod game_state;
 mod lobby;
 mod networking;
 mod placement_phase;
 mod server_selection;
-mod game;
 
 use game_state::GameState;
 

@@ -31,6 +31,9 @@ impl Plugin for LobbyPlugin {
 }
 
 #[derive(Resource, Deref)]
+pub struct CachedEvents(Vec<messages::EventMessage>);
+
+#[derive(Resource, Deref)]
 pub struct UserName(pub String);
 
 #[derive(Resource, Deref, Default)]
@@ -221,6 +224,7 @@ fn draw_lobby_screen(
 }
 
 fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages::EventMessage>) {
+    let mut transition_happened = false;
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
@@ -233,6 +237,8 @@ fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages
                         message.quadrant_size,
                     ));
                     commands.insert_resource(NextState(GameState::PlacementPhase));
+                    transition_happened = true;
+                    break;
                 } else {
                     error!("Received PlacementPhase message without quadrant information, disconnecting");
                     commands.insert_resource(NextState(GameState::Unconnected));
@@ -242,6 +248,12 @@ fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages
                 // ignore
             }
         }
+    }
+
+    if transition_happened {
+        trace!("Repeating events that happened during state transition");
+        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
+        commands.insert_resource(CachedEvents(events));
     }
 }
 
