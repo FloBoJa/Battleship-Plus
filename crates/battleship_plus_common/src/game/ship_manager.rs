@@ -3,10 +3,9 @@ use std::fmt::{Display, Formatter};
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
-use crate::types::{Coordinate, MoveDirection, RotateDirection};
-
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 use crate::game::ActionValidationError;
+use crate::types::{Coordinate, MoveDirection, RotateDirection};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {
@@ -40,26 +39,32 @@ impl ShipManager {
         }
     }
 
-    pub fn get_ship_parts_seen_by(&self, ships: &[&Ship]) -> Vec<Coordinate> {
-        ships
+    pub fn get_ship_parts_seen_by(&self, ships_ids: &[ShipID]) -> Vec<Coordinate> {
+        ships_ids
             .iter()
-            .flat_map(|ship| {
-                let vision_envelope = ship.vision_envelope();
+            .flat_map(|ship_id| {
+                if let Some(ship) = self.get_by_id(ship_id) {
+                    let vision_envelope = ship.vision_envelope();
 
-                self.ships_geo_lookup
-                    .locate_in_envelope_intersecting(&vision_envelope)
-                    .flat_map(|ship| {
-                        let lower = ship.envelope().lower();
-                        let upper = ship.envelope().upper();
+                    self.ships_geo_lookup
+                        .locate_in_envelope_intersecting(&vision_envelope)
+                        .filter(|ship| ship.ship_id != *ship_id)
+                        .flat_map(|ship| {
+                            let lower = ship.envelope().lower();
+                            let upper = ship.envelope().upper();
 
-                        (lower[0]..upper[0])
-                            .flat_map(move |x| (lower[1]..upper[1]).map(move |y| (x, y)))
-                    })
-                    .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
-                    .map(|(x, y)| Coordinate {
-                        x: x as u32,
-                        y: y as u32,
-                    })
+                            (lower[0]..=upper[0])
+                                .flat_map(move |x| (lower[1]..=upper[1]).map(move |y| (x, y)))
+                        })
+                        .filter(move |(x, y)| vision_envelope.contains_point(&[*x, *y]))
+                        .map(|(x, y)| Coordinate {
+                            x: x as u32,
+                            y: y as u32,
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                }
             })
             .collect()
     }
@@ -75,7 +80,7 @@ impl ShipManager {
     pub fn destroy_colliding_ships_in_envelope(
         &mut self,
         envelope: &AABB<[i32; 2]>,
-    ) -> Option<Vec<ShipID>> {
+    ) -> Option<Vec<Ship>> {
         let colliding_ships: Vec<_> = self
             .ships_geo_lookup
             .locate_in_envelope_intersecting(envelope)
@@ -94,7 +99,7 @@ impl ShipManager {
                 let _ = self.ships_geo_lookup.remove(&ShipTreeNode::from(&ship));
             });
 
-            Some(colliding_ships)
+            Some(destroyed_ships)
         } else {
             None
         }
@@ -190,9 +195,9 @@ impl ShipManager {
                         &self.ships.remove(&ship_node.ship_id).unwrap(),
                     ));
 
-                    ShotResult::Destroyed(ship_node.ship_id)
+                    ShotResult::Destroyed(ship_node.ship_id, balancing.shoot_damage)
                 } else {
-                    ShotResult::Hit(ship_node.ship_id)
+                    ShotResult::Hit(ship_node.ship_id, balancing.shoot_damage)
                 }
             }))
     }
@@ -329,8 +334,8 @@ impl ShipManager {
 #[derive(Debug, Clone)]
 pub enum ShotResult {
     Miss,
-    Hit(ShipID),
-    Destroyed(ShipID),
+    Hit(ShipID, u32),
+    Destroyed(ShipID, u32),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
