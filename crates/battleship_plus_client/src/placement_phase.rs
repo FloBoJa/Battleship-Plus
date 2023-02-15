@@ -632,17 +632,22 @@ fn send_placement(
     if !matches!(**placement_state, State::RequestedSubmission) {
         return;
     }
-    let assignments = ships
+    let mut assignments: Vec<(&u32, &Ship)> = ships
         .iter_ships()
         .filter(|((ship_player_id, _), _)| *ship_player_id == **player_id)
-        .map(|((_, ship_id), ship)| {
+        .map(|((_, ship_id), ship)| (ship_id, ship))
+        .collect();
+    // The ship ID is given implicitly by the position in the set.
+    // The code assumes that IDs 1..n are all present exactly once.
+    assignments.sort_by_key(|(ship_id, _)| **ship_id);
+    let assignments = assignments.iter()
+        .map(|(_, ship)| {
             let position = ship.position();
             let coordinate = Some(types::Coordinate {
                 x: position.0 as u32,
                 y: position.1 as u32,
             });
             ShipAssignment {
-                ship_number: *ship_id,
                 coordinate,
                 direction: types::Direction::from(ship.orientation()) as i32,
             }
