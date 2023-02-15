@@ -121,7 +121,7 @@ struct ShipInfo {
 struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
 
 const OCEAN_SIZE: f32 = 320.0;
-const OFFSET_Z: f32 = 50.0;
+const OFFSET_Z: f32 = 4.9;
 
 fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>) -> PbrBundle {
     let position = ship.position();
@@ -275,7 +275,7 @@ fn spawn_components(
     }));
     let material = materials.add(StandardMaterial {
         alpha_mode: AlphaMode::Blend,
-        base_color: Color::rgba_u8(42, 0, 142, 69),
+        base_color: Color::rgba_u8(77, 0, 105, 166),
         ..default()
     });
     let click_plane_offset = quadrant.side_length() as f32 / 2.0;
