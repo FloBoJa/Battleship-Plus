@@ -121,7 +121,7 @@ struct ShipInfo {
 struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
 
 const OCEAN_SIZE: f32 = 320.0;
-const OFFSET_Z: f32 = 50.0;
+const OFFSET_Z: f32 = 4.9;
 
 fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>) -> PbrBundle {
     let position = ship.position();
@@ -275,7 +275,7 @@ fn spawn_components(
     }));
     let material = materials.add(StandardMaterial {
         alpha_mode: AlphaMode::Blend,
-        base_color: Color::rgba_u8(42, 0, 142, 69),
+        base_color: Color::rgba_u8(77, 0, 105, 166),
         ..default()
     });
     let click_plane_offset = quadrant.side_length() as f32 / 2.0;
@@ -632,17 +632,23 @@ fn send_placement(
     if !matches!(**placement_state, State::RequestedSubmission) {
         return;
     }
-    let assignments = ships
+    let mut assignments: Vec<(&u32, &Ship)> = ships
         .iter_ships()
         .filter(|((ship_player_id, _), _)| *ship_player_id == **player_id)
-        .map(|((_, ship_id), ship)| {
+        .map(|((_, ship_id), ship)| (ship_id, ship))
+        .collect();
+    // The ship ID is given implicitly by the position in the set.
+    // The code assumes that IDs 1..n are all present exactly once.
+    assignments.sort_by_key(|(ship_id, _)| **ship_id);
+    let assignments = assignments
+        .iter()
+        .map(|(_, ship)| {
             let position = ship.position();
             let coordinate = Some(types::Coordinate {
                 x: position.0 as u32,
                 y: position.1 as u32,
             });
             ShipAssignment {
-                ship_number: *ship_id,
                 coordinate,
                 direction: types::Direction::from(ship.orientation()) as i32,
             }
