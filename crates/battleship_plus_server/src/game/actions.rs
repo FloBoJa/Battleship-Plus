@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use log::{debug, error};
-use rstar::{RTreeObject, AABB};
+use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::game::ship::{GetShipID, Ship};
 use battleship_plus_common::game::ship_manager::ShotResult;
@@ -172,10 +173,7 @@ impl Action {
                 check_player_exists(game, player_id)?;
                 check_players_turn(game, player_id)?;
 
-                let target = [
-                    properties.target.as_ref().unwrap().x as i32,
-                    properties.target.as_ref().unwrap().y as i32,
-                ];
+                let target = properties.target.as_ref().unwrap();
 
                 let bounds = game.board_bounds();
                 let player = game.players.get(&player_id).unwrap().clone();
@@ -183,7 +181,7 @@ impl Action {
                 let mut action_points = game.turn.as_ref().unwrap().action_points_left;
                 match game
                     .ships
-                    .attack_with_ship(&mut action_points, ship_id, &target, &bounds)
+                    .attack_with_ship(&mut action_points, ship_id, target, &bounds)
                 {
                     Ok(shot) => {
                         game.turn.as_mut().unwrap().action_points_left = action_points;
@@ -194,11 +192,16 @@ impl Action {
                         match shot {
                             ShotResult::Miss => Ok(None),
                             ShotResult::Hit(ship_id, damage) => {
-                                Ok(Some(ActionResult::hit(ship_id, &target, damage)))
+                                Ok(Some(ActionResult::hit(ship_id, target.clone(), damage)))
                             }
-                            ShotResult::Destroyed(ship_id, damage, ship_parts) => Ok(Some(
-                                ActionResult::destroyed(ship_id, &target, damage, ship_parts),
-                            )),
+                            ShotResult::Destroyed(ship_id, damage, ship_parts) => {
+                                Ok(Some(ActionResult::destroyed(
+                                    ship_id,
+                                    target.clone(),
+                                    damage,
+                                    ship_parts,
+                                )))
+                            }
                         }
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
@@ -249,9 +252,17 @@ fn general_movement<
     let new_vision = game.ships.get_ship_parts_seen_by([*ship_id].as_slice());
 
     let destroyed_ships = game.ships.destroy_colliding_ships_in_envelope(&trajectory);
+    let destroyed_parts = destroyed_ships.as_ref().map(|destroyed_ships| {
+        destroyed_ships
+            .iter()
+            .flat_map(|s| envelope_to_points(s.envelope()))
+            .filter(|c| trajectory.contains_point(&[c.x as i32, c.y as i32]))
+            .collect::<HashSet<_>>()
+    });
 
     Ok(Some(ActionResult::movement_result(
         &destroyed_ships,
+        &destroyed_parts,
         &old_vision,
         &new_vision,
     )))
@@ -332,28 +343,38 @@ fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionEr
 
 #[derive(Debug, Clone)]
 pub struct ActionResult {
-    pub inflicted_damage_at: Vec<(i32, i32)>,
+    pub inflicted_damage_at: HashSet<Coordinate>,
     pub inflicted_damage_by_ship: HashMap<ShipID, u32>,
     pub ships_destroyed: HashSet<ShipID>,
-    pub gain_vision_at: Vec<Coordinate>,
-    pub lost_vision_at: Vec<Coordinate>,
+    pub gain_vision_at: HashSet<Coordinate>,
+    pub lost_vision_at: HashSet<Coordinate>,
 }
 
 impl ActionResult {
     fn movement_result(
         destroyed_ships: &Option<Vec<Ship>>,
+        destroyed_parts: &Option<HashSet<Coordinate>>,
         old_vision: &[Coordinate],
         new_vision: &[Coordinate],
     ) -> Self {
+        let mut lost_vision_at = difference(old_vision, new_vision);
+        if let Some(destroyed_parts) = destroyed_parts {
+            lost_vision_at = lost_vision_at
+                .union(destroyed_parts)
+                .cloned()
+                .collect::<HashSet<_>>();
+        }
+
         ActionResult {
-            inflicted_damage_at: destroyed_ships
-                .as_ref()
-                .map_or(Vec::with_capacity(0), |ships| {
+            inflicted_damage_at: destroyed_ships.as_ref().map_or(
+                HashSet::with_capacity(0),
+                |ships| {
                     ships
                         .iter()
-                        .flat_map(|ship| envelope_to_points(&ship.envelope()).collect::<Vec<_>>())
+                        .flat_map(|ship| envelope_to_points(ship.envelope()).collect::<Vec<_>>())
                         .collect()
-                }),
+                },
+            ),
             inflicted_damage_by_ship: destroyed_ships.as_ref().map_or(
                 HashMap::with_capacity(0),
                 |ships| {
@@ -369,42 +390,46 @@ impl ActionResult {
                     HashSet::from_iter(ships.iter().map(|s| s.id()))
                 }),
             gain_vision_at: difference(new_vision, old_vision),
-            lost_vision_at: difference(old_vision, new_vision),
+            lost_vision_at,
         }
     }
 
-    fn hit(ship_id: ShipID, target: &[i32; 2], damage: u32) -> Self {
+    fn hit(ship_id: ShipID, target: Coordinate, damage: u32) -> Self {
         ActionResult {
-            inflicted_damage_at: vec![(target[0], target[1])],
+            inflicted_damage_at: HashSet::from([target]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::with_capacity(0),
-            gain_vision_at: Vec::with_capacity(0),
-            lost_vision_at: Vec::with_capacity(0),
+            gain_vision_at: HashSet::with_capacity(0),
+            lost_vision_at: HashSet::with_capacity(0),
         }
     }
 
     fn destroyed(
         ship_id: ShipID,
-        target: &[i32; 2],
+        target: Coordinate,
         damage: u32,
-        vision_lost: Vec<Coordinate>,
+        vision_lost: HashSet<Coordinate>,
     ) -> Self {
         ActionResult {
-            inflicted_damage_at: vec![(target[0], target[1])],
+            inflicted_damage_at: HashSet::from([target]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::from([ship_id]),
-            gain_vision_at: Vec::with_capacity(0),
+            gain_vision_at: HashSet::with_capacity(0),
             lost_vision_at: vision_lost,
         }
     }
 }
 
-fn envelope_to_points(envelope: &AABB<[i32; 2]>) -> impl Iterator<Item = (i32, i32)> + '_ {
-    (envelope.lower()[0]..=envelope.lower()[1])
-        .flat_map(|x| (envelope.upper()[0]..=envelope.upper()[1]).map(move |y| (x, y)))
+fn envelope_to_points(envelope: AABB<[i32; 2]>) -> impl Iterator<Item = Coordinate> + 'static {
+    (envelope.lower()[0]..=envelope.lower()[1]).flat_map(move |x| {
+        (envelope.upper()[0]..=envelope.upper()[1]).map(move |y| Coordinate {
+            x: x as u32,
+            y: y as u32,
+        })
+    })
 }
 
-fn difference<T: PartialEq + Clone>(left: &[T], right: &[T]) -> Vec<T> {
+fn difference<T: Eq + Hash + Clone>(left: &[T], right: &[T]) -> HashSet<T> {
     left.iter()
         .filter(|c| !right.contains(c))
         .cloned()

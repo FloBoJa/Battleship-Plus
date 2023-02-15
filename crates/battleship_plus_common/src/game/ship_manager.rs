@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
@@ -135,10 +135,11 @@ impl ShipManager {
         &mut self,
         action_points: &mut u32,
         ship_id: &ShipID,
-        target: &[i32; 2],
+        target: &Coordinate,
         bounds: &AABB<[i32; 2]>,
     ) -> Result<ShotResult, ActionValidationError> {
-        if !bounds.contains_point(target) {
+        let target = [target.x as i32, target.y as i32];
+        if !bounds.contains_point(&target) {
             // shot out of map
             return Err(ActionValidationError::OutOfMap);
         }
@@ -167,7 +168,7 @@ impl ShipManager {
         }
 
         // check range
-        if ship.distance_2(target) > balancing.shoot_range as i32 {
+        if ship.distance_2(&target) > balancing.shoot_range as i32 {
             return Err(ActionValidationError::Unreachable);
         }
 
@@ -181,7 +182,7 @@ impl ShipManager {
 
         Ok(self
             .ships_geo_lookup
-            .locate_at_point(target)
+            .locate_at_point(&target)
             .cloned()
             .map_or(ShotResult::Miss, |ship_node| {
                 if self
@@ -349,7 +350,7 @@ impl ShipManager {
 pub enum ShotResult {
     Miss,
     Hit(ShipID, u32),
-    Destroyed(ShipID, u32, Vec<Coordinate>),
+    Destroyed(ShipID, u32, HashSet<Coordinate>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
