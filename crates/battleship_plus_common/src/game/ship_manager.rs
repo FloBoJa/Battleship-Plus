@@ -191,11 +191,25 @@ impl ShipManager {
                     .apply_damage(balancing.shoot_damage)
                 {
                     // ship got destroyed
-                    self.ships_geo_lookup.remove(&ShipTreeNode::from(
-                        &self.ships.remove(&ship_node.ship_id).unwrap(),
-                    ));
+                    let destroyed_node = self
+                        .ships_geo_lookup
+                        .remove(&ShipTreeNode::from(
+                            &self.ships.remove(&ship_node.ship_id).unwrap(),
+                        ))
+                        .unwrap();
 
-                    ShotResult::Destroyed(ship_node.ship_id, balancing.shoot_damage)
+                    let l = destroyed_node.envelope.lower();
+                    let u = destroyed_node.envelope.upper();
+                    let parts = (l[0]..=u[0])
+                        .flat_map(move |x| {
+                            (l[1]..=u[1]).map(move |y| Coordinate {
+                                x: x as u32,
+                                y: y as u32,
+                            })
+                        })
+                        .collect();
+
+                    ShotResult::Destroyed(ship_node.ship_id, balancing.shoot_damage, parts)
                 } else {
                     ShotResult::Hit(ship_node.ship_id, balancing.shoot_damage)
                 }
@@ -335,7 +349,7 @@ impl ShipManager {
 pub enum ShotResult {
     Miss,
     Hit(ShipID, u32),
-    Destroyed(ShipID, u32),
+    Destroyed(ShipID, u32, Vec<Coordinate>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
