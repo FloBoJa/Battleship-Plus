@@ -176,7 +176,8 @@ impl Game {
         let assignments: HashMap<u32, ShipAssignment, RandomState> = HashMap::from_iter(
             assignments
                 .iter()
-                .map(|assignment| (assignment.ship_number, assignment.clone())),
+                .enumerate()
+                .map(|(i, assignment)| (i as u32, assignment.clone())),
         );
 
         if assignments.len() != ship_set.len() {
