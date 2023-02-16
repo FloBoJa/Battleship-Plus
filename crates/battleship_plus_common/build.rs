@@ -12,10 +12,12 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={}", proto_file_types.as_str());
 
     // build protobuf structs from rfc
-    prost_build::compile_protos(
-        &[proto_file_messages.as_str()],
-        &[specification_directory.as_str()],
-    )?;
+    prost_build::Config::new()
+        .type_attribute(".battleshipplus.types.Coordinate", "#[derive(Eq, Hash)]")
+        .compile_protos(
+            &[proto_file_messages.as_str()],
+            &[specification_directory.as_str()],
+        )?;
 
     let messages_rust_source_path = std::env::var("OUT_DIR")
         .expect("OUT_DIR is provided for build scripts")

@@ -1,5 +1,6 @@
 use crate::game_state::GameState;
 use crate::networking;
+use crate::placement_phase;
 use battleship_plus_common::messages::*;
 use battleship_plus_common::types::*;
 use battleship_plus_common::*;
@@ -15,6 +16,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameInfo>()
+            .add_enter_system(GameState::Game, repeat_cached_events)
             .add_system(process_game_events.run_in_state(GameState::Game))
             .add_system(process_game_responses.run_in_state(GameState::Game))
             .add_startup_system(main.run_in_state(GameState::Game));
@@ -255,4 +257,17 @@ fn send_ship_action_request(
     } else {
         true
     };
+}
+
+fn repeat_cached_events(
+    mut commands: Commands,
+    cached_events: Option<Res<placement_phase::CachedEvents>>,
+    mut event_writer: EventWriter<messages::EventMessage>,
+) {
+    let cached_events = match cached_events {
+        Some(events) => events.clone(),
+        None => return,
+    };
+    event_writer.send_batch(cached_events.into_iter());
+    commands.remove_resource::<placement_phase::CachedEvents>();
 }

@@ -10,7 +10,7 @@ use rand::thread_rng;
 use tokio::macros::support::thread_rng_n;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
-use battleship_plus_common::game::ship::{Cooldown, Orientation, Ship};
+use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship};
 use battleship_plus_common::game::{ActionValidationError, PlayerID};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
@@ -509,8 +509,12 @@ async fn handle_message(
 
             let ship_sets = get_ships_by_team(&g);
             let visible_hostile_ships = (
-                g.ships.get_ship_parts_seen_by(&ship_sets.0),
-                g.ships.get_ship_parts_seen_by(&ship_sets.1),
+                g.ships.get_ship_parts_seen_by(
+                    &ship_sets.0.iter().map(|ship| ship.id()).collect::<Vec<_>>(),
+                ),
+                g.ships.get_ship_parts_seen_by(
+                    &ship_sets.1.iter().map(|ship| ship.id()).collect::<Vec<_>>(),
+                ),
             );
             let ship_sets: (Vec<_>, Vec<_>) = (
                 ship_sets
@@ -621,7 +625,7 @@ fn broadcast_lobby_change_event(
 
 fn broadcast_game_preparation_start(
     players: Vec<&mut Player>,
-    mut quadrants: Vec<(u32, u32)>,
+    mut quadrants: Vec<(u32, u32, u32)>,
     broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     if players.len() > quadrants.len() {
@@ -644,6 +648,7 @@ fn broadcast_game_preparation_start(
                         x: p.quadrant.unwrap().0,
                         y: p.quadrant.unwrap().1,
                     }),
+                    quadrant_size: p.quadrant.unwrap().2,
                 }
                 .into(),
             ))
@@ -659,8 +664,18 @@ fn broadcast_game_start(
 ) -> Result<(), MessageHandlerError> {
     let (team_ships_a, team_ships_b) = get_ships_by_team(game);
 
-    let visible_hostile_ships_a = game.ships.get_ship_parts_seen_by(&team_ships_a);
-    let visible_hostile_ships_b = game.ships.get_ship_parts_seen_by(&team_ships_b);
+    let visible_hostile_ships_a = game.ships.get_ship_parts_seen_by(
+        &team_ships_a
+            .iter()
+            .map(|ship| ship.id())
+            .collect::<Vec<_>>(),
+    );
+    let visible_hostile_ships_b = game.ships.get_ship_parts_seen_by(
+        &team_ships_b
+            .iter()
+            .map(|ship| ship.id())
+            .collect::<Vec<_>>(),
+    );
 
     let team_ships_a: Vec<_> = team_ships_a
         .iter()
