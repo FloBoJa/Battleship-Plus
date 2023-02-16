@@ -33,14 +33,20 @@ mod actions_team_switch {
         }
 
         // switch team a -> b
-        assert!(Action::TeamSwitch { player_id }.apply_on(&mut g).is_ok());
+        assert!(matches!(
+            Action::TeamSwitch { player_id }.apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(!g.team_a.contains(&player_id));
             assert!(g.team_b.contains(&player_id));
         }
 
         // switch team b -> a
-        assert!(Action::TeamSwitch { player_id }.apply_on(&mut g).is_ok());
+        assert!(matches!(
+            Action::TeamSwitch { player_id }.apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(g.team_a.contains(&player_id));
             assert!(!g.team_b.contains(&player_id));
@@ -123,23 +129,27 @@ mod actions_player_set_ready_state {
         let mut g = g.write().await;
 
         // set player ready
-        assert!(Action::SetReady {
-            player_id,
-            request: SetReadyStateRequest { ready_state: true },
-        }
-        .apply_on(&mut g)
-        .is_ok());
+        assert!(matches!(
+            Action::SetReady {
+                player_id,
+                request: SetReadyStateRequest { ready_state: true },
+            }
+            .apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(g.players.get(&player_id).unwrap().is_ready);
         }
 
         // set player not ready
-        assert!(Action::SetReady {
-            player_id,
-            request: SetReadyStateRequest { ready_state: false },
-        }
-        .apply_on(&mut g)
-        .is_ok());
+        assert!(matches!(
+            Action::SetReady {
+                player_id,
+                request: SetReadyStateRequest { ready_state: false },
+            }
+            .apply_on(&mut g),
+            Ok(None)
+        ));
         {
             assert!(!g.players.get(&player_id).unwrap().is_ready);
         }
@@ -180,6 +190,7 @@ mod actions_shoot {
     use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
+    use crate::game::actions::ActionResult;
     use crate::game::actions::{Action, ActionExecutionError};
     use crate::game::data::{Game, Player, Turn};
 
@@ -249,7 +260,7 @@ mod actions_shoot {
         let mut g = g.write().await;
 
         // shoot ship_target1
-        assert!(Action::Shoot {
+        let result = Action::Shoot {
             ship_id: (player.id, 0),
             properties: ShootProperties {
                 target: Some(Coordinate {
@@ -258,8 +269,25 @@ mod actions_shoot {
                 }),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 5 }));
+            assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 6 }));
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.contains(&ship_target1.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&ship_target1.id()));
+            assert!(inflicted_damage_at.contains(&Coordinate {
+                x: ship_target1.data().pos_x as u32,
+                y: ship_target1.data().pos_y as u32,
+            }));
+        }
 
         // check ship_target1 destroyed and ship_target2 untouched
         {
@@ -272,7 +300,7 @@ mod actions_shoot {
         }
 
         // shoot ship_target2
-        assert!(Action::Shoot {
+        let result = Action::Shoot {
             ship_id: (player.id, 0),
             properties: ShootProperties {
                 target: Some(Coordinate {
@@ -281,8 +309,24 @@ mod actions_shoot {
                 }),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.contains_key(&ship_target2.id()));
+            assert!(inflicted_damage_at.contains(&Coordinate {
+                x: ship_target2.data().pos_x as u32,
+                y: ship_target2.data().pos_y as u32,
+            }));
+        }
 
         // check ship_target1 destroyed and ship_target2 health reduced
         {
@@ -295,14 +339,16 @@ mod actions_shoot {
         }
 
         // missed shot
-        assert!(Action::Shoot {
-            ship_id: (player.id, 0),
-            properties: ShootProperties {
-                target: Some(Coordinate { x: 20, y: 20 }),
-            },
-        }
-        .apply_on(&mut g)
-        .is_ok());
+        assert!(matches!(
+            Action::Shoot {
+                ship_id: (player.id, 0),
+                properties: ShootProperties {
+                    target: Some(Coordinate { x: 20, y: 20 }),
+                },
+            }
+            .apply_on(&mut g),
+            Ok(None)
+        ));
 
         // board untouched
         {
@@ -616,7 +662,7 @@ mod actions_move {
     use battleship_plus_common::types::*;
 
     use crate::config_provider::default_config_provider;
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionResult};
     use crate::game::data::{Game, Player, Turn};
 
     #[tokio::test]
@@ -629,6 +675,7 @@ mod actions_move {
                         cooldown: 0,
                         action_points: 0,
                     }),
+                    vision_range: 2,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -636,7 +683,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -652,14 +699,27 @@ mod actions_move {
         let mut g = g.write().await;
 
         // move ship forward
-        assert!(Action::Move {
+        let result = Action::Move {
             ship_id: (player.id, 0),
             properties: MoveProperties {
                 direction: i32::from(MoveDirection::Forward),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
+        }
 
         // check ship's new position
         {
@@ -667,18 +727,144 @@ mod actions_move {
         }
 
         // move ship backward
-        assert!(Action::Move {
+        let result = Action::Move {
             ship_id: (player.id, 0),
             properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.is_empty());
+        }
 
         // check ship's new position
         {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0))
+        }
+    }
+
+    #[tokio::test]
+    async fn actions_move_vision() {
+        let player = Player::default();
+        let ship = Ship::Destroyer {
+            balancing: Arc::from(DestroyerBalancing {
+                common_balancing: Some(CommonBalancing {
+                    movement_costs: Some(Costs {
+                        cooldown: 0,
+                        action_points: 0,
+                    }),
+                    vision_range: 2,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            data: ShipData {
+                id: (player.id, 0),
+                pos_x: 10,
+                pos_y: 10,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+        };
+        let ship1 = Ship::Destroyer {
+            data: ShipData {
+                id: (player.id, 1),
+                pos_x: 10,
+                pos_y: 7,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+            balancing: Default::default(),
+        };
+        let ship2 = Ship::Destroyer {
+            data: ShipData {
+                id: (player.id, 2),
+                pos_x: 10,
+                pos_y: 14,
+                orientation: Orientation::North,
+                ..Default::default()
+            },
+            cool_downs: Default::default(),
+            balancing: Default::default(),
+        };
+
+        let g = Arc::new(RwLock::new(Game {
+            players: HashMap::from([(player.id, player.clone())]),
+            team_a: HashSet::from([player.id]),
+            ships: ShipManager::new_with_ships(vec![ship.clone(), ship1.clone(), ship2.clone()]),
+            turn: Some(Turn::new(player.id, 0)),
+            ..Default::default()
+        }));
+        let mut g = g.write().await;
+
+        // move ship forward
+        let result = Action::Move {
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.contains(&Coordinate { x: 10, y: 8 }));
+            assert!(gain_vision_at.contains(&Coordinate { x: 10, y: 14 }));
+        }
+
+        // check ship's new position
+        {
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (10, 11))
+        }
+
+        // move ship forward
+        let result = Action::Move {
+            ship_id: (player.id, 0),
+            properties: MoveProperties {
+                direction: i32::from(MoveDirection::Forward),
+            },
+        }
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            ships_destroyed,
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            gain_vision_at,
+            lost_vision_at,
+        })) = result
+        {
+            assert!(ships_destroyed.is_empty());
+            assert!(inflicted_damage_by_ship.is_empty());
+            assert!(inflicted_damage_at.is_empty());
+            assert!(lost_vision_at.is_empty());
+            assert!(gain_vision_at.contains(&Coordinate { x: 10, y: 15 }));
+        }
+
+        // check ship's new position
+        {
+            assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (10, 12))
         }
     }
 
@@ -701,7 +887,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -766,7 +952,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -886,9 +1072,10 @@ mod actions_move {
                 ..Default::default()
             }),
             data: ShipData {
+                id: (player.id, 0),
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -905,10 +1092,10 @@ mod actions_move {
                 ..Default::default()
             }),
             data: ShipData {
-                id: (0, 1),
+                id: (player.id, 1),
                 pos_x: (config.board_size - 1) as i32,
                 pos_y: (config.board_size - 1) as i32,
-                orientation: Orientation::North,
+                orientation: Orientation::South,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -998,14 +1185,30 @@ mod actions_move {
         let mut g = g.write().await;
 
         // move ship1 backwards into ship2
-        assert!(Action::Move {
+        let result = Action::Move {
             ship_id: (player.id, 0),
             properties: MoveProperties {
                 direction: i32::from(MoveDirection::Backward),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.contains(&Coordinate { x: 0, y: 10 }));
+            assert!(lost_vision_at.contains(&Coordinate { x: 0, y: 11 }));
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.contains(&ship1.id()));
+            assert!(ships_destroyed.contains(&ship2.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&ship1.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&ship2.id()));
+            assert!(inflicted_damage_at.contains(&Coordinate { x: 0, y: 11 }));
+        }
 
         // check both ships destroyed
         {
@@ -1031,7 +1234,7 @@ mod actions_move {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1075,7 +1278,7 @@ mod actions_rotate {
     use battleship_plus_common::game::ActionValidationError;
     use battleship_plus_common::types::*;
 
-    use crate::game::actions::{Action, ActionExecutionError};
+    use crate::game::actions::{Action, ActionExecutionError, ActionResult};
     use crate::game::data::{Game, Player, Turn};
 
     #[tokio::test]
@@ -1108,9 +1311,9 @@ mod actions_rotate {
             turn: Some(Turn::new(player.id, 0)),
             ..Default::default()
         }));
-        let g = g.write().await;
+        let mut game = g.write().await;
 
-        let rotate = |mut g, d| {
+        let mut rotate: Box<dyn FnMut(&mut Game, RotateDirection)> = Box::new(|game, d| {
             // rotate ship counter clockwise
             assert!(Action::Rotate {
                 ship_id: (player.id, 0),
@@ -1118,51 +1321,49 @@ mod actions_rotate {
                     direction: i32::from(d),
                 },
             }
-            .apply_on(&mut g)
+            .apply_on(game)
             .is_ok());
+        });
 
-            g
-        };
-
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::East
         );
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::North
         );
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::West
         );
-        let g = (rotate)(g, RotateDirection::CounterClockwise);
+        (rotate)(&mut game, RotateDirection::CounterClockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::South
         );
 
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::West
         );
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::North
         );
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::East
         );
-        let g = (rotate)(g, RotateDirection::Clockwise);
+        (rotate)(&mut game, RotateDirection::Clockwise);
         assert_eq!(
-            g.ships.get_by_id(&ship.id()).unwrap().orientation(),
+            game.ships.get_by_id(&ship.id()).unwrap().orientation(),
             Orientation::South
         );
     }
@@ -1186,7 +1387,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1216,7 +1417,7 @@ mod actions_rotate {
             assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
         }
@@ -1236,7 +1437,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert_eq!(g.turn.as_ref().unwrap().action_points_left, 2);
         }
@@ -1259,7 +1460,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1289,7 +1490,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert!(!g
                 .ships
@@ -1323,7 +1524,7 @@ mod actions_rotate {
             assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (0, 0));
             assert_eq!(
                 g.ships.get_by_id(&ship.id()).unwrap().orientation(),
-                Orientation::East
+                Orientation::North
             );
             assert!(!g
                 .ships
@@ -1387,7 +1588,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::East,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1423,6 +1624,7 @@ mod actions_rotate {
                         cooldown: 0,
                         action_points: 0,
                     }),
+                    vision_range: 2,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -1430,7 +1632,7 @@ mod actions_rotate {
             data: ShipData {
                 pos_x: 0,
                 pos_y: 0,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1470,7 +1672,7 @@ mod actions_rotate {
                 id: (0, 2),
                 pos_x: 1,
                 pos_y: 1,
-                orientation: Orientation::South,
+                orientation: Orientation::North,
                 ..Default::default()
             },
             cool_downs: Default::default(),
@@ -1490,14 +1692,30 @@ mod actions_rotate {
         let mut g = g.write().await;
 
         // rotate ship
-        assert!(Action::Rotate {
+        let result = Action::Rotate {
             ship_id: (player.id, 0),
             properties: RotateProperties {
-                direction: i32::from(RotateDirection::CounterClockwise),
+                direction: i32::from(RotateDirection::Clockwise),
             },
         }
-        .apply_on(&mut g)
-        .is_ok());
+        .apply_on(&mut g);
+        if let Ok(Some(ActionResult {
+            inflicted_damage_by_ship,
+            inflicted_damage_at,
+            ships_destroyed,
+            lost_vision_at,
+            gain_vision_at,
+        })) = result
+        {
+            assert!(lost_vision_at.contains(&Coordinate { x: 2, y: 0 }));
+            assert!(gain_vision_at.is_empty());
+            assert!(ships_destroyed.contains(&rotating_ship.id()));
+            assert!(ships_destroyed.contains(&ship_to_be_destroyed.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&rotating_ship.id()));
+            assert!(inflicted_damage_by_ship.contains_key(&ship_to_be_destroyed.id()));
+            assert!(inflicted_damage_at.contains(&Coordinate { x: 2, y: 0 }));
+            assert!(inflicted_damage_at.contains(&Coordinate { x: 3, y: 0 }));
+        }
 
         // check results
         {
@@ -1561,8 +1779,6 @@ mod actions_place_ships {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use rand::prelude::SliceRandom;
-    use rand::thread_rng;
     use tokio::sync::RwLock;
 
     use battleship_plus_common::game::ship::{GetShipID, Orientation, Ship};
@@ -1619,11 +1835,9 @@ mod actions_place_ships {
             })
             .collect();
 
-        let mut ship_assignments: Vec<_> = ships_to_be_placed
+        let ship_assignments: Vec<_> = ships_to_be_placed
             .iter()
-            .enumerate()
-            .map(|(i, ship)| ShipAssignment {
-                ship_number: i as u32,
+            .map(|ship| ShipAssignment {
                 coordinate: Some(Coordinate {
                     x: ship.position().0 as u32,
                     y: ship.position().1 as u32,
@@ -1631,7 +1845,6 @@ mod actions_place_ships {
                 direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
             })
             .collect();
-        ship_assignments.shuffle(&mut thread_rng());
 
         // place ships
         assert!(Action::PlaceShips {
@@ -1698,11 +1911,9 @@ mod actions_place_ships {
             })
             .collect();
 
-        let mut ship_assignments: Vec<_> = ships_to_be_placed
+        let ship_assignments: Vec<_> = ships_to_be_placed
             .iter()
-            .enumerate()
-            .map(|(i, ship)| ShipAssignment {
-                ship_number: i as u32,
+            .map(|ship| ShipAssignment {
                 coordinate: Some(Coordinate {
                     x: ship.position().0 as u32,
                     y: ship.position().1 as u32,
@@ -1710,7 +1921,6 @@ mod actions_place_ships {
                 direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
             })
             .collect();
-        ship_assignments.shuffle(&mut thread_rng());
 
         // place ships
         assert!(Action::PlaceShips {
@@ -1776,11 +1986,9 @@ mod actions_place_ships {
             })
             .collect();
 
-        let mut ship_assignments: Vec<_> = ships_to_be_placed
+        let ship_assignments: Vec<_> = ships_to_be_placed
             .iter()
-            .enumerate()
-            .map(|(i, ship)| ShipAssignment {
-                ship_number: i as u32,
+            .map(|ship| ShipAssignment {
                 coordinate: Some(Coordinate {
                     x: ship.position().0 as u32,
                     y: ship.position().1 as u32,
@@ -1788,7 +1996,6 @@ mod actions_place_ships {
                 direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
             })
             .collect();
-        ship_assignments.shuffle(&mut thread_rng());
 
         // place ships
         assert!(Action::PlaceShips {
@@ -1862,11 +2069,9 @@ mod actions_place_ships {
             ])
             .collect();
 
-        let mut ship_assignments: Vec<_> = ships_to_be_placed
+        let ship_assignments: Vec<_> = ships_to_be_placed
             .iter()
-            .enumerate()
-            .map(|(i, ship)| ShipAssignment {
-                ship_number: i as u32,
+            .map(|ship| ShipAssignment {
                 coordinate: Some(Coordinate {
                     x: ship.position().0 as u32,
                     y: ship.position().1 as u32,
@@ -1874,7 +2079,6 @@ mod actions_place_ships {
                 direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
             })
             .collect();
-        ship_assignments.shuffle(&mut thread_rng());
 
         // place ships
         assert!(Action::PlaceShips {
@@ -1938,11 +2142,9 @@ mod actions_place_ships {
             })
             .collect();
 
-        let mut ship_assignments: Vec<_> = ships_to_be_placed
+        let ship_assignments: Vec<_> = ships_to_be_placed
             .iter()
-            .enumerate()
-            .map(|(i, ship)| ShipAssignment {
-                ship_number: i as u32,
+            .map(|ship| ShipAssignment {
                 coordinate: Some(Coordinate {
                     x: ship.position().0 as u32,
                     y: ship.position().1 as u32,
@@ -1950,85 +2152,6 @@ mod actions_place_ships {
                 direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
             })
             .collect();
-        ship_assignments.shuffle(&mut thread_rng());
-
-        // place ships
-        assert!(Action::PlaceShips {
-            player_id: player.id,
-            ship_placements: ship_assignments,
-        }
-        .apply_on(&mut g)
-        .is_err());
-
-        // check game
-        ships_to_be_placed.iter().for_each(|ship_expected| {
-            let ship_actual = g.ships.get_by_id(&ship_expected.id());
-            assert!(ship_actual.is_none());
-        })
-    }
-
-    #[tokio::test]
-    async fn actions_place_ships_one_ship_number_multiple_times() {
-        let player = Player::default();
-
-        let g = Arc::new(RwLock::new(Game {
-            players: HashMap::from([(player.id, player.clone())]),
-            team_a: HashSet::from([player.id]),
-            ..Default::default()
-        }));
-        let mut g = g.write().await;
-        g.state = GameState::Preparation;
-        g.players.get_mut(&player.id).unwrap().quadrant = g.quadrants().first().cloned();
-        let player = g.players.get(&player.id).unwrap().clone();
-
-        let ship_positions_orientation = vec![
-            (0, 0, Orientation::East),  // Carrier
-            (0, 1, Orientation::East),  // Battleship
-            (0, 2, Orientation::East),  // Battleship
-            (0, 3, Orientation::East),  // Cruiser
-            (0, 4, Orientation::East),  // Cruiser
-            (0, 5, Orientation::East),  // Cruiser
-            (0, 6, Orientation::East),  // Submarine
-            (0, 7, Orientation::East),  // Submarine
-            (0, 8, Orientation::East),  // Submarine
-            (0, 9, Orientation::East),  // Submarine
-            (0, 10, Orientation::East), // Destroyer
-            (0, 11, Orientation::East), // Destroyer
-        ];
-
-        let ships_to_be_placed: Vec<_> = g
-            .config
-            .ship_set_team_a
-            .iter()
-            .enumerate()
-            .map(|(ship_number, &ship_id)| (ship_number, ShipType::from_i32(ship_id).unwrap()))
-            .zip(ship_positions_orientation)
-            .map(|((ship_number, ship_type), (x, y, orientation))| {
-                Ship::new_from_type(
-                    ship_type,
-                    (player.id, ship_number as u32),
-                    (x, y),
-                    orientation,
-                    g.config.clone(),
-                )
-            })
-            .collect();
-
-        let mut ship_assignments: Vec<_> = ships_to_be_placed
-            .iter()
-            .enumerate()
-            .map(|(i, ship)| ShipAssignment {
-                ship_number: i as u32,
-                coordinate: Some(Coordinate {
-                    x: ship.position().0 as u32,
-                    y: ship.position().1 as u32,
-                }),
-                direction: <Orientation as Into<Direction>>::into(ship.orientation()) as i32,
-            })
-            .collect();
-        ship_assignments.shuffle(&mut thread_rng());
-        let ship_number = ship_assignments.first().unwrap().ship_number;
-        ship_assignments.last_mut().unwrap().ship_number = ship_number;
 
         // place ships
         assert!(Action::PlaceShips {

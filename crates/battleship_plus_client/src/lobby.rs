@@ -31,16 +31,15 @@ impl Plugin for LobbyPlugin {
 }
 
 #[derive(Resource, Deref)]
+pub struct CachedEvents(Vec<messages::EventMessage>);
+
+#[derive(Resource, Deref)]
 pub struct UserName(pub String);
 
 #[derive(Resource, Deref, Default)]
 pub struct LobbyState(messages::LobbyChangeEvent);
 
 impl LobbyState {
-    fn total_player_count(&self) -> usize {
-        self.0.team_state_a.len() + self.0.team_state_b.len()
-    }
-
     fn is_in_team_a(&self, player_id: u32) -> bool {
         self.0
             .team_state_a
@@ -224,11 +223,8 @@ fn draw_lobby_screen(
     });
 }
 
-fn process_lobby_events(
-    mut commands: Commands,
-    mut events: EventReader<messages::EventMessage>,
-    lobby_state: Res<LobbyState>,
-) {
+fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages::EventMessage>) {
+    let mut transition_happened = false;
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
@@ -238,9 +234,11 @@ fn process_lobby_events(
                 if let Some(corner) = &message.corner {
                     commands.insert_resource(placement_phase::Quadrant::new(
                         corner.to_owned(),
-                        lobby_state.total_player_count(),
+                        message.quadrant_size,
                     ));
                     commands.insert_resource(NextState(GameState::PlacementPhase));
+                    transition_happened = true;
+                    break;
                 } else {
                     error!("Received PlacementPhase message without quadrant information, disconnecting");
                     commands.insert_resource(NextState(GameState::Unconnected));
@@ -250,6 +248,12 @@ fn process_lobby_events(
                 // ignore
             }
         }
+    }
+
+    if transition_happened {
+        trace!("Repeating events that happened during state transition");
+        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
+        commands.insert_resource(CachedEvents(events));
     }
 }
 

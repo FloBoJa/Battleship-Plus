@@ -8,6 +8,7 @@ use battleship_plus_common::game::ship::{Ship, ShipID};
 use battleship_plus_common::game::ship_manager::{ShipManager, ShipPlacementError};
 use battleship_plus_common::game::PlayerID;
 use battleship_plus_common::types::{Config, Direction, ShipAssignment, ShipType};
+use battleship_plus_common::util;
 
 use crate::config_provider::default_config_provider;
 use crate::game::states::GameState;
@@ -47,8 +48,9 @@ impl Game {
 
     pub fn check_game_config(&self) -> Result<(), String> {
         // check that the board is big enough to host all players
-        if self.quadrant_size() == 0 {
-            let min_board_length = self.quadrant_per_row();
+        let player_count = self.config.team_size_a + self.config.team_size_b;
+        if util::quadrant_size(self.config.board_size, player_count) == 0 {
+            let min_board_length = util::quadrants_per_row(player_count);
             // TODO Improve: Suggest actual minimal board size including placement of ships
             return Err(format!(
                 "board is too small. Requires at least {min_board_length}x{min_board_length}",
@@ -97,19 +99,10 @@ impl Game {
         AABB::from_corners([0; 2], [(self.config.board_size - 1) as i32; 2])
     }
 
-    pub fn quadrant_per_row(&self) -> u32 {
-        ((self.config.team_size_a + self.config.team_size_b) as f64)
-            .sqrt()
-            .ceil() as u32
-    }
-
-    pub fn quadrant_size(&self) -> u32 {
-        self.config.board_size / self.quadrant_per_row()
-    }
-
-    pub fn quadrants(&self) -> Vec<(u32, u32)> {
-        let quadrant_size = self.quadrant_size();
-        let quadrants_per_row = self.quadrant_per_row();
+    pub fn quadrants(&self) -> Vec<(u32, u32, u32)> {
+        let player_count = self.config.team_size_a + self.config.team_size_b;
+        let quadrant_size = util::quadrant_size(self.config.board_size, player_count);
+        let quadrants_per_row = util::quadrants_per_row(player_count);
         let initial_game_length = quadrants_per_row * quadrant_size;
         let tile_offset = (self.config.board_size - initial_game_length) / 2;
 
@@ -119,6 +112,7 @@ impl Game {
                     (
                         tile_offset + (x * quadrant_size),
                         tile_offset + (y * quadrant_size),
+                        quadrant_size,
                     )
                 })
             })
@@ -169,14 +163,8 @@ impl Game {
         };
 
         let player = self.players.get(&player_id).unwrap();
-        let quadrant = player.quadrant.unwrap();
-        let quadrant = AABB::from_corners(
-            [quadrant.0 as i32, quadrant.1 as i32],
-            [
-                (quadrant.0 + self.quadrant_size()) as i32,
-                (quadrant.1 + self.quadrant_size()) as i32,
-            ],
-        );
+        let (corner_x, corner_y, quadrant_size) = player.quadrant.unwrap();
+        let quadrant = util::quadrant_from_corner((corner_x, corner_y), quadrant_size);
 
         if (0..ship_set.len())
             .map(|ship_number| (player_id, ship_number as u32) as ShipID)
@@ -188,7 +176,8 @@ impl Game {
         let assignments: HashMap<u32, ShipAssignment, RandomState> = HashMap::from_iter(
             assignments
                 .iter()
-                .map(|assignment| (assignment.ship_number, assignment.clone())),
+                .enumerate()
+                .map(|(i, assignment)| (i as u32, assignment.clone())),
         );
 
         if assignments.len() != ship_set.len() {
@@ -241,7 +230,7 @@ pub struct Player {
     pub(crate) id: PlayerID,
     pub(crate) name: String,
     pub(crate) is_ready: bool,
-    pub(crate) quadrant: Option<(u32, u32)>,
+    pub(crate) quadrant: Option<(u32, u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
