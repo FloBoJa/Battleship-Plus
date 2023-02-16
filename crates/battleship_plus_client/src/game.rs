@@ -95,6 +95,7 @@ fn request_server_state(client: &mut ResMut<Client>) {
 }
 
 fn select_ship(game_info: &mut ResMut<GameInfo>, ship_number: u32) {
+    // TODO: check if ship is alive and selectable
     game_info.ship_selected_id = ship_number;
 }
 
@@ -151,6 +152,8 @@ fn request_ship_action_rotate(
         // Rotate?
     }
 }
+
+//TODO: request_ship_action_special with automatic action select based on ship
 
 fn request_ship_action_torpedo(
     client: &mut ResMut<Client>,
@@ -249,7 +252,7 @@ fn send_ship_action_request(
     let con = client.get_connection().expect("");
 
     return if let Err(error) = con.send_message(message.into()) {
-        error!("Could not send message <ship_action_request>: {error}");
+        error!("Could not send message <ShipActionRequest>: {error}");
         false
     } else {
         true
