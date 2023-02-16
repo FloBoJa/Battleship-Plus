@@ -12,17 +12,15 @@ use iyes_loopless::prelude::*;
 use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::{
-    game::{
-        ship::{GetShipID, Orientation, Ship, ShipID},
-        ship_manager::ShipManager,
-    },
+    game::ship::{GetShipID, Orientation, Ship, ShipID},
     messages::{self, EventMessage, GameStart, SetPlacementRequest, StatusCode, StatusMessage},
     types::{self, ShipAssignment, ShipType, Teams},
     util,
 };
 
 use crate::{
-    game_state::{GameState, PlayerId},
+    game,
+    game_state::{Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby::{self, LobbyState},
     networking::{self, CurrentServer, ServerInformation},
     RaycastSet,
@@ -89,15 +87,6 @@ struct SelectedShip {
     ship: ShipType,
     orientation: Orientation,
 }
-
-#[derive(Resource, Deref, DerefMut, Default)]
-struct Ships(ShipManager);
-
-#[derive(Resource, Deref)]
-struct PlayerTeam(Teams);
-
-#[derive(Resource, Deref)]
-struct Config(Arc<types::Config>);
 
 enum State {
     Placing,
@@ -772,7 +761,7 @@ fn process_game_start_event(
     for event in events.iter() {
         match event {
             EventMessage::GameStart(GameStart {
-                state: Some(_state),
+                state: Some(server_state),
             }) => {
                 match **placement_state {
                     State::WaitingForGameStart => {}
@@ -785,8 +774,8 @@ fn process_game_start_event(
                     }
                 }
 
-                // TODO: Game initialization.
-                warn!("Unimplemented: skipping game initialization");
+                info!("Starting game...");
+                commands.insert_resource(game::InitialGameState(server_state.clone()));
                 commands.insert_resource(NextState(GameState::Game));
                 transition_happened = true;
                 break;
