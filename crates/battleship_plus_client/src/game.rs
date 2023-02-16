@@ -1,49 +1,120 @@
-use crate::game_state::GameState;
-use crate::networking;
-use crate::placement_phase;
-use battleship_plus_common::messages::*;
-use battleship_plus_common::types::*;
-use battleship_plus_common::*;
 use bevy::prelude::*;
-use bevy_quinnet_client::Client;
 use iyes_loopless::prelude::*;
-use std::option::Option;
-use std::thread::sleep;
-use std::time::Duration;
+use std::collections::HashSet;
+
+use battleship_plus_common::{
+    game::{
+        ship::{Orientation, Ship},
+        ship_manager::ShipManager,
+    },
+    messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
+    types::{self, Teams},
+};
+
+use crate::{
+    game_state::{Config, GameState, PlayerTeam, Ships},
+    lobby, networking, placement_phase,
+};
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GameInfo>()
-            .add_enter_system(GameState::Game, repeat_cached_events)
-            .add_system(process_game_events.run_in_state(GameState::Game))
-            .add_system(process_game_responses.run_in_state(GameState::Game))
-            .add_startup_system(main.run_in_state(GameState::Game));
+        app.add_system_to_stage(
+            CoreStage::First,
+            create_resources
+                .run_in_state(GameState::PlacementPhase)
+                .run_if(|next_state: Option<Res<NextState<GameState>>>| {
+                    if let Some(next_state) = next_state {
+                        matches!(*next_state, NextState(GameState::Game))
+                    } else {
+                        false
+                    }
+                }),
+        )
+        .add_enter_system(GameState::Game, repeat_cached_events)
+        .add_system(process_game_events.run_in_state(GameState::Game))
+        .add_system(process_game_responses.run_in_state(GameState::Game));
     }
 }
 
-#[derive(Resource, Default)]
-pub struct GameInfo {
-    ship_selected_id: u32,
-    server_state: ServerState,
+#[derive(Resource, Deref)]
+pub struct InitialGameState(pub types::ServerState);
+
+#[derive(Resource, Deref)]
+struct SelectedShip(u32);
+
+enum State {
+    WaitingForTurn,
+    ChoosingAction,
+    ChoseAction(ActionProperties),
+    WaitingForResponse,
 }
 
-fn main(mut client: ResMut<Client>, mut game_info: ResMut<GameInfo>) {
-    //DEBUG
+#[derive(Resource, Deref)]
+struct TurnState(State);
 
-    request_server_state(&mut client);
-    sleep(Duration::from_secs(1));
-    select_ship(&mut game_info, 1);
-    request_ship_action_move(&mut client, &mut game_info, MoveProperties { direction: 0 })
+fn create_resources(
+    mut commands: Commands,
+    initial_game_state: Res<InitialGameState>,
+    lobby: Res<lobby::LobbyState>,
+    config: Res<Config>,
+    player_team: Res<PlayerTeam>,
+) {
+    commands.insert_resource(TurnState(State::WaitingForTurn));
+
+    let team_state = match **player_team {
+        Teams::TeamA => &lobby.team_state_a,
+        Teams::TeamB => &lobby.team_state_b,
+        Teams::None => unreachable!(),
+    };
+    let allied_players: HashSet<_> = team_state.iter().map(|player| player.player_id).collect();
+    let mut ships = Vec::with_capacity(initial_game_state.team_ships.len());
+
+    for allied_player in allied_players {
+        let allied_ship_count = match **player_team {
+            Teams::TeamA => config.ship_set_team_a.len(),
+            Teams::TeamB => config.ship_set_team_b.len(),
+            Teams::None => unreachable!(),
+        };
+
+        let ship_states: Vec<&types::ShipState> = initial_game_state
+            .team_ships
+            .iter()
+            .filter(|ship| ship.owner_id == allied_player)
+            .collect();
+
+        if ship_states.len() != allied_ship_count {
+            error!("Received wrong number of ships for player {allied_player}");
+            commands.insert_resource(NextState(GameState::Unconnected));
+        }
+
+        for ship_index in 0..allied_ship_count {
+            let ship_state = ship_states[ship_index];
+            let ship_id = (allied_player, ship_index as u32);
+            let position = ship_state
+                .position
+                .clone()
+                .expect("All ships have positions in the initial state");
+            let position = (position.x, position.y);
+            let orientation = Orientation::from(ship_state.direction());
+
+            ships.push(Ship::new_from_type(
+                ship_state.ship_type(),
+                ship_id,
+                position,
+                orientation,
+                config.clone(),
+            ));
+        }
+    }
+
+    commands.insert_resource(Ships(ShipManager::new_with_ships(ships)));
 }
 
 fn process_game_events(mut events: EventReader<messages::EventMessage>) {
     for event in events.iter() {
         match event {
-            EventMessage::GameStart(_) => {
-                println!("Game Stated!");
-            }
             EventMessage::NextTurn(_) => {}
             EventMessage::SplashEvent(_) => {}
             EventMessage::HitEvent(_) => {}
@@ -84,180 +155,12 @@ fn process_game_response_data(data: &Option<messages::status_message::Data>, mes
     }
 }
 
-fn request_server_state(client: &mut ResMut<Client>) {
-    let con = client.get_connection().expect("");
-
-    if let Err(error) = con.send_message(messages::ServerStateRequest {}.into()) {
-        error!("Could not send <ServerStateRequest>: {error}");
-    } else {
-        // oke
-    }
-}
-
-fn select_ship(game_info: &mut ResMut<GameInfo>, ship_number: u32) {
-    // TODO: check if ship is alive and selectable
-    game_info.ship_selected_id = ship_number;
-}
-
-fn request_ship_action_move(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: MoveProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: (*game_info).ship_selected_id,
-            action_properties: Some(ship_action_request::ActionProperties::MoveProperties(
-                properties,
-            )),
-        },
-    ) {
-        // Move?
-    }
-}
-
-fn request_ship_action_shoot(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: ShootProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(ship_action_request::ActionProperties::ShootProperties(
-                properties,
-            )),
-        },
-    ) {
-        // Shoot?
-    }
-}
-
-fn request_ship_action_rotate(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: RotateProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(ship_action_request::ActionProperties::RotateProperties(
-                properties,
-            )),
-        },
-    ) {
-        // Rotate?
-    }
-}
-
-//TODO: request_ship_action_special with automatic action select based on ship
-
-fn request_ship_action_torpedo(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: TorpedoProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(ship_action_request::ActionProperties::TorpedoProperties(
-                properties,
-            )),
-        },
-    ) {
-        // Torpedo?
-    }
-}
-
-fn request_ship_action_scout_plane(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: ScoutPlaneProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(ship_action_request::ActionProperties::ScoutPlaneProperties(
-                properties,
-            )),
-        },
-    ) {
-        // ScoutPlane?
-    }
-}
-
-fn request_ship_action_multi_missile(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: MultiMissileProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(
-                ship_action_request::ActionProperties::MultiMissileProperties(properties),
-            ),
-        },
-    ) {
-        // MultiMissile ?
-    }
-}
-
-fn request_ship_action_predator_missile(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: PredatorMissileProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(
-                ship_action_request::ActionProperties::PredatorMissileProperties(properties),
-            ),
-        },
-    ) {
-        // PredatorMissile ?
-    }
-}
-
-fn request_ship_action_engine_boost(
-    client: &mut ResMut<Client>,
-    game_info: &mut ResMut<GameInfo>,
-    properties: EngineBoostProperties,
-) {
-    if send_ship_action_request(
-        client,
-        messages::ShipActionRequest {
-            ship_number: game_info.ship_selected_id,
-            action_properties: Some(
-                ship_action_request::ActionProperties::EngineBoostProperties(properties),
-            ),
-        },
-    ) {
-        // EngineBoost ?
-    }
-}
-
-fn send_ship_action_request(
-    client: &mut ResMut<Client>,
-    message: messages::ShipActionRequest,
-) -> bool {
-    let con = client.get_connection().expect("");
-
-    return if let Err(error) = con.send_message(message.into()) {
-        error!("Could not send message <ShipActionRequest>: {error}");
-        false
-    } else {
-        true
-    };
-}
+/*
+ * TODO:
+ * Action systems should be done similarly to placement_phase::send_placement.
+ * The contents of the request are encoded in the
+ * TurnState(ChoseAction(X)) and SelectedShip resources.
+ */
 
 fn repeat_cached_events(
     mut commands: Commands,
