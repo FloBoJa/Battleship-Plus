@@ -1,37 +1,40 @@
+use battleship_plus_common::codec::BattleshipPlusCodec;
+use battleship_plus_common::messages::status_message::Data;
+use battleship_plus_common::messages::StatusMessage;
+use battleship_plus_common::messages::{
+    JoinRequest, JoinResponse, ProtocolMessage, ServerConfigRequest, ServerConfigResponse,
+    StatusCode,
+};
+use battleship_plus_common::types::Config;
+use bevy::app::{App, PluginGroup};
+use bevy::prelude::*;
+use bevy::window::*;
+use bevy::DefaultPlugins;
+use bevy_quinnet_client::QuinnetClientPlugin;
+use futures::StreamExt;
+use futures::{poll, SinkExt};
+use mini_redis::client::connect;
+use quinn::{crypto, ClientConfig, Connection, Endpoint, RecvStream, SendStream};
+use rustls::client::ClientConnectionData;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
-use bevy::app::{App, PluginGroup};
-use bevy::DefaultPlugins;
-use bevy::prelude::*;
-use bevy::window::*;
-use futures::{poll, SinkExt};
-use quinn::{ClientConfig, Connection, crypto, Endpoint, RecvStream, SendStream};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use battleship_plus_common::codec::BattleshipPlusCodec;
-use battleship_plus_common::messages::{JoinRequest, JoinResponse, ProtocolMessage, ServerConfigRequest, ServerConfigResponse, StatusCode};
-use futures::StreamExt;
-use mini_redis::client::connect;
-use rustls::client::ClientConnectionData;
-use battleship_plus_common::messages::StatusMessage;
-use battleship_plus_common::messages::status_message::Data;
-use battleship_plus_common::types::Config;
-use bevy_quinnet_client::QuinnetClientPlugin;
 
 mod client_config;
-mod networking;
 mod game;
 mod game_state;
+mod networking;
 
 struct Info {
     con: Con,
     player_id: u32,
-    server_config: Option<Config>
+    server_config: Option<Config>,
 }
 
 struct Con {
     reader: FramedRead<RecvStream, BattleshipPlusCodec>,
-    writer: FramedWrite<SendStream, BattleshipPlusCodec>
+    writer: FramedWrite<SendStream, BattleshipPlusCodec>,
 }
 
 //TEST
@@ -39,21 +42,20 @@ struct Con {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
-        window: WindowDescriptor {
-            title: "Battleship plus".to_string(),
-            width: 1280.,
-            height: 720.,
-            mode: WindowMode::Windowed,
-            resizable: false,
-            decorations: true,
-            present_mode: PresentMode::AutoNoVsync,
+            window: WindowDescriptor {
+                title: "Battleship plus".to_string(),
+                width: 1280.,
+                height: 720.,
+                mode: WindowMode::Windowed,
+                resizable: false,
+                decorations: true,
+                present_mode: PresentMode::AutoNoVsync,
+                ..default()
+            },
             ..default()
-        },
-        ..default()
-    }))
+        }))
         .add_plugin(networking::NetworkingPlugin)
-        .add_plugin(game::GamePlugin)
-    ;
+        .add_plugin(game::GamePlugin);
 }
 
 /*#[tokio::main]
@@ -114,15 +116,17 @@ async fn join(mut con: &mut Con, username: &str) -> u32 {
         &mut con.writer,
         ProtocolMessage::JoinRequest(JoinRequest {
             username: (*username).parse().unwrap(),
-        })).await;
+        }),
+    )
+    .await;
     let msg = receive_msg_inner(&mut con.reader).await;
 
     let player_id = match msg {
         ProtocolMessage::StatusMessage(StatusMessage {
-                                           code,
-                                           data: Some(Data::JoinResponse(JoinResponse { player_id })),
-                                           ..
-                                       }) => {
+            code,
+            data: Some(Data::JoinResponse(JoinResponse { player_id })),
+            ..
+        }) => {
             assert_eq!(StatusCode::from_i32(code), Some(StatusCode::Ok));
             player_id
         }
@@ -131,7 +135,7 @@ async fn join(mut con: &mut Con, username: &str) -> u32 {
     return player_id;
 }
 
-async fn get_con(connection: Connection) -> Con{
+async fn get_con(connection: Connection) -> Con {
     let (tx, rx) = match connection.open_bi().await {
         Ok(stream) => stream,
         Err(e) => panic!("unable to open bidirectional stream: {e}"),
@@ -140,7 +144,7 @@ async fn get_con(connection: Connection) -> Con{
     let mut reader = FramedRead::new(rx, BattleshipPlusCodec::default());
     let mut writer = FramedWrite::new(tx, BattleshipPlusCodec::default());
 
-    return Con {reader, writer};
+    return Con { reader, writer };
 }
 
 fn server_addr() -> SocketAddr {
@@ -164,7 +168,8 @@ async fn get_connect(
 ) -> Connection {
     let mut ep = Endpoint::client(bind_addr).expect("unable to create Endpoint");
     ep.set_default_client_config(ClientConfig::new(client_config));
-    let connection = ep.connect(addr, &addr.ip().to_string())
+    let connection = ep
+        .connect(addr, &addr.ip().to_string())
         .expect("unable to connect to server")
         .await
         .expect("unable to connect to server");
