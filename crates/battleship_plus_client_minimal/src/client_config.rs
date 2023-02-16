@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use quinn::{ClientConfig, crypto};
 use battleship_plus_common::{protocol_name, protocol_name_with_version};
+use quinn::{crypto, ClientConfig};
+use std::sync::Arc;
 
 // Implementation of `ServerCertVerifier` that verifies everything as trustworthy.
 struct SkipServerVerification;
@@ -35,9 +35,7 @@ pub(crate) fn configure_client() -> Arc<dyn crypto::ClientConfig> {
         .alpn_protocols
         .push(protocol_name_with_version().into_bytes());
 
-    crypto
-        .alpn_protocols
-        .push(protocol_name().into_bytes());
+    crypto.alpn_protocols.push(protocol_name().into_bytes());
 
     return Arc::new(crypto);
 }

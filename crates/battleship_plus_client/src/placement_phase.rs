@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 
-use battleship_plus_common::{messages, types};
-use battleship_plus_common::types::*;
-use iyes_loopless::prelude::IntoConditionalSystem;
-use battleship_plus_common::messages::*;
-use bevy_quinnet_client::Client;
 use crate::game_state::GameState;
 use crate::networking;
+use battleship_plus_common::messages::*;
+use battleship_plus_common::types::*;
+use battleship_plus_common::{messages, types};
+use bevy_quinnet_client::Client;
+use iyes_loopless::prelude::IntoConditionalSystem;
 
 #[derive(Resource)]
 pub struct Quadrant {
@@ -30,16 +30,11 @@ pub struct PlacementPlugin;
 
 impl Plugin for PlacementPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_startup_system(main.run_in_state(GameState::PlacementPhase))
-        ;
+        app.add_startup_system(main.run_in_state(GameState::PlacementPhase));
     }
 }
 
-fn main(
-    mut client: ResMut<Client>,
-    mut commands: Commands,
-) {
+fn main(mut client: ResMut<Client>, mut commands: Commands) {
     //send debug placement to enter game state
     let con = client.get_connection().expect("");
 
@@ -54,7 +49,9 @@ fn main(
     });
      */
 
-    let message = SetPlacementRequest { assignments: assignment };
+    let message = SetPlacementRequest {
+        assignments: assignment,
+    };
 
     if let Err(error) = con.send_message(message.into()) {
         error!("Could not send message <ShipActionRequest>: {error}");
