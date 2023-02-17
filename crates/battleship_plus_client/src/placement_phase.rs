@@ -12,7 +12,7 @@ use iyes_loopless::prelude::*;
 use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::{
-    game::ship::{GetShipID, Orientation, Ship, ShipID},
+    game::ship::{Orientation, Ship, ShipID},
     messages::{self, EventMessage, GameStart, SetPlacementRequest, StatusCode, StatusMessage},
     types::{self, ShipAssignment, ShipType, Teams},
     util,
@@ -105,11 +105,6 @@ impl Default for PlacementState {
     }
 }
 
-#[derive(Component)]
-struct ShipInfo {
-    _ship_id: ShipID,
-}
-
 #[derive(Resource, Deref)]
 struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
 
@@ -138,7 +133,6 @@ fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>) -> PbrBundle {
 #[derive(Bundle)]
 struct ShipBundle {
     model: PbrBundle,
-    ship_info: ShipInfo,
 }
 
 #[derive(Component)]
@@ -148,9 +142,6 @@ impl ShipBundle {
     fn new(ship: &Ship, meshes: &Res<ShipMeshes>) -> Self {
         Self {
             model: new_ship_model(ship, meshes),
-            ship_info: ShipInfo {
-                _ship_id: ship.id(),
-            },
         }
     }
 }
