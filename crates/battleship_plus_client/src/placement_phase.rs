@@ -1,8 +1,5 @@
 use std::f32::consts::FRAC_PI_2;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
@@ -22,9 +19,12 @@ use crate::{
     game,
     game_state::{Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby::{self, LobbyState},
+    models::{
+        load_assets, new_ship_model, GameAssets, OceanBundle, ShipBundle, ShipMeshes,
+        CLICK_PLANE_OFFSET_Z,
+    },
     networking::{self, CurrentServer, ServerInformation},
     RaycastSet,
-    models::{ShipMeshes, OCEAN_SIZE, CLICK_PLANE_OFFSET_Z, new_ship_model, ShipBundle},
 };
 
 pub struct PlacementPhasePlugin;
@@ -79,11 +79,6 @@ impl Quadrant {
 }
 
 #[derive(Resource)]
-struct GameAssets {
-    ocean_scene: Handle<Scene>,
-}
-
-#[derive(Resource)]
 struct SelectedShip {
     ship: ShipType,
     orientation: Orientation,
@@ -111,12 +106,6 @@ struct ShipPreview;
 
 #[derive(Component)]
 struct DespawnOnExit;
-
-fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(GameAssets {
-        ocean_scene: assets.load("models/ocean.glb#Scene0"),
-    });
-}
 
 fn create_resources(
     mut commands: Commands,
@@ -148,34 +137,7 @@ fn create_resources(
         .expect("Joined server always has a configuration");
     commands.insert_resource(Config(Arc::new(config)));
 
-    let ship_lengths: HashMap<ShipType, usize> = HashMap::from_iter(vec![
-        (ShipType::Destroyer, 2),
-        (ShipType::Submarine, 3),
-        (ShipType::Cruiser, 3),
-        (ShipType::Battleship, 4),
-        (ShipType::Carrier, 5),
-    ]);
-
-    let ship_meshes = ship_lengths
-        .iter()
-        .map(|(ship_type, length)| {
-            (
-                *ship_type,
-                meshes.add(
-                    shape::Box {
-                        min_x: -0.5,
-                        max_x: -0.5 + *length as f32,
-                        min_y: -0.5,
-                        max_y: 0.5,
-                        min_z: 0.0,
-                        max_z: 5.0,
-                    }
-                    .into(),
-                ),
-            )
-        })
-        .collect();
-    commands.insert_resource(ShipMeshes(ship_meshes));
+    commands.insert_resource(ShipMeshes::new(&mut meshes));
 }
 
 fn spawn_components(
@@ -186,21 +148,8 @@ fn spawn_components(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let scale = config.board_size as f32 / OCEAN_SIZE;
-    let transform = Transform::from_translation(Vec3::new(
-        scale * OCEAN_SIZE / 2.0,
-        scale * OCEAN_SIZE / 2.0,
-        0.0,
-    ))
-    .with_scale(Vec3::new(scale, scale, 1.0));
     commands
-        .spawn(SceneBundle {
-            scene: assets.ocean_scene.clone(),
-            transform,
-            ..default()
-        })
-        .insert(Name::new("Ocean"))
-        .insert(RaycastMesh::<RaycastSet>::default())
+        .spawn(OceanBundle::new(&assets, config.clone()))
         .insert(DespawnOnExit);
     commands
         .spawn(DirectionalLightBundle {
