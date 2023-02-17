@@ -1,4 +1,4 @@
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -24,6 +24,7 @@ use crate::{
     lobby::{self, LobbyState},
     networking::{self, CurrentServer, ServerInformation},
     RaycastSet,
+    models::{ShipMeshes, OCEAN_SIZE, CLICK_PLANE_OFFSET_Z, new_ship_model, ShipBundle},
 };
 
 pub struct PlacementPhasePlugin;
@@ -105,46 +106,8 @@ impl Default for PlacementState {
     }
 }
 
-#[derive(Resource, Deref)]
-struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
-
-const OCEAN_SIZE: f32 = 320.0;
-const OFFSET_Z: f32 = 4.9;
-
-fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>) -> PbrBundle {
-    let position = ship.position();
-    let translation = Vec3::new(position.0 as f32 + 0.5, position.1 as f32 + 0.5, 0.0);
-    let rotation = Quat::from_rotation_z(match ship.orientation() {
-        Orientation::North => FRAC_PI_2,
-        Orientation::East => 0.0,
-        Orientation::South => -FRAC_PI_2,
-        Orientation::West => PI,
-    });
-    PbrBundle {
-        mesh: meshes
-            .get(&ship.ship_type())
-            .expect("There are meshes for all configured ship types")
-            .clone(),
-        transform: Transform::from_translation(translation).with_rotation(rotation),
-        ..default()
-    }
-}
-
-#[derive(Bundle)]
-struct ShipBundle {
-    model: PbrBundle,
-}
-
 #[derive(Component)]
 struct ShipPreview;
-
-impl ShipBundle {
-    fn new(ship: &Ship, meshes: &Res<ShipMeshes>) -> Self {
-        Self {
-            model: new_ship_model(ship, meshes),
-        }
-    }
-}
 
 #[derive(Component)]
 struct DespawnOnExit;
@@ -271,7 +234,7 @@ fn spawn_components(
             transform: Transform::from_xyz(
                 quadrant.lower()[0] as f32 + click_plane_offset,
                 quadrant.lower()[1] as f32 + click_plane_offset,
-                OFFSET_Z,
+                CLICK_PLANE_OFFSET_Z,
             )
             .with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
             ..default()

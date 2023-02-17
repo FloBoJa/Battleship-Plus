@@ -9,6 +9,7 @@ use iyes_loopless::prelude::*;
 
 mod game;
 mod game_state;
+mod models;
 mod lobby;
 mod networking;
 mod placement_phase;
