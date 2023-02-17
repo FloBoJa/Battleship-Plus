@@ -1,6 +1,9 @@
-use bevy::prelude::*;
-use iyes_loopless::prelude::*;
 use std::collections::HashSet;
+use std::f32::consts::FRAC_PI_2;
+
+use bevy::prelude::*;
+use bevy_mod_raycast::RaycastMesh;
+use iyes_loopless::prelude::*;
 
 use battleship_plus_common::{
     game::{
@@ -13,7 +16,9 @@ use battleship_plus_common::{
 
 use crate::{
     game_state::{Config, GameState, PlayerTeam, Ships},
-    lobby, networking, placement_phase,
+    lobby,
+    models::{GameAssets, OceanBundle, ShipBundle, ShipMeshes, CLICK_PLANE_OFFSET_Z},
+    networking, placement_phase, RaycastSet,
 };
 
 pub struct GamePlugin;
@@ -33,6 +38,9 @@ impl Plugin for GamePlugin {
                 }),
         )
         .add_enter_system(GameState::Game, repeat_cached_events)
+        .add_enter_system(GameState::Game, spawn_components)
+        .add_exit_system(GameState::Game, despawn_components)
+        // raycast system has been added in PlacementPhasePlugin already
         .add_system(process_game_events.run_in_state(GameState::Game))
         .add_system(process_game_responses.run_in_state(GameState::Game));
     }
@@ -53,6 +61,9 @@ enum State {
 
 #[derive(Resource, Deref)]
 struct TurnState(State);
+
+#[derive(Component)]
+struct DespawnOnExit;
 
 fn create_resources(
     mut commands: Commands,
@@ -112,6 +123,52 @@ fn create_resources(
     commands.insert_resource(Ships(ShipManager::new_with_ships(ships)));
 }
 
+fn spawn_components(
+    mut commands: Commands,
+    ships: Res<Ships>,
+    ship_meshes: Res<ShipMeshes>,
+    assets: Res<GameAssets>,
+    config: Res<Config>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands
+        .spawn(OceanBundle::new(&assets, config.clone()))
+        .insert(DespawnOnExit);
+    for (_ship_id, ship) in ships.iter_ships() {
+        commands
+            .spawn(ShipBundle::new(ship, &ship_meshes))
+            .insert(DespawnOnExit);
+    }
+
+    // TODO: Extract to models.rs
+    let mesh = meshes.add(Mesh::from(shape::Plane {
+        size: config.board_size as f32,
+    }));
+    let material = materials.add(StandardMaterial {
+        alpha_mode: AlphaMode::Blend,
+        base_color: Color::NONE,
+        ..default()
+    });
+    let click_plane_offset = config.board_size as f32 / 2.0;
+
+    commands
+        .spawn(PbrBundle {
+            mesh,
+            material,
+            transform: Transform::from_xyz(
+                click_plane_offset,
+                click_plane_offset,
+                CLICK_PLANE_OFFSET_Z,
+            )
+            .with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
+            ..default()
+        })
+        .insert(RaycastMesh::<RaycastSet>::default())
+        .insert(Name::new("Grid"))
+        .insert(DespawnOnExit);
+}
+
 fn process_game_events(mut events: EventReader<messages::EventMessage>) {
     for event in events.iter() {
         match event {
@@ -161,6 +218,15 @@ fn process_game_response_data(data: &Option<messages::status_message::Data>, mes
  * The contents of the request are encoded in the
  * TurnState(ChoseAction(X)) and SelectedShip resources.
  */
+
+fn despawn_components(
+    mut commands: Commands,
+    entities_to_despawn: Query<Entity, With<DespawnOnExit>>,
+) {
+    for entity in entities_to_despawn.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
 
 fn repeat_cached_events(
     mut commands: Commands,
