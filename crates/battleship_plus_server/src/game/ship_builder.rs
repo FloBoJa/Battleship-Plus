@@ -9,7 +9,7 @@ use battleship_plus_common::types::{
 
 pub trait ShipBuilder<T: ShipBuilder<T>> {
     fn base_builder(&mut self) -> &mut dyn ShipBuilder<T>;
-    fn build(self) -> Ship;
+    fn build(&mut self) -> Ship;
 
     fn owner(&mut self, player_id: PlayerID) -> &mut T {
         self.base_builder().owner(player_id)
@@ -46,6 +46,10 @@ pub trait ShipBuilder<T: ShipBuilder<T>> {
             .cannon(damage, range, action_points, cooldown)
     }
 
+    fn ability(&mut self, action_points: u32, cooldown: u32) -> &mut T {
+        self.base_builder().ability(action_points, cooldown)
+    }
+
     fn movement(
         &mut self,
         movement_action_points: u32,
@@ -74,53 +78,53 @@ impl GeneralShipBuilder {
         Self::default()
     }
 
-    pub fn carrier(self) -> CarrierBuilder {
+    pub fn carrier(&mut self) -> CarrierBuilder {
         CarrierBuilder {
             balancing: CarrierBalancing {
                 common_balancing: Some(self.common_balancing.clone()),
                 ..Default::default()
             },
-            base: self,
+            base: self.clone(),
         }
     }
 
-    pub fn battleship(self) -> BattleshipBuilder {
+    pub fn battleship(&mut self) -> BattleshipBuilder {
         BattleshipBuilder {
             balancing: BattleshipBalancing {
                 common_balancing: Some(self.common_balancing.clone()),
                 ..Default::default()
             },
-            base: self,
+            base: self.clone(),
         }
     }
 
-    pub fn cruiser(self) -> CruiserBuilder {
+    pub fn cruiser(&mut self) -> CruiserBuilder {
         CruiserBuilder {
             balancing: CruiserBalancing {
                 common_balancing: Some(self.common_balancing.clone()),
                 ..Default::default()
             },
-            base: self,
+            base: self.clone(),
         }
     }
 
-    pub fn submarine(self) -> SubmarineBuilder {
+    pub fn submarine(&mut self) -> SubmarineBuilder {
         SubmarineBuilder {
             balancing: SubmarineBalancing {
                 common_balancing: Some(self.common_balancing.clone()),
                 ..Default::default()
             },
-            base: self,
+            base: self.clone(),
         }
     }
 
-    pub fn destroyer(self) -> DestroyerBuilder {
+    pub fn destroyer(&mut self) -> DestroyerBuilder {
         DestroyerBuilder {
             balancing: DestroyerBalancing {
                 common_balancing: Some(self.common_balancing.clone()),
                 ..Default::default()
             },
-            base: self,
+            base: self.clone(),
         }
     }
 }
@@ -130,7 +134,7 @@ impl ShipBuilder<GeneralShipBuilder> for GeneralShipBuilder {
         unreachable!()
     }
 
-    fn build(self) -> Ship {
+    fn build(&mut self) -> Ship {
         panic!("unable to build a general type ship")
     }
 
@@ -183,6 +187,14 @@ impl ShipBuilder<GeneralShipBuilder> for GeneralShipBuilder {
         self
     }
 
+    fn ability(&mut self, action_points: u32, cooldown: u32) -> &mut Self {
+        self.common_balancing.ability_costs = Some(Costs {
+            cooldown,
+            action_points,
+        });
+        self
+    }
+
     fn movement(
         &mut self,
         movement_action_points: u32,
@@ -213,12 +225,12 @@ impl ShipBuilder<GeneralShipBuilder> for CarrierBuilder {
         &mut self.base
     }
 
-    fn build(self) -> Ship {
+    fn build(&mut self) -> Ship {
         Ship::Carrier {
             data: self.base.data,
-            cooldowns: self.base.cooldowns,
+            cooldowns: self.base.cooldowns.clone(),
             balancing: Arc::new(CarrierBalancing {
-                common_balancing: Some(self.base.common_balancing),
+                common_balancing: Some(self.base.common_balancing.clone()),
                 ..self.balancing
             }),
         }
@@ -244,12 +256,12 @@ impl ShipBuilder<GeneralShipBuilder> for BattleshipBuilder {
         &mut self.base
     }
 
-    fn build(self) -> Ship {
+    fn build(&mut self) -> Ship {
         Ship::Battleship {
             data: self.base.data,
-            cooldowns: self.base.cooldowns,
+            cooldowns: self.base.cooldowns.clone(),
             balancing: Arc::new(BattleshipBalancing {
-                common_balancing: Some(self.base.common_balancing),
+                common_balancing: Some(self.base.common_balancing.clone()),
                 ..self.balancing
             }),
         }
@@ -276,12 +288,12 @@ impl ShipBuilder<GeneralShipBuilder> for CruiserBuilder {
         &mut self.base
     }
 
-    fn build(self) -> Ship {
+    fn build(&mut self) -> Ship {
         Ship::Cruiser {
             data: self.base.data,
-            cooldowns: self.base.cooldowns,
+            cooldowns: self.base.cooldowns.clone(),
             balancing: Arc::new(CruiserBalancing {
-                common_balancing: Some(self.base.common_balancing),
+                common_balancing: Some(self.base.common_balancing.clone()),
                 ..self.balancing
             }),
         }
@@ -306,12 +318,12 @@ impl ShipBuilder<GeneralShipBuilder> for SubmarineBuilder {
         &mut self.base
     }
 
-    fn build(self) -> Ship {
+    fn build(&mut self) -> Ship {
         Ship::Submarine {
             data: self.base.data,
-            cooldowns: self.base.cooldowns,
+            cooldowns: self.base.cooldowns.clone(),
             balancing: Arc::new(SubmarineBalancing {
-                common_balancing: Some(self.base.common_balancing),
+                common_balancing: Some(self.base.common_balancing.clone()),
                 ..self.balancing
             }),
         }
@@ -337,12 +349,12 @@ impl ShipBuilder<GeneralShipBuilder> for DestroyerBuilder {
         &mut self.base
     }
 
-    fn build(self) -> Ship {
+    fn build(&mut self) -> Ship {
         Ship::Destroyer {
             data: self.base.data,
-            cooldowns: self.base.cooldowns,
+            cooldowns: self.base.cooldowns.clone(),
             balancing: Arc::new(DestroyerBalancing {
-                common_balancing: Some(self.base.common_balancing),
+                common_balancing: Some(self.base.common_balancing.clone()),
                 ..self.balancing
             }),
         }
