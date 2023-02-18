@@ -43,6 +43,7 @@ fn main() {
         .add_plugin(server_selection::ServerSelectionPlugin)
         .add_plugin(lobby::LobbyPlugin)
         .add_plugin(placement_phase::PlacementPhasePlugin)
+        .add_plugin(game::GamePlugin)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
         .insert_resource(lobby::UserName("Userus Namus XXVII.".to_string()))
