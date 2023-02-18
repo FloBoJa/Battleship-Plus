@@ -103,7 +103,7 @@ async fn actions_shoot() {
         assert!(gain_vision_at.is_empty());
         assert!(ships_destroyed.contains(&ship_target1.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship_target1.id()));
-        assert!(inflicted_damage_at.contains(&Coordinate {
+        assert!(inflicted_damage_at.contains_key(&Coordinate {
             x: ship_target1.data().pos_x as u32,
             y: ship_target1.data().pos_y as u32,
         }));
@@ -144,7 +144,7 @@ async fn actions_shoot() {
         assert!(gain_vision_at.is_empty());
         assert!(ships_destroyed.is_empty());
         assert!(inflicted_damage_by_ship.contains_key(&ship_target2.id()));
-        assert!(inflicted_damage_at.contains(&Coordinate {
+        assert!(inflicted_damage_at.contains_key(&Coordinate {
             x: ship_target2.data().pos_x as u32,
             y: ship_target2.data().pos_y as u32,
         }));

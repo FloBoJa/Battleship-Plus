@@ -150,12 +150,12 @@ async fn actions_predator_missile() {
         assert!(inflicted_damage_by_ship.contains_key(&partial_hit.id()));
 
         assert_eq!(inflicted_damage_at.len(), 6);
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 14, y: 14 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 10, y: 10 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 10, y: 11 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 9, y: 9 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 9, y: 8 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 6, y: 6 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 14, y: 14 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 10, y: 10 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 10, y: 11 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 9, y: 9 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 9, y: 8 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 6, y: 6 }));
 
         assert_eq!(ships_destroyed.len(), 2);
         assert!(ships_destroyed.contains(&partial_hit_destroyed.id()));
