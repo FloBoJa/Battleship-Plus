@@ -284,7 +284,7 @@ mod actions_shoot {
             assert!(gain_vision_at.is_empty());
             assert!(ships_destroyed.contains(&ship_target1.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship_target1.id()));
-            assert!(inflicted_damage_at.contains(&Coordinate {
+            assert!(inflicted_damage_at.contains_key(&Coordinate {
                 x: ship_target1.data().pos_x as u32,
                 y: ship_target1.data().pos_y as u32,
             }));
@@ -325,7 +325,7 @@ mod actions_shoot {
             assert!(gain_vision_at.is_empty());
             assert!(ships_destroyed.is_empty());
             assert!(inflicted_damage_by_ship.contains_key(&ship_target2.id()));
-            assert!(inflicted_damage_at.contains(&Coordinate {
+            assert!(inflicted_damage_at.contains_key(&Coordinate {
                 x: ship_target2.data().pos_x as u32,
                 y: ship_target2.data().pos_y as u32,
             }));
@@ -1220,7 +1220,7 @@ mod actions_move {
             assert!(ships_destroyed.contains(&ship2.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship1.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship2.id()));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 0, y: 11 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 0, y: 11 }));
             assert!(temp_vision_at.is_empty());
         }
 
@@ -1728,8 +1728,8 @@ mod actions_rotate {
             assert!(ships_destroyed.contains(&ship_to_be_destroyed.id()));
             assert!(inflicted_damage_by_ship.contains_key(&rotating_ship.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship_to_be_destroyed.id()));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 2, y: 0 }));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 3, y: 0 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 2, y: 0 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 3, y: 0 }));
             assert!(temp_vision_at.is_empty());
         }
 
@@ -2469,12 +2469,12 @@ mod actions_predator_missile {
             assert!(inflicted_damage_by_ship.contains_key(&partial_hit.id()));
 
             assert_eq!(inflicted_damage_at.len(), 6);
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 14, y: 14 }));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 10, y: 10 }));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 10, y: 11 }));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 9, y: 9 }));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 9, y: 8 }));
-            assert!(inflicted_damage_at.contains(&Coordinate { x: 6, y: 6 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 14, y: 14 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 10, y: 10 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 10, y: 11 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 9, y: 9 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 9, y: 8 }));
+            assert!(inflicted_damage_at.contains_key(&Coordinate { x: 6, y: 6 }));
 
             assert_eq!(ships_destroyed.len(), 2);
             assert!(ships_destroyed.contains(&partial_hit_destroyed.id()));
