@@ -75,6 +75,7 @@ pub enum ActionExecutionError {
     Validation(ActionValidationError),
     OutOfState(GameState),
     InconsistentState(String),
+    BadRequest(String),
 }
 
 impl Action {
@@ -207,7 +208,31 @@ impl Action {
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
-            // TODO Implementation: Action::ScoutPlane { .. } => {}
+            Action::ScoutPlane {
+                ship_id,
+                properties,
+            } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
+
+                let bounds = game.board_bounds();
+                if let Some(center) = properties.center.as_ref() {
+                    match game.ships.scout_plane(
+                        &mut game.turn.as_mut().unwrap().action_points_left,
+                        ship_id,
+                        &[center.x as i32, center.y as i32],
+                        &bounds,
+                    ) {
+                        Ok(vision) => Ok(Some(ActionResult::scouting(vision))),
+                        Err(e) => Err(ActionExecutionError::Validation(e)),
+                    }
+                } else {
+                    Err(ActionExecutionError::BadRequest(String::from(
+                        "center is required for scout plane action",
+                    )))
+                }
+            }
             // TODO Implementation: Action::PredatorMissile { .. } => {}
             // TODO Implementation: Action::EngineBoost { .. } => {}
             // TODO Implementation: Action::Torpedo { .. } => {}
@@ -340,6 +365,7 @@ pub struct ActionResult {
     pub ships_destroyed: HashSet<ShipID>,
     pub gain_vision_at: HashSet<Coordinate>,
     pub lost_vision_at: HashSet<Coordinate>,
+    pub temp_vision_at: HashSet<Coordinate>,
 }
 
 impl ActionResult {
@@ -374,6 +400,7 @@ impl ActionResult {
                 }),
             gain_vision_at: difference(new_vision, old_vision),
             lost_vision_at: difference(old_vision, new_vision),
+            temp_vision_at: HashSet::with_capacity(0),
         }
     }
 
@@ -384,6 +411,7 @@ impl ActionResult {
             ships_destroyed: HashSet::with_capacity(0),
             gain_vision_at: HashSet::with_capacity(0),
             lost_vision_at: HashSet::with_capacity(0),
+            temp_vision_at: HashSet::with_capacity(0),
         }
     }
 
@@ -399,6 +427,18 @@ impl ActionResult {
             ships_destroyed: HashSet::from([ship_id]),
             gain_vision_at: HashSet::with_capacity(0),
             lost_vision_at: vision_lost,
+            temp_vision_at: HashSet::with_capacity(0),
+        }
+    }
+
+    fn scouting(scouting_vision: HashSet<Coordinate>) -> Self {
+        ActionResult {
+            inflicted_damage_at: HashSet::with_capacity(0),
+            inflicted_damage_by_ship: HashMap::with_capacity(0),
+            ships_destroyed: HashSet::with_capacity(0),
+            gain_vision_at: HashSet::with_capacity(0),
+            lost_vision_at: HashSet::with_capacity(0),
+            temp_vision_at: scouting_vision,
         }
     }
 }
