@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use battleship_plus_common::game::PlayerID as CommonPlayerID;
+
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub enum GameState {
     Unconnected,
@@ -7,9 +9,8 @@ pub enum GameState {
     JoiningFailed,
     Lobby,
     PlacementPhase,
-    // TODO:
-    // Game,
+    Game,
 }
 
 #[derive(Resource, Deref)]
-pub struct PlayerId(pub u32);
+pub struct PlayerId(pub CommonPlayerID);

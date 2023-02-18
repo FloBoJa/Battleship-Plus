@@ -37,10 +37,6 @@ pub struct UserName(pub String);
 pub struct LobbyState(messages::LobbyChangeEvent);
 
 impl LobbyState {
-    fn total_player_count(&self) -> usize {
-        self.0.team_state_a.len() + self.0.team_state_b.len()
-    }
-
     fn is_in_team_a(&self, player_id: u32) -> bool {
         self.0
             .team_state_a
@@ -224,11 +220,7 @@ fn draw_lobby_screen(
     });
 }
 
-fn process_lobby_events(
-    mut commands: Commands,
-    mut events: EventReader<messages::EventMessage>,
-    lobby_state: Res<LobbyState>,
-) {
+fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages::EventMessage>) {
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
@@ -238,7 +230,7 @@ fn process_lobby_events(
                 if let Some(corner) = &message.corner {
                     commands.insert_resource(placement_phase::Quadrant::new(
                         corner.to_owned(),
-                        lobby_state.total_player_count(),
+                        message.quadrant_size,
                     ));
                     commands.insert_resource(NextState(GameState::PlacementPhase));
                 } else {
