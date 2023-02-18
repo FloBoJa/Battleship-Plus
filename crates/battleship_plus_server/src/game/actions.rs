@@ -216,6 +216,19 @@ impl Action {
                 check_player_exists(game, player_id)?;
                 check_players_turn(game, player_id)?;
 
+                let enemy_team = match (
+                    game.team_a.contains(&player_id),
+                    game.team_b.contains(&player_id),
+                ) {
+                    (true, false) => game.team_b.clone(),
+                    (false, true) => game.team_a.clone(),
+                    _ => {
+                        return Err(ActionExecutionError::InconsistentState(String::from(
+                            "a player cannot be in both teams",
+                        )));
+                    }
+                };
+
                 let bounds = game.board_bounds();
                 if let Some(center) = properties.center.as_ref() {
                     match game.ships.scout_plane(
@@ -223,6 +236,7 @@ impl Action {
                         ship_id,
                         &[center.x as i32, center.y as i32],
                         &bounds,
+                        enemy_team,
                     ) {
                         Ok(vision) => Ok(Some(ActionResult::scouting(vision))),
                         Err(e) => Err(ActionExecutionError::Validation(e)),

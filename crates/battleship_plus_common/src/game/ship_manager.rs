@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
-use crate::game::ActionValidationError;
+use crate::game::{ActionValidationError, PlayerID};
 use crate::types::{Coordinate, MoveDirection, RotateDirection};
 
 #[derive(Debug, Clone, Default)]
@@ -343,6 +343,7 @@ impl ShipManager {
         ship_id: &ShipID,
         center: &[i32; 2],
         bounds: &AABB<[i32; 2]>,
+        enemy_team: HashSet<PlayerID>,
     ) -> Result<HashSet<Coordinate>, ActionValidationError> {
         if !bounds.contains_point(center) {
             // scout plane out of map
@@ -412,6 +413,7 @@ impl ShipManager {
         Ok(self
             .ships_geo_lookup
             .locate_in_envelope_intersecting(&scout_area)
+            .filter(|node| enemy_team.contains(&node.ship_id.0))
             .flat_map(|node| envelope_to_points(node.envelope))
             .filter(|p| scout_area.contains_point(&[p.x as i32, p.y as i32]))
             .collect())
