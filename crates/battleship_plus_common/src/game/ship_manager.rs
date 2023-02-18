@@ -69,6 +69,16 @@ impl ShipManager {
         self.ships.get(ship_id)
     }
 
+    pub fn get_by_position(&self, position: Coordinate) -> Option<&Ship> {
+        let position = [position.x as i32, position.y as i32];
+        let ship = self.ships_geo_lookup.locate_at_point(&position);
+        if let Some(ShipTreeNode { ship_id, .. }) = ship {
+            self.get_by_id(&ship_id)
+        } else {
+            None
+        }
+    }
+
     pub fn destroy_colliding_ships_in_envelope(
         &mut self,
         envelope: &AABB<[i32; 2]>,

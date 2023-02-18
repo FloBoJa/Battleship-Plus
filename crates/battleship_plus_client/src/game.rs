@@ -2,12 +2,12 @@ use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
-use bevy_mod_raycast::RaycastMesh;
+use bevy_mod_raycast::{Intersection, RaycastMesh};
 use iyes_loopless::prelude::*;
 
 use battleship_plus_common::{
     game::{
-        ship::{Orientation, Ship},
+        ship::{GetShipID, Orientation, Ship},
         ship_manager::ShipManager,
     },
     messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
@@ -15,7 +15,7 @@ use battleship_plus_common::{
 };
 
 use crate::{
-    game_state::{Config, GameState, PlayerTeam, Ships},
+    game_state::{Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby,
     models::{GameAssets, OceanBundle, ShipBundle, ShipMeshes, CLICK_PLANE_OFFSET_Z},
     networking, placement_phase, RaycastSet,
@@ -42,14 +42,15 @@ impl Plugin for GamePlugin {
         .add_exit_system(GameState::Game, despawn_components)
         // raycast system has been added in PlacementPhasePlugin already
         .add_system(process_game_events.run_in_state(GameState::Game))
-        .add_system(process_game_responses.run_in_state(GameState::Game));
+        .add_system(process_game_responses.run_in_state(GameState::Game))
+        .add_system(select_ship.run_in_state(GameState::Game));
     }
 }
 
 #[derive(Resource, Deref)]
 pub struct InitialGameState(pub types::ServerState);
 
-#[derive(Resource, Deref)]
+#[derive(Resource, Deref, DerefMut)]
 struct SelectedShip(u32);
 
 enum State {
@@ -135,6 +136,21 @@ fn spawn_components(
     commands
         .spawn(OceanBundle::new(&assets, config.clone()))
         .insert(DespawnOnExit);
+    commands
+        .spawn(DirectionalLightBundle {
+            transform: Transform::from_rotation(Quat::from_axis_angle(
+                Vec3::new(1.0, -1.0, 0.0),
+                0.2,
+            )),
+            directional_light: DirectionalLight {
+                illuminance: 10000.0,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Name::new("Directional Light"))
+        .insert(DespawnOnExit);
+
     for (_ship_id, ship) in ships.iter_ships() {
         commands
             .spawn(ShipBundle::new(ship, &ship_meshes))
@@ -212,6 +228,39 @@ fn process_game_response_data(data: &Option<messages::status_message::Data>, mes
     }
 }
 
+fn select_ship(
+    mut commands: Commands,
+    intersections: Query<&Intersection<RaycastSet>>,
+    selected: Option<ResMut<SelectedShip>>,
+    ships: Res<Ships>,
+    player_id: Res<PlayerId>,
+    mouse_input: Res<Input<MouseButton>>,
+) {
+    if !mouse_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let position = match board_position_from_intersection(intersections) {
+        Some(position) => types::Coordinate {
+            x: position[0] as u32,
+            y: position[1] as u32,
+        },
+        None => return,
+    };
+    let (selected_player_id, ship_id) = match ships.get_by_position(position) {
+        Some(ship) => ship.id(),
+        None => return,
+    };
+    if selected_player_id != **player_id {
+        return;
+    }
+
+    trace!("Selected ship {ship_id}");
+    match selected {
+        Some(mut selected) => **selected = ship_id,
+        None => commands.insert_resource(SelectedShip(ship_id)),
+    }
+}
+
 /*
  * TODO:
  * Action systems should be done similarly to placement_phase::send_placement.
@@ -239,4 +288,13 @@ fn repeat_cached_events(
     };
     event_writer.send_batch(cached_events.into_iter());
     commands.remove_resource::<placement_phase::CachedEvents>();
+}
+
+fn board_position_from_intersection(
+    intersections: Query<&Intersection<RaycastSet>>,
+) -> Option<[i32; 2]> {
+    let intersection = intersections.get_single().ok()?;
+    intersection
+        .position()
+        .map(|Vec3 { x, y, .. }| [*x as i32, *y as i32])
 }
