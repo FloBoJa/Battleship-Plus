@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use log::{debug, error};
-use rstar::{RTreeObject, AABB};
+use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::game::ship::{GetShipID, Ship};
 use battleship_plus_common::game::ship_manager::{envelope_to_points, ShotResult};
@@ -233,7 +233,60 @@ impl Action {
                     )))
                 }
             }
-            // TODO Implementation: Action::PredatorMissile { .. } => {}
+            Action::PredatorMissile {
+                ship_id,
+                properties,
+            } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
+
+                let bounds = game.board_bounds();
+                if let Some(center) = properties.center.as_ref() {
+                    match game.ships.predator_missile(
+                        &mut game.turn.as_mut().unwrap().action_points_left,
+                        ship_id,
+                        &[center.x as i32, center.y as i32],
+                        &bounds,
+                    ) {
+                        Ok((hit_ships, destroyed_ships, damage_per_hit, blast_radius)) => {
+                            Ok(Some(ActionResult {
+                                inflicted_damage_at: hit_ships
+                                    .iter()
+                                    .cloned()
+                                    .chain(destroyed_ships.iter())
+                                    .flat_map(|s| envelope_to_points(s.envelope()))
+                                    .filter(|c| {
+                                        blast_radius.contains_point(&[c.x as i32, c.y as i32])
+                                    })
+                                    .collect(),
+                                inflicted_damage_by_ship: HashMap::from_iter(
+                                    hit_ships
+                                        .iter()
+                                        .cloned()
+                                        .chain(destroyed_ships.iter())
+                                        .map(|ship| (ship.id(), damage_per_hit)),
+                                ),
+                                ships_destroyed: destroyed_ships
+                                    .iter()
+                                    .map(|ship| ship.id())
+                                    .collect(),
+                                gain_vision_at: HashSet::with_capacity(0),
+                                lost_vision_at: destroyed_ships
+                                    .iter()
+                                    .flat_map(|ship| envelope_to_points(ship.envelope()))
+                                    .collect(),
+                                temp_vision_at: HashSet::with_capacity(0),
+                            }))
+                        }
+                        Err(e) => Err(ActionExecutionError::Validation(e)),
+                    }
+                } else {
+                    Err(ActionExecutionError::BadRequest(String::from(
+                        "center is required for scout plane action",
+                    )))
+                }
+            }
             // TODO Implementation: Action::EngineBoost { .. } => {}
             // TODO Implementation: Action::Torpedo { .. } => {}
             // TODO Implementation: Action::MultiMissile { .. } => {}
