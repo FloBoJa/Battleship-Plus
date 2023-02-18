@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::iter::zip;
 
 use log::{debug, error};
 use rstar::{Envelope, RTreeObject, AABB};
@@ -216,6 +217,19 @@ impl Action {
                 check_player_exists(game, player_id)?;
                 check_players_turn(game, player_id)?;
 
+                let enemy_team = match (
+                    game.team_a.contains(&player_id),
+                    game.team_b.contains(&player_id),
+                ) {
+                    (true, false) => game.team_b.clone(),
+                    (false, true) => game.team_a.clone(),
+                    _ => {
+                        return Err(ActionExecutionError::InconsistentState(String::from(
+                            "a player cannot be in both teams",
+                        )));
+                    }
+                };
+
                 let bounds = game.board_bounds();
                 if let Some(center) = properties.center.as_ref() {
                     match game.ships.scout_plane(
@@ -223,6 +237,7 @@ impl Action {
                         ship_id,
                         &[center.x as i32, center.y as i32],
                         &bounds,
+                        enemy_team,
                     ) {
                         Ok(vision) => Ok(Some(ActionResult::scouting(vision))),
                         Err(e) => Err(ActionExecutionError::Validation(e)),
@@ -249,34 +264,39 @@ impl Action {
                         &[center.x as i32, center.y as i32],
                         &bounds,
                     ) {
-                        Ok(AreaOfEffect {
-                            hit_ships,
-                            destroyed_ships,
-                            damage_per_hit,
-                            area,
-                        }) => Ok(Some(ActionResult {
-                            inflicted_damage_at: hit_ships
-                                .iter()
-                                .cloned()
-                                .chain(destroyed_ships.iter())
-                                .flat_map(|s| envelope_to_points(s.envelope()))
-                                .filter(|c| area.contains_point(&[c.x as i32, c.y as i32]))
-                                .collect(),
-                            inflicted_damage_by_ship: HashMap::from_iter(
-                                hit_ships
+                        Ok((hit_ships, destroyed_ships, damage_per_hit, blast_radius)) => {
+                            Ok(Some(ActionResult {
+                                inflicted_damage_at: hit_ships
                                     .iter()
                                     .cloned()
                                     .chain(destroyed_ships.iter())
-                                    .map(|ship| (ship.id(), damage_per_hit)),
-                            ),
-                            ships_destroyed: destroyed_ships.iter().map(|ship| ship.id()).collect(),
-                            gain_vision_at: HashSet::with_capacity(0),
-                            lost_vision_at: destroyed_ships
-                                .iter()
-                                .flat_map(|ship| envelope_to_points(ship.envelope()))
-                                .collect(),
-                            temp_vision_at: HashSet::with_capacity(0),
-                        })),
+                                    .flat_map(|s| {
+                                        split_damage(
+                                            envelope_to_points(s.envelope()).collect(),
+                                            damage_per_hit,
+                                            &blast_radius,
+                                        )
+                                    })
+                                    .collect(),
+                                inflicted_damage_by_ship: HashMap::from_iter(
+                                    hit_ships
+                                        .iter()
+                                        .cloned()
+                                        .chain(destroyed_ships.iter())
+                                        .map(|ship| (ship.id(), damage_per_hit)),
+                                ),
+                                ships_destroyed: destroyed_ships
+                                    .iter()
+                                    .map(|ship| ship.id())
+                                    .collect(),
+                                gain_vision_at: HashSet::with_capacity(0),
+                                lost_vision_at: destroyed_ships
+                                    .iter()
+                                    .flat_map(|ship| envelope_to_points(ship.envelope()))
+                                    .collect(),
+                                temp_vision_at: HashSet::with_capacity(0),
+                            }))
+                        }
                         Err(e) => Err(ActionExecutionError::Validation(e)),
                     }
                 } else {
@@ -463,7 +483,7 @@ fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionEr
 
 #[derive(Debug, Clone)]
 pub struct ActionResult {
-    pub inflicted_damage_at: HashSet<Coordinate>,
+    pub inflicted_damage_at: HashMap<Coordinate, u32>,
     pub inflicted_damage_by_ship: HashMap<ShipID, u32>,
     pub ships_destroyed: HashSet<ShipID>,
     pub gain_vision_at: HashSet<Coordinate>,
@@ -479,11 +499,17 @@ impl ActionResult {
     ) -> Self {
         ActionResult {
             inflicted_damage_at: destroyed_ships.as_ref().map_or(
-                HashSet::with_capacity(0),
+                HashMap::with_capacity(0),
                 |ships| {
                     ships
                         .iter()
-                        .flat_map(|ship| envelope_to_points(ship.envelope()).collect::<Vec<_>>())
+                        .flat_map(|ship| {
+                            split_damage(
+                                envelope_to_points(ship.envelope()).collect::<Vec<_>>(),
+                                ship.common_balancing().initial_health,
+                                &AABB::from_corners([i32::MIN, i32::MIN], [i32::MAX, i32::MAX]),
+                            )
+                        })
                         .collect()
                 },
             ),
@@ -509,7 +535,7 @@ impl ActionResult {
 
     fn hit(ship_id: ShipID, target: Coordinate, damage: u32) -> Self {
         ActionResult {
-            inflicted_damage_at: HashSet::from([target]),
+            inflicted_damage_at: HashMap::from([(target, damage)]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::with_capacity(0),
             gain_vision_at: HashSet::with_capacity(0),
@@ -525,7 +551,7 @@ impl ActionResult {
         vision_lost: HashSet<Coordinate>,
     ) -> Self {
         ActionResult {
-            inflicted_damage_at: HashSet::from([target]),
+            inflicted_damage_at: HashMap::from([(target, damage)]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::from([ship_id]),
             gain_vision_at: HashSet::with_capacity(0),
@@ -536,7 +562,7 @@ impl ActionResult {
 
     fn scouting(scouting_vision: HashSet<Coordinate>) -> Self {
         ActionResult {
-            inflicted_damage_at: HashSet::with_capacity(0),
+            inflicted_damage_at: HashMap::with_capacity(0),
             inflicted_damage_by_ship: HashMap::with_capacity(0),
             ships_destroyed: HashSet::with_capacity(0),
             gain_vision_at: HashSet::with_capacity(0),
@@ -551,4 +577,24 @@ fn difference<T: Eq + Hash + Clone>(left: &[T], right: &[T]) -> HashSet<T> {
         .filter(|c| !right.contains(c))
         .cloned()
         .collect()
+}
+
+fn split_damage(
+    tiles: Vec<Coordinate>,
+    damage: u32,
+    blast_radius: &AABB<[i32; 2]>,
+) -> impl Iterator<Item = (Coordinate, u32)> {
+    let tiles = tiles
+        .iter()
+        .filter(|c| blast_radius.contains_point(&[c.x as i32, c.y as i32]))
+        .cloned()
+        .collect::<Vec<_>>();
+    let damage_per_tile = damage / tiles.len() as u32;
+
+    let mut damage_splits = vec![damage_per_tile; tiles.len()];
+    for i in 0..(damage - (damage_per_tile * tiles.len() as u32)) {
+        damage_splits[i as usize] += 1;
+    }
+
+    zip(tiles, damage_splits)
 }

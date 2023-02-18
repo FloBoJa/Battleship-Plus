@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
-use crate::game::ActionValidationError;
+use crate::game::{ActionValidationError, PlayerID};
 use crate::types::{Coordinate, Direction, MoveDirection, RotateDirection};
 
 #[derive(Debug, Clone, Default)]
@@ -479,7 +479,7 @@ impl ShipManager {
 
         // cooldown check
         let remaining_rounds = battleship.1.iter().find_map(|cd| match cd {
-            Cooldown::Cannon { remaining_rounds } => Some(*remaining_rounds),
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
             _ => None,
         });
         if let Some(remaining_rounds) = remaining_rounds {
@@ -560,6 +560,7 @@ impl ShipManager {
         ship_id: &ShipID,
         center: &[i32; 2],
         bounds: &AABB<[i32; 2]>,
+        enemy_team: HashSet<PlayerID>,
     ) -> Result<HashSet<Coordinate>, ActionValidationError> {
         if !bounds.contains_point(center) {
             // scout plane out of map
@@ -580,7 +581,7 @@ impl ShipManager {
 
         // cooldown check
         let remaining_rounds = carrier.1.iter().find_map(|cd| match cd {
-            Cooldown::Cannon { remaining_rounds } => Some(*remaining_rounds),
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
             _ => None,
         });
         if let Some(remaining_rounds) = remaining_rounds {
@@ -629,6 +630,7 @@ impl ShipManager {
         Ok(self
             .ships_geo_lookup
             .locate_in_envelope_intersecting(&scout_area)
+            .filter(|node| enemy_team.contains(&node.ship_id.0))
             .flat_map(|node| envelope_to_points(node.envelope))
             .filter(|p| scout_area.contains_point(&[p.x as i32, p.y as i32]))
             .collect())
