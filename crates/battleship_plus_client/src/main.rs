@@ -4,6 +4,7 @@ use bevy::{
     window::PresentMode,
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_mod_raycast::{DefaultRaycastingPlugin, RaycastSource};
 use iyes_loopless::prelude::*;
 
 mod game_state;
@@ -31,10 +32,12 @@ fn main() {
         }))
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(WorldInspectorPlugin::default())
+        .add_plugin(DefaultRaycastingPlugin::<RaycastSet>::default())
         .add_loopless_state(GameState::Unconnected)
         .add_plugin(networking::NetworkingPlugin)
         .add_plugin(server_selection::ServerSelectionPlugin)
         .add_plugin(lobby::LobbyPlugin)
+        .add_plugin(placement_phase::PlacementPhasePlugin)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
         .insert_resource(lobby::UserName("Userus Namus XXVII.".to_string()))
@@ -46,8 +49,18 @@ fn main() {
 #[derive(Component)]
 struct FpsText;
 
+struct RaycastSet;
+
 fn camera_setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands
+        .spawn(Camera3dBundle {
+            projection: Projection::Orthographic(OrthographicProjection::default()),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0))
+                .with_scale(Vec3::new(0.5, 0.5, 1.0))
+                .looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        })
+        .insert(RaycastSource::<RaycastSet>::default());
 }
 
 fn fps_counter(mut commands: Commands, asset_server: Res<AssetServer>) {

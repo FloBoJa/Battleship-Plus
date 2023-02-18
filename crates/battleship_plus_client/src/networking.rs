@@ -5,8 +5,8 @@ use std::{
     time::Duration,
 };
 
-use bevy::prelude::*;
 use bevy::utils::synccell::SyncCell;
+use bevy::{prelude::*, window::WindowCloseRequested};
 use bevy_inspector_egui::{options::StringAttributes, Inspectable, RegisterInspectable};
 use bytes::BytesMut;
 use iyes_loopless::prelude::*;
@@ -51,7 +51,8 @@ impl Plugin for NetworkingPlugin {
             .add_system(process_server_configurations)
             .add_enter_system(GameState::Joining, join_server)
             .add_enter_system(GameState::JoiningFailed, try_leave_server)
-            .add_enter_system(GameState::Unconnected, try_leave_server);
+            .add_enter_system(GameState::Unconnected, try_leave_server)
+            .add_system(cleanup_on_exit);
     }
 }
 
@@ -68,7 +69,7 @@ pub struct CurrentServer(pub Entity);
 const ADVERTISEMENT_LIFETIME: Duration = Duration::from_secs(10);
 const CONFIGURATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Empirical<T> {
     Unconfirmed(T),
     Confirmed(T),
@@ -94,7 +95,7 @@ impl<T: Copy> Empirical<T> {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Copy)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy)]
 pub enum SecurityLevel {
     ConnectionFailed,
     NoVerification,
@@ -873,4 +874,16 @@ fn try_leave_server(
         commands.entity(**server).remove::<Connection>();
     }
     commands.remove_resource::<CurrentServer>();
+}
+
+fn cleanup_on_exit(
+    mut events: EventReader<WindowCloseRequested>,
+    commands: Commands,
+    server: Option<Res<CurrentServer>>,
+    connections: Query<(Entity, &Connection)>,
+    client: ResMut<Client>,
+) {
+    if events.iter().next().is_some() {
+        try_leave_server(commands, server, connections, client)
+    }
 }
