@@ -564,7 +564,7 @@ async fn actions_movement_destroy_on_collision() {
         assert!(ships_destroyed.contains(&ship2.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship1.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship2.id()));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 0, y: 11 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 0, y: 11 }));
         assert!(temp_vision_at.is_empty());
     }
 

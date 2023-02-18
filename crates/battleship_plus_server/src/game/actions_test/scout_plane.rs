@@ -87,6 +87,7 @@ async fn actions_scout_plane() {
         players: HashMap::from([(player.id, player.clone())]),
         ships: ShipManager::new_with_ships(vec![ship, scouted, partial_scouted, hidden]),
         team_a: HashSet::from([player.id]),
+        team_b: HashSet::from([42]),
         ..Default::default()
     }));
     let mut g = g.write().await;

@@ -101,9 +101,9 @@ async fn actions_torpedo_north() {
         assert!(inflicted_damage_by_ship.contains_key(&destroyed.id()));
 
         assert_eq!(inflicted_damage_at.len(), 3);
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 20, y: 25 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 20, y: 26 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 20, y: 27 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 25 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 26 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 27 }));
 
         assert_eq!(ships_destroyed.len(), 1);
         assert!(ships_destroyed.contains(&destroyed.id()));
@@ -213,9 +213,9 @@ async fn actions_torpedo_south() {
         assert!(inflicted_damage_by_ship.contains_key(&destroyed.id()));
 
         assert_eq!(inflicted_damage_at.len(), 3);
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 20, y: 15 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 20, y: 14 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 20, y: 13 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 15 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 14 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 13 }));
 
         assert_eq!(ships_destroyed.len(), 1);
         assert!(ships_destroyed.contains(&destroyed.id()));
@@ -325,9 +325,9 @@ async fn actions_torpedo_east() {
         assert!(inflicted_damage_by_ship.contains_key(&destroyed.id()));
 
         assert_eq!(inflicted_damage_at.len(), 3);
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 25, y: 20 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 26, y: 20 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 27, y: 20 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 25, y: 20 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 26, y: 20 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 27, y: 20 }));
 
         assert_eq!(ships_destroyed.len(), 1);
         assert!(ships_destroyed.contains(&destroyed.id()));
@@ -437,9 +437,9 @@ async fn actions_torpedo_west() {
         assert!(inflicted_damage_by_ship.contains_key(&destroyed.id()));
 
         assert_eq!(inflicted_damage_at.len(), 3);
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 15, y: 20 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 14, y: 20 }));
-        assert!(inflicted_damage_at.contains(&Coordinate { x: 13, y: 20 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 15, y: 20 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 14, y: 20 }));
+        assert!(inflicted_damage_at.contains_key(&Coordinate { x: 13, y: 20 }));
 
         assert_eq!(ships_destroyed.len(), 1);
         assert!(ships_destroyed.contains(&destroyed.id()));
