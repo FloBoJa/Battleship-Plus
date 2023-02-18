@@ -337,6 +337,107 @@ impl ShipManager {
         }
     }
 
+    pub fn predator_missile(
+        &mut self,
+        action_points: &mut u32,
+        ship_id: &ShipID,
+        center: &[i32; 2],
+        bounds: &AABB<[i32; 2]>,
+    ) -> Result<(Vec<&Ship>, Vec<Ship>, u32, AABB<[i32; 2]>), ActionValidationError> {
+        if !bounds.contains_point(center) {
+            // missile out of map
+            return Err(ActionValidationError::OutOfMap);
+        }
+
+        let ship = self.ships.get(ship_id).cloned();
+        let battleship = match self.ships.get_mut(ship_id) {
+            None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+            Some(Ship::Battleship {
+                balancing,
+                cool_downs,
+                data,
+            }) => (balancing, cool_downs, data),
+            _ => return Err(ActionValidationError::InvalidShipType),
+        };
+        let ship = ship.unwrap();
+
+        // cooldown check
+        let remaining_rounds = battleship.1.iter().find_map(|cd| match cd {
+            Cooldown::Cannon { remaining_rounds } => Some(*remaining_rounds),
+            _ => None,
+        });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
+        }
+
+        // check action points of player
+        let balancing = battleship.0.clone();
+        let costs = balancing
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap();
+        if *action_points < costs.action_points {
+            return Err(ActionValidationError::InsufficientPoints {
+                required: costs.action_points,
+            });
+        }
+
+        // check range
+        if ship.distance_2(center) > balancing.predator_missile_range as i32 {
+            return Err(ActionValidationError::Unreachable);
+        }
+
+        // enforce costs
+        *action_points -= costs.action_points;
+        if costs.cooldown > 0 {
+            battleship.1.push(Cooldown::Ability {
+                remaining_rounds: costs.cooldown,
+            });
+        }
+
+        let blast_radius = AABB::from_corners(
+            [
+                center[0] + balancing.predator_missile_radius as i32,
+                center[1] + balancing.predator_missile_radius as i32,
+            ],
+            [
+                center[0] - balancing.predator_missile_radius as i32,
+                center[1] - balancing.predator_missile_radius as i32,
+            ],
+        );
+
+        let hit_ships = self
+            .ships_geo_lookup
+            .locate_in_envelope_intersecting(&blast_radius)
+            .map(|node| node.ship_id)
+            .collect::<Vec<_>>();
+
+        let destroyed_ships = hit_ships
+            .iter()
+            .filter_map(|id| {
+                let ship = self.ships.get_mut(id).unwrap();
+                if ship.apply_damage(balancing.predator_missile_damage) {
+                    self.ships.remove(id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok((
+            hit_ships
+                .iter()
+                .filter_map(|id| self.ships.get(id))
+                .collect::<Vec<_>>(),
+            destroyed_ships,
+            balancing.predator_missile_damage,
+            blast_radius,
+        ))
+    }
+
     pub fn scout_plane(
         &mut self,
         action_points: &mut u32,
