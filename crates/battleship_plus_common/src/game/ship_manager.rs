@@ -348,7 +348,7 @@ impl ShipManager {
             None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
             Some(Ship::Submarine {
                 balancing,
-                cool_downs,
+                cooldowns: cool_downs,
                 data,
             }) => (balancing, cool_downs, data),
             _ => return Err(ActionValidationError::InvalidShipType),
@@ -470,7 +470,7 @@ impl ShipManager {
             None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
             Some(Ship::Battleship {
                 balancing,
-                cool_downs,
+                cooldowns: cool_downs,
                 data,
             }) => (balancing, cool_downs, data),
             _ => return Err(ActionValidationError::InvalidShipType),
@@ -571,7 +571,7 @@ impl ShipManager {
             None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
             Some(Ship::Carrier {
                 balancing,
-                cool_downs,
+                cooldowns: cool_downs,
                 data,
             }) => (balancing, cool_downs, data),
             _ => return Err(ActionValidationError::InvalidShipType),

@@ -3,36 +3,35 @@ use std::sync::Arc;
 
 use rstar::{Envelope, PointDistance, RTreeObject, SelectionFunction, AABB};
 
-use crate::types::*;
-
 use crate::game::{ActionValidationError, PlayerID};
+use crate::types::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ship {
     Carrier {
         balancing: Arc<CarrierBalancing>,
         data: ShipData,
-        cool_downs: Vec<Cooldown>,
+        cooldowns: Vec<Cooldown>,
     },
     Battleship {
         balancing: Arc<BattleshipBalancing>,
         data: ShipData,
-        cool_downs: Vec<Cooldown>,
+        cooldowns: Vec<Cooldown>,
     },
     Cruiser {
         balancing: Arc<CruiserBalancing>,
         data: ShipData,
-        cool_downs: Vec<Cooldown>,
+        cooldowns: Vec<Cooldown>,
     },
     Submarine {
         balancing: Arc<SubmarineBalancing>,
         data: ShipData,
-        cool_downs: Vec<Cooldown>,
+        cooldowns: Vec<Cooldown>,
     },
     Destroyer {
         balancing: Arc<DestroyerBalancing>,
         data: ShipData,
-        cool_downs: Vec<Cooldown>,
+        cooldowns: Vec<Cooldown>,
     },
 }
 
@@ -59,7 +58,7 @@ impl Ship {
                 Ship::Carrier {
                     balancing: Arc::from(balancing),
                     data,
-                    cool_downs: Vec::new(),
+                    cooldowns: Vec::new(),
                 }
             }
             ShipType::Battleship => {
@@ -68,7 +67,7 @@ impl Ship {
                 Ship::Battleship {
                     balancing: Arc::from(balancing),
                     data,
-                    cool_downs: Vec::new(),
+                    cooldowns: Vec::new(),
                 }
             }
             ShipType::Cruiser => {
@@ -77,7 +76,7 @@ impl Ship {
                 Ship::Cruiser {
                     balancing: Arc::from(balancing),
                     data,
-                    cool_downs: Vec::new(),
+                    cooldowns: Vec::new(),
                 }
             }
             ShipType::Submarine => {
@@ -86,7 +85,7 @@ impl Ship {
                 Ship::Submarine {
                     balancing: Arc::from(balancing),
                     data,
-                    cool_downs: Vec::new(),
+                    cooldowns: Vec::new(),
                 }
             }
             ShipType::Destroyer => {
@@ -95,7 +94,7 @@ impl Ship {
                 Ship::Destroyer {
                     balancing: Arc::from(balancing),
                     data,
-                    cool_downs: Vec::new(),
+                    cooldowns: Vec::new(),
                 }
             }
         }
@@ -194,21 +193,51 @@ impl Ship {
 
     pub fn cool_downs(&self) -> Vec<Cooldown> {
         match self {
-            Ship::Carrier { cool_downs, .. }
-            | Ship::Battleship { cool_downs, .. }
-            | Ship::Cruiser { cool_downs, .. }
-            | Ship::Submarine { cool_downs, .. }
-            | Ship::Destroyer { cool_downs, .. } => cool_downs.clone(),
+            Ship::Carrier {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Battleship {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Cruiser {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Submarine {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Destroyer {
+                cooldowns: cool_downs,
+                ..
+            } => cool_downs.clone(),
         }
     }
 
     pub fn cool_downs_mut(&mut self) -> &mut Vec<Cooldown> {
         match self {
-            Ship::Carrier { cool_downs, .. }
-            | Ship::Battleship { cool_downs, .. }
-            | Ship::Cruiser { cool_downs, .. }
-            | Ship::Submarine { cool_downs, .. }
-            | Ship::Destroyer { cool_downs, .. } => cool_downs,
+            Ship::Carrier {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Battleship {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Cruiser {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Submarine {
+                cooldowns: cool_downs,
+                ..
+            }
+            | Ship::Destroyer {
+                cooldowns: cool_downs,
+                ..
+            } => cool_downs,
         }
     }
 

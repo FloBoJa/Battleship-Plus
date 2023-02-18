@@ -9,3 +9,5 @@ pub(crate) mod states;
 
 #[cfg(test)]
 mod actions_test;
+#[cfg(test)]
+mod ship_builder;
