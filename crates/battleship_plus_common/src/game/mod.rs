@@ -12,5 +12,6 @@ pub enum ActionValidationError {
     Unreachable,
     OutOfMap,
     InvalidShipPlacement(ship_manager::ShipPlacementError),
+    InvalidShipType,
     NotPlayersTurn,
 }

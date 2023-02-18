@@ -803,39 +803,34 @@ fn action_validation_error_reply(
     match error.clone() {
         ActionExecutionError::Validation(e) => match e {
             ActionValidationError::NonExistentPlayer { id } =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::BadRequest, format!("player id {id} does not exist").as_str()))
+                ep.send_message(client_id, status_with_msg(StatusCode::BadRequest, format!("player id {id} does not exist").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::NonExistentShip { id } =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::BadRequest, format!("ship ({}, {}) does not exist", id.0, id.1).as_str()))
+                ep.send_message(client_id, status_with_msg(StatusCode::BadRequest, format!("ship ({}, {}) does not exist", id.0, id.1).as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Cooldown { remaining_rounds } =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::InsufficientResources, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
+                ep.send_message(client_id, status_with_msg(StatusCode::InsufficientResources, format!("requested action is on cooldown for the next {remaining_rounds} rounds").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::InsufficientPoints { required } =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::InsufficientResources, format!("insufficient action points for requested action ({required})").as_str()))
+                ep.send_message(client_id, status_with_msg(StatusCode::InsufficientResources, format!("insufficient action points for requested action ({required})").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::Unreachable =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "request target is unreachable"))
+                ep.send_message(client_id, status_with_msg(StatusCode::InvalidMove, "request target is unreachable"))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::OutOfMap =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "request target is out of map"))
+                ep.send_message(client_id, status_with_msg(StatusCode::InvalidMove, "request target is out of map"))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::InvalidShipPlacement(e) =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::BadRequest, format!("ship placement is invalid: {e}").as_str()))
+                ep.send_message(client_id, status_with_msg(StatusCode::BadRequest, format!("ship placement is invalid: {e}").as_str()))
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::NotPlayersTurn =>
-                ep.send_message(client_id,
-                                status_with_msg(StatusCode::InvalidMove, "not your turn"))
+                ep.send_message(client_id, status_with_msg(StatusCode::InvalidMove, "not your turn"))
                     .map_err(MessageHandlerError::Network),
+            ActionValidationError::InvalidShipType => ep.send_message(client_id, status_with_msg(StatusCode::InvalidMove, "the selected ship is not able to perform the requested action"))
+                .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {
+            debug!("client: {client_id} sent an request not allowed in {state}. Aborting connection..");
             ep.send_message(client_id,
                             status_with_msg(StatusCode::BadRequest, format!("request not allowed in {state}").as_str()))
                 .map_err(MessageHandlerError::Network)?;
@@ -849,6 +844,13 @@ fn action_validation_error_reply(
 
             game_end_tx.send(()).expect("failed to end game");
             Err(MessageHandlerError::Protocol(error))
+        }
+        ActionExecutionError::BadRequest(explanation) => {
+            debug!("client: {client_id} sent an invalid request ({explanation}). Aborting connection..");
+            ep.send_message(client_id, status_with_msg(StatusCode::BadRequest, "bad request"))
+                .map_err(MessageHandlerError::Network)?;
+            ep.disconnect_client(client_id)
+                .map_err(MessageHandlerError::Network)
         }
     }
 }
