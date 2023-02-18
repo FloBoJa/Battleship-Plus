@@ -336,6 +336,95 @@ impl ShipManager {
             }
         }
     }
+
+    pub fn scout_plane(
+        &mut self,
+        action_points: &mut u32,
+        ship_id: &ShipID,
+        center: &[i32; 2],
+        bounds: &AABB<[i32; 2]>,
+    ) -> Result<HashSet<Coordinate>, ActionValidationError> {
+        if !bounds.contains_point(center) {
+            // scout plane out of map
+            return Err(ActionValidationError::OutOfMap);
+        }
+
+        let ship = self.ships.get(ship_id).cloned();
+        let carrier = match self.ships.get_mut(ship_id) {
+            None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+            Some(Ship::Carrier {
+                balancing,
+                cool_downs,
+                data,
+            }) => (balancing, cool_downs, data),
+            _ => return Err(ActionValidationError::InvalidShipType),
+        };
+        let ship = ship.unwrap();
+
+        // cooldown check
+        let remaining_rounds = carrier.1.iter().find_map(|cd| match cd {
+            Cooldown::Cannon { remaining_rounds } => Some(*remaining_rounds),
+            _ => None,
+        });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
+        }
+
+        // check action points of player
+        let balancing = carrier.0;
+        let costs = balancing
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap();
+        if *action_points < costs.action_points {
+            return Err(ActionValidationError::InsufficientPoints {
+                required: costs.action_points,
+            });
+        }
+
+        // check range
+        if ship.distance_2(center) > balancing.scout_plane_range as i32 {
+            return Err(ActionValidationError::Unreachable);
+        }
+
+        // enforce costs
+        *action_points -= costs.action_points;
+        if costs.cooldown > 0 {
+            carrier.1.push(Cooldown::Ability {
+                remaining_rounds: costs.cooldown,
+            });
+        }
+
+        let scout_area = AABB::from_corners(
+            [
+                center[0] + balancing.scout_plane_radius as i32,
+                center[1] + balancing.scout_plane_radius as i32,
+            ],
+            [
+                center[0] - balancing.scout_plane_radius as i32,
+                center[1] - balancing.scout_plane_radius as i32,
+            ],
+        );
+
+        Ok(self
+            .ships_geo_lookup
+            .locate_in_envelope_intersecting(&scout_area)
+            .flat_map(|node| {
+                let l = node.envelope.lower();
+                let u = node.envelope.upper();
+
+                (l[0]..=u[0]).flat_map(move |x| (l[1]..=u[1]).map(move |y| [x, y]))
+            })
+            .filter(|p| scout_area.contains_point(p))
+            .map(|p| Coordinate {
+                x: p[0] as u32,
+                y: p[1] as u32,
+            })
+            .collect())
+    }
 }
 
 #[derive(Debug, Clone)]
