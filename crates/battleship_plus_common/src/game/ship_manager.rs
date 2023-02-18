@@ -342,7 +342,7 @@ impl ShipManager {
         action_points: &mut u32,
         ship_id: &ShipID,
         direction: Direction,
-    ) -> Result<(Vec<&Ship>, Vec<Ship>, u32, AABB<[i32; 2]>), ActionValidationError> {
+    ) -> Result<AreaOfEffect, ActionValidationError> {
         let ship = self.ships.get(ship_id).cloned();
         let submarine = match self.ships.get_mut(ship_id) {
             None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
@@ -442,15 +442,15 @@ impl ShipManager {
             })
             .collect();
 
-        Ok((
-            hit_ships
+        Ok(AreaOfEffect {
+            hit_ships: hit_ships
                 .iter()
                 .filter_map(|id| self.ships.get(id))
                 .collect::<Vec<_>>(),
             destroyed_ships,
-            balancing.torpedo_damage,
-            trajectory,
-        ))
+            damage_per_hit: balancing.torpedo_damage,
+            area: trajectory,
+        })
     }
 
     pub fn predator_missile(
@@ -459,7 +459,7 @@ impl ShipManager {
         ship_id: &ShipID,
         center: &[i32; 2],
         bounds: &AABB<[i32; 2]>,
-    ) -> Result<(Vec<&Ship>, Vec<Ship>, u32, AABB<[i32; 2]>), ActionValidationError> {
+    ) -> Result<AreaOfEffect, ActionValidationError> {
         if !bounds.contains_point(center) {
             // missile out of map
             return Err(ActionValidationError::OutOfMap);
@@ -543,15 +543,15 @@ impl ShipManager {
             })
             .collect();
 
-        Ok((
-            hit_ships
+        Ok(AreaOfEffect {
+            hit_ships: hit_ships
                 .iter()
                 .filter_map(|id| self.ships.get(id))
                 .collect::<Vec<_>>(),
             destroyed_ships,
-            balancing.predator_missile_damage,
-            blast_radius,
-        ))
+            damage_per_hit: balancing.predator_missile_damage,
+            area: blast_radius,
+        })
     }
 
     pub fn scout_plane(
@@ -726,4 +726,12 @@ pub fn envelope_to_points(envelope: AABB<[i32; 2]>) -> impl Iterator<Item = Coor
             y: y as u32,
         })
     })
+}
+
+#[derive(Debug, Clone)]
+pub struct AreaOfEffect<'a> {
+    pub hit_ships: Vec<&'a Ship>,
+    pub destroyed_ships: Vec<Ship>,
+    pub damage_per_hit: u32,
+    pub area: AABB<[i32; 2]>,
 }
