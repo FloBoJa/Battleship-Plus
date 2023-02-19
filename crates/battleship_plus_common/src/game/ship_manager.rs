@@ -357,7 +357,7 @@ impl ShipManager {
 
         // cooldown check
         let remaining_rounds = submarine.1.iter().find_map(|cd| match cd {
-            Cooldown::Cannon { remaining_rounds } => Some(*remaining_rounds),
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
             _ => None,
         });
         if let Some(remaining_rounds) = remaining_rounds {
