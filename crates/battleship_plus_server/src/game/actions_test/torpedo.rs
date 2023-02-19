@@ -51,10 +51,7 @@ async fn actions_torpedo_north() {
         .build();
     let missed = GeneralShipBuilder::default()
         .health(10)
-        .position(
-            20,
-            ship.data().pos_y + ship.len() + 1 + TORPEDO_RANGE as i32,
-        )
+        .position(20, ship.data().pos_y + ship.len() + TORPEDO_RANGE as i32)
         .owner(42)
         .number(ship_numbers.next().unwrap())
         .orientation(Orientation::West)
@@ -166,7 +163,7 @@ async fn actions_torpedo_south() {
         .build();
     let missed = GeneralShipBuilder::default()
         .health(10)
-        .position(20, ship.data().pos_y - 2 - TORPEDO_RANGE as i32)
+        .position(20, ship.data().pos_y - 1 - TORPEDO_RANGE as i32)
         .owner(42)
         .number(ship_numbers.next().unwrap())
         .orientation(Orientation::West)
@@ -278,7 +275,7 @@ async fn actions_torpedo_east() {
         .build();
     let missed = GeneralShipBuilder::default()
         .health(10)
-        .position(ship.data().pos_x + 2 + TORPEDO_RANGE as i32, 20)
+        .position(ship.data().pos_x + 1 + TORPEDO_RANGE as i32, 20)
         .owner(42)
         .number(ship_numbers.next().unwrap())
         .orientation(Orientation::North)
@@ -390,7 +387,7 @@ async fn actions_torpedo_west() {
         .build();
     let missed = GeneralShipBuilder::default()
         .health(10)
-        .position(ship.data().pos_x - 2 - TORPEDO_RANGE as i32, 20)
+        .position(ship.data().pos_x - 1 - TORPEDO_RANGE as i32, 20)
         .owner(42)
         .number(ship_numbers.next().unwrap())
         .orientation(Orientation::North)

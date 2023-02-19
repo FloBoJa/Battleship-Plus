@@ -389,9 +389,9 @@ impl ShipManager {
 
         let origin = [submarine.2.pos_x, submarine.2.pos_y];
         let origin_offset = if direction == submarine.2.orientation.into() {
-            ship.len()
+            ship.len() - 1
         } else {
-            1
+            0
         };
         let trajectory = match direction {
             Direction::North => AABB::from_corners(
@@ -427,7 +427,13 @@ impl ShipManager {
         let hit_ships = self
             .ships_geo_lookup
             .locate_in_envelope_intersecting(&trajectory)
-            .map(|node| node.ship_id)
+            .filter_map(|node| {
+                if node.ship_id != *ship_id {
+                    Some(node.ship_id)
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>();
 
         let destroyed_ships = hit_ships
