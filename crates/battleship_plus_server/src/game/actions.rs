@@ -6,7 +6,7 @@ use log::{debug, error};
 use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::game::ship::{GetShipID, Ship};
-use battleship_plus_common::game::ship_manager::{envelope_to_points, ShotResult};
+use battleship_plus_common::game::ship_manager::{envelope_to_points, AreaOfEffect, ShotResult};
 use battleship_plus_common::game::ActionValidationError;
 use battleship_plus_common::game::{ship::ShipID, PlayerID};
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
@@ -264,39 +264,39 @@ impl Action {
                         &[center.x as i32, center.y as i32],
                         &bounds,
                     ) {
-                        Ok((hit_ships, destroyed_ships, damage_per_hit, blast_radius)) => {
-                            Ok(Some(ActionResult {
-                                inflicted_damage_at: hit_ships
+                        Ok(AreaOfEffect {
+                            hit_ships,
+                            destroyed_ships,
+                            damage_per_hit,
+                            area,
+                        }) => Ok(Some(ActionResult {
+                            inflicted_damage_at: hit_ships
+                                .iter()
+                                .cloned()
+                                .chain(destroyed_ships.iter())
+                                .flat_map(|s| {
+                                    split_damage(
+                                        envelope_to_points(s.envelope()).collect(),
+                                        damage_per_hit,
+                                        &area,
+                                    )
+                                })
+                                .collect(),
+                            inflicted_damage_by_ship: HashMap::from_iter(
+                                hit_ships
                                     .iter()
                                     .cloned()
                                     .chain(destroyed_ships.iter())
-                                    .flat_map(|s| {
-                                        split_damage(
-                                            envelope_to_points(s.envelope()).collect(),
-                                            damage_per_hit,
-                                            &blast_radius,
-                                        )
-                                    })
-                                    .collect(),
-                                inflicted_damage_by_ship: HashMap::from_iter(
-                                    hit_ships
-                                        .iter()
-                                        .cloned()
-                                        .chain(destroyed_ships.iter())
-                                        .map(|ship| (ship.id(), damage_per_hit)),
-                                ),
-                                ships_destroyed: destroyed_ships
-                                    .iter()
-                                    .map(|ship| ship.id())
-                                    .collect(),
-                                gain_vision_at: HashSet::with_capacity(0),
-                                lost_vision_at: destroyed_ships
-                                    .iter()
-                                    .flat_map(|ship| envelope_to_points(ship.envelope()))
-                                    .collect(),
-                                temp_vision_at: HashSet::with_capacity(0),
-                            }))
-                        }
+                                    .map(|ship| (ship.id(), damage_per_hit)),
+                            ),
+                            ships_destroyed: destroyed_ships.iter().map(|ship| ship.id()).collect(),
+                            gain_vision_at: HashSet::with_capacity(0),
+                            lost_vision_at: destroyed_ships
+                                .iter()
+                                .flat_map(|ship| envelope_to_points(ship.envelope()))
+                                .collect(),
+                            temp_vision_at: HashSet::with_capacity(0),
+                        })),
                         Err(e) => Err(ActionExecutionError::Validation(e)),
                     }
                 } else {
@@ -306,7 +306,64 @@ impl Action {
                 }
             }
             // TODO Implementation: Action::EngineBoost { .. } => {}
-            // TODO Implementation: Action::Torpedo { .. } => {}
+            Action::Torpedo {
+                ship_id,
+                properties,
+            } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
+
+                let direction = match Direction::from_i32(properties.direction) {
+                    Some(d) => d,
+                    None => {
+                        return Err(ActionExecutionError::BadRequest(String::from(
+                            "invalid direction",
+                        )))
+                    }
+                };
+
+                match game.ships.torpedo(
+                    &mut game.turn.as_mut().unwrap().action_points_left,
+                    ship_id,
+                    direction,
+                ) {
+                    Ok(AreaOfEffect {
+                        hit_ships,
+                        destroyed_ships,
+                        damage_per_hit,
+                        area,
+                    }) => Ok(Some(ActionResult {
+                        inflicted_damage_at: hit_ships
+                            .iter()
+                            .cloned()
+                            .chain(destroyed_ships.iter())
+                            .flat_map(|s| {
+                                split_damage(
+                                    envelope_to_points(s.envelope()).collect(),
+                                    damage_per_hit,
+                                    &area,
+                                )
+                            })
+                            .collect(),
+                        inflicted_damage_by_ship: HashMap::from_iter(
+                            hit_ships
+                                .iter()
+                                .cloned()
+                                .chain(destroyed_ships.iter())
+                                .map(|ship| (ship.id(), damage_per_hit)),
+                        ),
+                        ships_destroyed: destroyed_ships.iter().map(|ship| ship.id()).collect(),
+                        gain_vision_at: HashSet::with_capacity(0),
+                        lost_vision_at: destroyed_ships
+                            .iter()
+                            .flat_map(|ship| envelope_to_points(ship.envelope()))
+                            .collect(),
+                        temp_vision_at: HashSet::with_capacity(0),
+                    })),
+                    Err(e) => Err(ActionExecutionError::Validation(e)),
+                }
+            }
             // TODO Implementation: Action::MultiMissile { .. } => {}
             Action::None => Ok(None),
             _ => todo!(),
