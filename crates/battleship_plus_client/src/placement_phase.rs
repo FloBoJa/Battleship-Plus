@@ -7,7 +7,6 @@ use std::{
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
 use bevy_mod_raycast::{Intersection, RaycastMesh, RaycastMethod, RaycastSource, RaycastSystem};
-use bevy_quinnet_client::Client;
 use iyes_loopless::prelude::*;
 use rstar::{Envelope, RTreeObject, AABB};
 
@@ -20,6 +19,7 @@ use battleship_plus_common::{
     types::{self, ShipAssignment, ShipType, Teams},
     util,
 };
+use bevy_quinnet_client::Client;
 
 use crate::{
     game_state::{GameState, PlayerId},
@@ -592,7 +592,6 @@ fn next_ship_id(
         Teams::None => unreachable!(),
     };
     (0..ship_set.len())
-        .into_iter()
         .map(|i| (i as u32, ShipType::from_i32(ship_set[i])))
         .map(|(id, ship_type)| (id, ship_type.expect("Ship sets contain ShipTypes")))
         .filter(|(_, entry_ship_type)| *entry_ship_type == ship_type)
@@ -617,9 +616,7 @@ fn are_all_ships_placed(
         Teams::TeamB => &config.ship_set_team_b,
         Teams::None => unreachable!(),
     };
-    !(0..ship_set.len() as u32)
-        .into_iter()
-        .any(|id| !used_ship_ids.contains(&id))
+    !(0..ship_set.len() as u32).any(|id| !used_ship_ids.contains(&id))
 }
 
 fn send_placement(
