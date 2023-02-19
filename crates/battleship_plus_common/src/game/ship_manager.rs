@@ -5,7 +5,7 @@ use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 use crate::game::{ActionValidationError, PlayerID};
-use crate::types::{Coordinate, MoveDirection, RotateDirection};
+use crate::types::{Coordinate, Direction, MoveDirection, RotateDirection};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {
@@ -337,6 +337,229 @@ impl ShipManager {
         }
     }
 
+    pub fn torpedo(
+        &mut self,
+        action_points: &mut u32,
+        ship_id: &ShipID,
+        direction: Direction,
+    ) -> Result<AreaOfEffect, ActionValidationError> {
+        let ship = self.ships.get(ship_id).cloned();
+        let submarine = match self.ships.get_mut(ship_id) {
+            None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+            Some(Ship::Submarine {
+                balancing,
+                cooldowns: cool_downs,
+                data,
+            }) => (balancing, cool_downs, data),
+            _ => return Err(ActionValidationError::InvalidShipType),
+        };
+        let ship = ship.unwrap();
+
+        // cooldown check
+        let remaining_rounds = submarine.1.iter().find_map(|cd| match cd {
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
+            _ => None,
+        });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
+        }
+
+        // check action points of player
+        let balancing = submarine.0.clone();
+        let costs = balancing
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap();
+        if *action_points < costs.action_points {
+            return Err(ActionValidationError::InsufficientPoints {
+                required: costs.action_points,
+            });
+        }
+
+        // enforce costs
+        *action_points -= costs.action_points;
+        if costs.cooldown > 0 {
+            submarine.1.push(Cooldown::Ability {
+                remaining_rounds: costs.cooldown,
+            });
+        }
+
+        let origin = [submarine.2.pos_x, submarine.2.pos_y];
+        let origin_offset = if direction == submarine.2.orientation.into() {
+            ship.len() - 1
+        } else {
+            0
+        };
+        let trajectory = match direction {
+            Direction::North => AABB::from_corners(
+                [origin[0], origin[1] + origin_offset],
+                [
+                    origin[0],
+                    origin[1] + origin_offset + balancing.torpedo_range as i32,
+                ],
+            ),
+            Direction::East => AABB::from_corners(
+                [origin[0] + origin_offset, origin[1]],
+                [
+                    origin[0] + origin_offset + balancing.torpedo_range as i32,
+                    origin[1],
+                ],
+            ),
+            Direction::South => AABB::from_corners(
+                [origin[0], origin[1] - origin_offset],
+                [
+                    origin[0],
+                    origin[1] - origin_offset - balancing.torpedo_range as i32,
+                ],
+            ),
+            Direction::West => AABB::from_corners(
+                [origin[0] - origin_offset, origin[1]],
+                [
+                    origin[0] - origin_offset - balancing.torpedo_range as i32,
+                    origin[1],
+                ],
+            ),
+        };
+
+        let hit_ships = self
+            .ships_geo_lookup
+            .locate_in_envelope_intersecting(&trajectory)
+            .filter_map(|node| {
+                if node.ship_id != *ship_id {
+                    Some(node.ship_id)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let destroyed_ships = hit_ships
+            .iter()
+            .filter_map(|id| {
+                let ship = self.ships.get_mut(id).unwrap();
+                if ship.apply_damage(balancing.torpedo_damage) {
+                    self.ships.remove(id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(AreaOfEffect {
+            hit_ships: hit_ships
+                .iter()
+                .filter_map(|id| self.ships.get(id))
+                .collect::<Vec<_>>(),
+            destroyed_ships,
+            damage_per_hit: balancing.torpedo_damage,
+            area: trajectory,
+        })
+    }
+
+    pub fn predator_missile(
+        &mut self,
+        action_points: &mut u32,
+        ship_id: &ShipID,
+        center: &[i32; 2],
+        bounds: &AABB<[i32; 2]>,
+    ) -> Result<AreaOfEffect, ActionValidationError> {
+        if !bounds.contains_point(center) {
+            // missile out of map
+            return Err(ActionValidationError::OutOfMap);
+        }
+
+        let ship = self.ships.get(ship_id).cloned();
+        let battleship = match self.ships.get_mut(ship_id) {
+            None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+            Some(Ship::Battleship {
+                balancing,
+                cooldowns: cool_downs,
+                data,
+            }) => (balancing, cool_downs, data),
+            _ => return Err(ActionValidationError::InvalidShipType),
+        };
+        let ship = ship.unwrap();
+
+        // cooldown check
+        let remaining_rounds = battleship.1.iter().find_map(|cd| match cd {
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
+            _ => None,
+        });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
+        }
+
+        // check action points of player
+        let balancing = battleship.0.clone();
+        let costs = balancing
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap();
+        if *action_points < costs.action_points {
+            return Err(ActionValidationError::InsufficientPoints {
+                required: costs.action_points,
+            });
+        }
+
+        // check range
+        if ship.distance_2(center) > balancing.predator_missile_range as i32 {
+            return Err(ActionValidationError::Unreachable);
+        }
+
+        // enforce costs
+        *action_points -= costs.action_points;
+        if costs.cooldown > 0 {
+            battleship.1.push(Cooldown::Ability {
+                remaining_rounds: costs.cooldown,
+            });
+        }
+
+        let blast_radius = AABB::from_corners(
+            [
+                center[0] + balancing.predator_missile_radius as i32,
+                center[1] + balancing.predator_missile_radius as i32,
+            ],
+            [
+                center[0] - balancing.predator_missile_radius as i32,
+                center[1] - balancing.predator_missile_radius as i32,
+            ],
+        );
+
+        let hit_ships = self
+            .ships_geo_lookup
+            .locate_in_envelope_intersecting(&blast_radius)
+            .map(|node| node.ship_id)
+            .collect::<Vec<_>>();
+
+        let destroyed_ships = hit_ships
+            .iter()
+            .filter_map(|id| {
+                let ship = self.ships.get_mut(id).unwrap();
+                if ship.apply_damage(balancing.predator_missile_damage) {
+                    self.ships.remove(id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(AreaOfEffect {
+            hit_ships: hit_ships
+                .iter()
+                .filter_map(|id| self.ships.get(id))
+                .collect::<Vec<_>>(),
+            destroyed_ships,
+            damage_per_hit: balancing.predator_missile_damage,
+            area: blast_radius,
+        })
+    }
+
     pub fn scout_plane(
         &mut self,
         action_points: &mut u32,
@@ -355,7 +578,7 @@ impl ShipManager {
             None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
             Some(Ship::Carrier {
                 balancing,
-                cool_downs,
+                cooldowns: cool_downs,
                 data,
             }) => (balancing, cool_downs, data),
             _ => return Err(ActionValidationError::InvalidShipType),
@@ -511,4 +734,12 @@ pub fn envelope_to_points(envelope: AABB<[i32; 2]>) -> impl Iterator<Item = Coor
             y: y as u32,
         })
     })
+}
+
+#[derive(Debug, Clone)]
+pub struct AreaOfEffect<'a> {
+    pub hit_ships: Vec<&'a Ship>,
+    pub destroyed_ships: Vec<Ship>,
+    pub damage_per_hit: u32,
+    pub area: AABB<[i32; 2]>,
 }
