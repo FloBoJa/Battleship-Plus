@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
+use bevy_egui::EguiContext;
 use bevy_mod_raycast::{Intersection, RaycastMesh};
 use iyes_loopless::prelude::*;
 
@@ -43,7 +44,8 @@ impl Plugin for GamePlugin {
         // raycast system has been added in PlacementPhasePlugin already
         .add_system(process_game_events.run_in_state(GameState::Game))
         .add_system(process_game_responses.run_in_state(GameState::Game))
-        .add_system(select_ship.run_in_state(GameState::Game));
+        .add_system(select_ship.run_in_state(GameState::Game))
+        .add_system(draw_menu.run_in_state(GameState::Game));
     }
 }
 
@@ -58,7 +60,7 @@ type PositionInQueue = Option<u32>;
 enum State {
     WaitingForTurn(PositionInQueue),
     ChoosingAction,
-    ChoseAction(ActionProperties),
+    ChoseAction(Option<ActionProperties>),
     WaitingForResponse,
 }
 
@@ -185,6 +187,131 @@ fn spawn_components(
         .insert(RaycastMesh::<RaycastSet>::default())
         .insert(Name::new("Grid"))
         .insert(DespawnOnExit);
+}
+
+fn draw_menu(
+    mut commands: Commands,
+    mut egui_context: ResMut<EguiContext>,
+    selected: Option<ResMut<SelectedShip>>,
+    ships: ResMut<Ships>,
+    player_id: Res<PlayerId>,
+    mut turn_state: ResMut<TurnState>,
+) {
+    let selected = match selected {
+        Some(selected) => ships.get_by_id(&(**player_id, **selected)),
+        None => None,
+    };
+
+    egui::TopBottomPanel::bottom(egui::Id::new("placement_menu")).show(
+        egui_context.ctx_mut(),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.set_height(50.0);
+
+                    // TODO: respect cooldowns and resources.
+                    let may_shoot = selected.is_some();
+                    let shoot_button = ui.add_enabled(may_shoot, egui::Button::new("Shoot"));
+                    if shoot_button.clicked() {
+                        debug!("Initiating shot...");
+                        debug!("Selecting target...");
+                        debug!("Selected self");
+                        let selected =
+                            selected.expect("Button can only be clicked when a ship is selected");
+                        let position = selected.position();
+                        let target = Some(types::Coordinate {
+                            x: position.0 as u32,
+                            y: position.1 as u32,
+                        });
+                        let shoot_properties = types::ShootProperties { target };
+                        **turn_state = State::ChoseAction(Some(ActionProperties::ShootProperties(
+                            shoot_properties,
+                        )));
+                    }
+
+                    let may_use_special = selected.is_some();
+                    let special_button =
+                        ui.add_enabled(may_use_special, egui::Button::new("Special"));
+                    if special_button.clicked() {
+                        debug!("Initiating special ability...");
+                        let _selected =
+                            selected.expect("Button can only be clicked when a ship is selected");
+                        warn!("Special abilities are not yet implemented!");
+                    }
+                });
+
+                ui.separator();
+
+                ui.label("Move:");
+                let may_move = selected.is_some();
+                let forward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b06}"));
+                let backward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b07}"));
+                let mut direction = None;
+                if forward_button.clicked() {
+                    trace!("Moving forward");
+                    direction = Some(types::MoveDirection::Forward);
+                } else if backward_button.clicked() {
+                    trace!("Moving backward");
+                    direction = Some(types::MoveDirection::Backward);
+                }
+                if let Some(direction) = direction {
+                    **turn_state = State::ChoseAction(Some(ActionProperties::MoveProperties(
+                        types::MoveProperties {
+                            direction: direction.into(),
+                        },
+                    )));
+                }
+
+                ui.separator();
+
+                ui.label("Rotate:");
+                let may_rotate = selected.is_some();
+                let clockwise_button = ui.add_enabled(may_rotate, egui::Button::new("\u{21A9}"));
+                let counter_clockwise_button =
+                    ui.add_enabled(may_rotate, egui::Button::new("\u{21AA}"));
+                let mut direction = None;
+                if clockwise_button.clicked() {
+                    trace!("Rotating clockwise");
+                    direction = Some(types::RotateDirection::Clockwise);
+                } else if counter_clockwise_button.clicked() {
+                    trace!("Rotating counter-clockwise");
+                    direction = Some(types::RotateDirection::CounterClockwise);
+                }
+                if let Some(direction) = direction {
+                    **turn_state = State::ChoseAction(Some(ActionProperties::RotateProperties(
+                        types::RotateProperties {
+                            direction: direction.into(),
+                        },
+                    )));
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.set_height(50.0);
+
+                    let format = egui::text::TextFormat {
+                        color: egui::Color32::RED,
+                        ..default()
+                    };
+                    let mut text = egui::text::LayoutJob::default();
+                    text.append("Leave Game", 0.0, format);
+
+                    if ui.button(text).clicked() {
+                        info!("Disconnecting from the server on user request");
+                        commands.insert_resource(NextState(GameState::Unconnected));
+                    }
+
+                    let end_turn_button = ui.add_enabled(
+                        matches!(**turn_state, State::ChoosingAction),
+                        egui::Button::new("End Turn"),
+                    );
+                    if end_turn_button.clicked() {
+                        trace!("Ending turn");
+                        **turn_state = State::ChoseAction(None);
+                    }
+                });
+            });
+        },
+    );
 }
 
 fn process_game_events(
