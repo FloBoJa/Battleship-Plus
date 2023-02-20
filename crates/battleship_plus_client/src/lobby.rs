@@ -10,10 +10,9 @@ use battleship_plus_common::{
     types,
 };
 
-use crate::game_state::{GameState, PlayerId};
+use crate::game_state::{CachedEvents, GameState, PlayerId};
 use crate::networking;
 use crate::placement_phase;
-use crate::server_selection;
 
 pub struct LobbyPlugin;
 
@@ -29,9 +28,6 @@ impl Plugin for LobbyPlugin {
             .add_enter_system(GameState::Lobby, reset_state);
     }
 }
-
-#[derive(Resource, Deref)]
-pub struct CachedEvents(Vec<messages::EventMessage>);
 
 #[derive(Resource, Deref)]
 pub struct UserName(pub String);
@@ -369,7 +365,7 @@ fn process_response_data(
 
 fn repeat_cached_events(
     mut commands: Commands,
-    cached_events: Option<Res<server_selection::CachedEvents>>,
+    cached_events: Option<Res<CachedEvents>>,
     mut event_writer: EventWriter<messages::EventMessage>,
 ) {
     let cached_events = match cached_events {
@@ -377,7 +373,7 @@ fn repeat_cached_events(
         None => return,
     };
     event_writer.send_batch(cached_events.into_iter());
-    commands.remove_resource::<server_selection::CachedEvents>();
+    commands.remove_resource::<CachedEvents>();
 }
 
 fn reset_state(mut request_state: ResMut<RequestState>) {

@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use battleship_plus_common::messages::{self, StatusCode};
 
-use crate::game_state::{GameState, PlayerId};
+use crate::game_state::{CachedEvents, GameState, PlayerId};
 use crate::lobby;
 use crate::networking;
 
@@ -346,9 +346,6 @@ fn process_join_response(
         }
     }
 }
-
-#[derive(Resource, Deref)]
-pub struct CachedEvents(Vec<messages::EventMessage>);
 
 fn process_join_response_data(
     commands: &mut Commands,
