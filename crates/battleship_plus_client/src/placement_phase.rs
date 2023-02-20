@@ -15,10 +15,11 @@ use battleship_plus_common::{
 };
 use bevy_quinnet_client::Client;
 
+use crate::game_state::CachedEvents;
 use crate::{
     game,
     game_state::{Config, GameState, PlayerId, PlayerTeam, Ships},
-    lobby::{self, LobbyState},
+    lobby::LobbyState,
     models::{
         load_assets, new_ship_model, GameAssets, OceanBundle, ShipBundle, ShipMeshes,
         CLICK_PLANE_OFFSET_Z,
@@ -60,9 +61,6 @@ impl Plugin for PlacementPhasePlugin {
             .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
     }
 }
-
-#[derive(Resource, Deref)]
-pub struct CachedEvents(Vec<messages::EventMessage>);
 
 #[derive(Resource, Deref)]
 pub struct Quadrant(AABB<[i32; 2]>);
@@ -699,7 +697,7 @@ fn process_game_start_event(
 
 fn repeat_cached_events(
     mut commands: Commands,
-    cached_events: Option<Res<lobby::CachedEvents>>,
+    cached_events: Option<Res<CachedEvents>>,
     mut event_writer: EventWriter<messages::EventMessage>,
 ) {
     let cached_events = match cached_events {
@@ -707,5 +705,5 @@ fn repeat_cached_events(
         None => return,
     };
     event_writer.send_batch(cached_events.into_iter());
-    commands.remove_resource::<lobby::CachedEvents>();
+    commands.remove_resource::<CachedEvents>();
 }

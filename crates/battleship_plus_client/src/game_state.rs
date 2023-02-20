@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use battleship_plus_common::{
     game::{ship_manager::ShipManager, PlayerID as CommonPlayerID},
-    types,
+    messages, types,
 };
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
@@ -27,3 +27,6 @@ pub struct PlayerTeam(pub types::Teams);
 
 #[derive(Resource, Deref)]
 pub struct Config(pub Arc<types::Config>);
+
+#[derive(Resource, Deref)]
+pub struct CachedEvents(pub Vec<messages::EventMessage>);

@@ -15,10 +15,10 @@ use battleship_plus_common::{
 };
 
 use crate::{
-    game_state::{Config, GameState, PlayerId, PlayerTeam, Ships},
+    game_state::{CachedEvents, Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby,
     models::{GameAssets, OceanBundle, ShipBundle, ShipMeshes, CLICK_PLANE_OFFSET_Z},
-    networking, placement_phase, RaycastSet,
+    networking, RaycastSet,
 };
 
 pub struct GamePlugin;
@@ -53,14 +53,16 @@ pub struct InitialGameState(pub types::ServerState);
 #[derive(Resource, Deref, DerefMut)]
 struct SelectedShip(u32);
 
+type PositionInQueue = Option<u32>;
+
 enum State {
-    WaitingForTurn,
+    WaitingForTurn(PositionInQueue),
     ChoosingAction,
     ChoseAction(ActionProperties),
     WaitingForResponse,
 }
 
-#[derive(Resource, Deref)]
+#[derive(Resource, Deref, DerefMut)]
 struct TurnState(State);
 
 #[derive(Component)]
@@ -73,7 +75,7 @@ fn create_resources(
     config: Res<Config>,
     player_team: Res<PlayerTeam>,
 ) {
-    commands.insert_resource(TurnState(State::WaitingForTurn));
+    commands.insert_resource(TurnState(State::WaitingForTurn(None)));
 
     let team_state = match **player_team {
         Teams::TeamA => &lobby.team_state_a,
@@ -185,20 +187,77 @@ fn spawn_components(
         .insert(DespawnOnExit);
 }
 
-fn process_game_events(mut events: EventReader<messages::EventMessage>) {
+fn process_game_events(
+    mut commands: Commands,
+    mut events: EventReader<messages::EventMessage>,
+    (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
+    mut turn_state: ResMut<TurnState>,
+) {
+    let mut transition_happened = false;
     for event in events.iter() {
         match event {
-            EventMessage::NextTurn(_) => {}
+            EventMessage::NextTurn(messages::NextTurn {
+                next_player_id,
+                position_in_queue,
+            }) => {
+                if **player_id == *next_player_id {
+                    info!("Turn started");
+                    **turn_state = State::ChoosingAction;
+                } else {
+                    **turn_state = match **turn_state {
+                        State::WaitingForTurn(_) | State::ChoosingAction => {
+                            if *position_in_queue == 0 {
+                                info!("It is {next_player_id}'s turn now");
+                                State::WaitingForTurn(None)
+                            } else {
+                                info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
+                                State::WaitingForTurn(Some(*position_in_queue))
+                            }
+                        }
+                        State::ChoseAction(_) => todo!("Was executing action when turn ended"),
+                        State::WaitingForResponse => {
+                            todo!("Was waiting for response when turn ended")
+                        }
+                    };
+                }
+            }
             EventMessage::SplashEvent(_) => {}
             EventMessage::HitEvent(_) => {}
             EventMessage::DestructionEvent(_) => {}
             EventMessage::VisionEvent(_) => {}
             EventMessage::ShipActionEvent(_) => {}
-            EventMessage::GameOverEvent(_) => {}
+            EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
+                let reason = types::GameEndReason::from_i32(*reason);
+                let winner = types::Teams::from_i32(*winner);
+                if Some(types::GameEndReason::Disconnect) == reason {
+                    info!("Someone left the game, forcing it to be aborted");
+                }
+                match winner {
+                    Some(team) => {
+                        if **player_team == team {
+                            info!("Victory!");
+                        } else if types::Teams::None == team {
+                            info!("Draw!");
+                        } else {
+                            info!("Defeat!");
+                        }
+                    }
+                    None => todo!(),
+                }
+                info!("Returning to lobby");
+                commands.insert_resource(NextState(GameState::Lobby));
+                transition_happened = true;
+            }
             _other_events => {
                 // ignore
             }
         }
+    }
+
+    if transition_happened {
+        trace!("Repeating events that happened during state transition");
+        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
+        commands.insert_resource(CachedEvents(events));
     }
 }
 
@@ -279,7 +338,7 @@ fn despawn_components(
 
 fn repeat_cached_events(
     mut commands: Commands,
-    cached_events: Option<Res<placement_phase::CachedEvents>>,
+    cached_events: Option<Res<CachedEvents>>,
     mut event_writer: EventWriter<messages::EventMessage>,
 ) {
     let cached_events = match cached_events {
@@ -287,7 +346,7 @@ fn repeat_cached_events(
         None => return,
     };
     event_writer.send_batch(cached_events.into_iter());
-    commands.remove_resource::<placement_phase::CachedEvents>();
+    commands.remove_resource::<CachedEvents>();
 }
 
 fn board_position_from_intersection(
