@@ -720,7 +720,7 @@ impl ShipManager {
             .map(|(node, p)| {
                 (
                     if let Some(node) = node {
-                        let ship = self.ships.get_mut(&node.ship_id).unwrap();
+                        let mut ship = self.ships.remove(&node.ship_id).unwrap();
 
                         if ship.apply_damage(balancing.multi_missile_damage) {
                             ShotResult::Destroyed(
@@ -729,7 +729,8 @@ impl ShipManager {
                                 envelope_to_points(node.envelope).collect(),
                             )
                         } else {
-                            ShotResult::Hit(ship.id(), balancing.multi_missile_damage)
+                            self.ships.insert(node.ship_id, ship);
+                            ShotResult::Hit(node.ship_id, balancing.multi_missile_damage)
                         }
                     } else {
                         ShotResult::Miss
