@@ -692,7 +692,7 @@ where
     K: Eq + PartialEq + Hash + Clone,
 {
     src.iter().fold(HashMap::new(), |mut acc, (k, v)| {
-        match acc.get(&k) {
+        match acc.get(k) {
             None => acc.insert(k.clone(), v.clone()),
             Some(previous) => acc.insert(k.clone(), previous.clone().add(v.clone())),
         };
