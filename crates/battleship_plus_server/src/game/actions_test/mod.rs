@@ -7,3 +7,4 @@ mod scout_plane;
 mod shoot;
 mod team_switch;
 mod torpedo;
+mod multi_missile;
