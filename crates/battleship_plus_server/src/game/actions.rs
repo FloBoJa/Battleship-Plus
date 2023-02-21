@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::iter::zip;
+use std::ops::Add;
 
 use log::{debug, error};
 use rstar::{Envelope, RTreeObject, AABB};
@@ -364,7 +365,88 @@ impl Action {
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
-            // TODO Implementation: Action::MultiMissile { .. } => {}
+            Action::MultiMissile {
+                ship_id,
+                properties,
+            } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
+
+                let positions = vec![
+                    properties.position_a.clone(),
+                    properties.position_b.clone(),
+                    properties.position_c.clone(),
+                ];
+                if positions.iter().any(|p| p.is_none()) {
+                    return Err(ActionExecutionError::BadRequest(String::from(
+                        "at least one position is missing",
+                    )));
+                }
+                let positions = positions
+                    .iter()
+                    .map(|o| o.as_ref().unwrap().clone())
+                    .collect();
+
+                let bounds = game.board_bounds();
+                match game.ships.multi_missile(
+                    &mut game.turn.as_mut().unwrap().action_points_left,
+                    &bounds,
+                    ship_id,
+                    positions,
+                ) {
+                    Ok(shot_results) => Ok(Some(ActionResult {
+                        inflicted_damage_at: collect_and_sum(
+                            shot_results
+                                .iter()
+                                .cloned()
+                                .filter_map(|(shot, p)| match shot {
+                                    ShotResult::Miss => None,
+                                    ShotResult::Hit(_, damage) => Some((p, damage)),
+                                    ShotResult::Destroyed(_, damage, _) => Some((p, damage)),
+                                })
+                                .collect(),
+                        ),
+                        inflicted_damage_by_ship: collect_and_sum(
+                            shot_results
+                                .iter()
+                                .cloned()
+                                .filter_map(|(shot, _)| match shot {
+                                    ShotResult::Miss => None,
+                                    ShotResult::Hit(ship_id, damage) => Some((ship_id, damage)),
+                                    ShotResult::Destroyed(ship_id, damage, _) => {
+                                        Some((ship_id, damage))
+                                    }
+                                })
+                                .collect(),
+                        ),
+                        ships_destroyed: shot_results
+                            .iter()
+                            .filter_map(|(shot, _)| {
+                                if let ShotResult::Destroyed(id, _, _) = shot {
+                                    Some(*id)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect(),
+                        gain_vision_at: HashSet::with_capacity(0),
+                        lost_vision_at: shot_results
+                            .iter()
+                            .filter_map(|(shot, _)| {
+                                if let ShotResult::Destroyed(_, _, tiles) = shot {
+                                    Some(tiles.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
+                            .collect(),
+                        temp_vision_at: HashSet::with_capacity(0),
+                    })),
+                    Err(e) => Err(ActionExecutionError::Validation(e)),
+                }
+            }
             Action::None => Ok(None),
             _ => todo!(),
         }
@@ -602,4 +684,18 @@ fn split_damage(
     }
 
     zip(tiles, damage_splits)
+}
+
+fn collect_and_sum<K, V>(src: Vec<(K, V)>) -> HashMap<K, V>
+where
+    V: Add<Output = V> + Clone,
+    K: Eq + PartialEq + Hash + Clone,
+{
+    src.iter().fold(HashMap::new(), |mut acc, (k, v)| {
+        match acc.get(&k) {
+            None => acc.insert(k.clone(), v.clone()),
+            Some(previous) => acc.insert(k.clone(), previous.clone().add(v.clone())),
+        };
+        acc
+    })
 }

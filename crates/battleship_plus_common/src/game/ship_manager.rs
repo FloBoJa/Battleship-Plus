@@ -641,6 +641,104 @@ impl ShipManager {
             .filter(|p| scout_area.contains_point(&[p.x as i32, p.y as i32]))
             .collect())
     }
+
+    pub fn multi_missile(
+        &mut self,
+        action_points: &mut u32,
+        bounds: &AABB<[i32; 2]>,
+        ship_id: &ShipID,
+        positions: Vec<Coordinate>,
+    ) -> Result<Vec<(ShotResult, Coordinate)>, ActionValidationError> {
+        if !positions
+            .iter()
+            .any(|p| bounds.contains_point(&[p.x as i32, p.y as i32]))
+        {
+            // at least one shot out of map
+            return Err(ActionValidationError::OutOfMap);
+        }
+
+        let ship = self.ships.get(ship_id).cloned();
+        let destroyer = match self.ships.get_mut(ship_id) {
+            None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+            Some(Ship::Destroyer {
+                balancing,
+                cooldowns: cool_downs,
+                data,
+            }) => (balancing, cool_downs, data),
+            _ => return Err(ActionValidationError::InvalidShipType),
+        };
+        let ship = ship.unwrap();
+
+        // cooldown check
+        let remaining_rounds = destroyer.1.iter().find_map(|cd| match cd {
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
+            _ => None,
+        });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
+        }
+
+        // check action points of player
+        let balancing = destroyer.0.clone();
+        let costs = balancing
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap();
+        if *action_points < costs.action_points {
+            return Err(ActionValidationError::InsufficientPoints {
+                required: costs.action_points,
+            });
+        }
+
+        // check range
+        if positions.iter().any(|p| {
+            ship.distance_2(&[p.x as i32, p.y as i32]) > balancing.multi_missile_radius as i32
+        }) {
+            return Err(ActionValidationError::Unreachable);
+        }
+
+        // enforce costs
+        *action_points -= costs.action_points;
+        if costs.cooldown > 0 {
+            destroyer.1.push(Cooldown::Ability {
+                remaining_rounds: costs.cooldown,
+            });
+        }
+
+        Ok(positions
+            .iter()
+            .map(|p| {
+                (
+                    self.ships_geo_lookup
+                        .locate_at_point(&[p.x as i32, p.y as i32]),
+                    p,
+                )
+            })
+            .map(|(node, p)| {
+                (
+                    if let Some(node) = node {
+                        let ship = self.ships.get_mut(&node.ship_id).unwrap();
+
+                        if ship.apply_damage(balancing.multi_missile_damage) {
+                            ShotResult::Destroyed(
+                                ship.id(),
+                                balancing.multi_missile_damage,
+                                envelope_to_points(node.envelope).collect(),
+                            )
+                        } else {
+                            ShotResult::Hit(ship.id(), balancing.multi_missile_damage)
+                        }
+                    } else {
+                        ShotResult::Miss
+                    },
+                    p.clone(),
+                )
+            })
+            .collect::<Vec<_>>())
+    }
 }
 
 #[derive(Debug, Clone)]
