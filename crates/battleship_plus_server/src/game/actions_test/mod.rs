@@ -1,4 +1,5 @@
 mod movement;
+mod multi_missile;
 mod place_ships;
 mod player_set_ready_state;
 mod predator_missile;
@@ -7,4 +8,3 @@ mod scout_plane;
 mod shoot;
 mod team_switch;
 mod torpedo;
-mod multi_missile;
