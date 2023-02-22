@@ -451,7 +451,7 @@ impl ShipManager {
         Ok(AreaOfEffect {
             hit_ships: hit_ships
                 .iter()
-                .filter_map(|id| self.ships.get(id))
+                .filter_map(|id| self.ships.get(id).cloned())
                 .collect::<Vec<_>>(),
             destroyed_ships,
             damage_per_hit: balancing.torpedo_damage,
@@ -520,7 +520,7 @@ impl ShipManager {
             });
         }
 
-        let blast_radius = AABB::from_corners(
+        let blast_area = AABB::from_corners(
             [
                 center[0] + balancing.predator_missile_radius as i32,
                 center[1] + balancing.predator_missile_radius as i32,
@@ -533,7 +533,7 @@ impl ShipManager {
 
         let hit_ships = self
             .ships_geo_lookup
-            .locate_in_envelope_intersecting(&blast_radius)
+            .locate_in_envelope_intersecting(&blast_area)
             .map(|node| node.ship_id)
             .collect::<Vec<_>>();
 
@@ -552,11 +552,11 @@ impl ShipManager {
         Ok(AreaOfEffect {
             hit_ships: hit_ships
                 .iter()
-                .filter_map(|id| self.ships.get(id))
+                .filter_map(|id| self.ships.get(id).cloned())
                 .collect::<Vec<_>>(),
             destroyed_ships,
             damage_per_hit: balancing.predator_missile_damage,
-            area: blast_radius,
+            area: blast_area,
         })
     }
 
@@ -640,6 +640,113 @@ impl ShipManager {
             .flat_map(|node| envelope_to_points(node.envelope))
             .filter(|p| scout_area.contains_point(&[p.x as i32, p.y as i32]))
             .collect())
+    }
+
+    pub fn multi_missile(
+        &mut self,
+        action_points: &mut u32,
+        bounds: &AABB<[i32; 2]>,
+        ship_id: &ShipID,
+        positions: Vec<Coordinate>,
+    ) -> Result<Vec<AreaOfEffect>, ActionValidationError> {
+        if positions
+            .iter()
+            .any(|p| !bounds.contains_point(&[p.x as i32, p.y as i32]))
+        {
+            // at least one shot out of map
+            return Err(ActionValidationError::OutOfMap);
+        }
+
+        let destroyer = match self.ships.get_mut(ship_id) {
+            None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+            Some(Ship::Destroyer {
+                balancing,
+                cooldowns: cool_downs,
+                data,
+            }) => (balancing, cool_downs, data),
+            _ => return Err(ActionValidationError::InvalidShipType),
+        };
+
+        // cooldown check
+        let remaining_rounds = destroyer.1.iter().find_map(|cd| match cd {
+            Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
+            _ => None,
+        });
+        if let Some(remaining_rounds) = remaining_rounds {
+            return Err(ActionValidationError::Cooldown { remaining_rounds });
+        }
+
+        // check action points of player
+        let balancing = destroyer.0.clone();
+        let costs = balancing
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap();
+        if *action_points < costs.action_points {
+            return Err(ActionValidationError::InsufficientPoints {
+                required: costs.action_points,
+            });
+        }
+
+        // enforce costs
+        *action_points -= costs.action_points;
+        if costs.cooldown > 0 {
+            destroyer.1.push(Cooldown::Ability {
+                remaining_rounds: costs.cooldown,
+            });
+        }
+
+        Ok(positions
+            .iter()
+            .map(|p| {
+                let blast_area = AABB::from_corners(
+                    [
+                        p.x as i32 - balancing.multi_missile_radius as i32,
+                        p.y as i32 - balancing.multi_missile_radius as i32,
+                    ],
+                    [
+                        p.x as i32 + balancing.multi_missile_radius as i32,
+                        p.y as i32 + balancing.multi_missile_radius as i32,
+                    ],
+                );
+
+                (
+                    self.ships_geo_lookup
+                        .locate_in_envelope_intersecting(&blast_area)
+                        .map(|node| node.ship_id)
+                        .collect::<HashSet<_>>(),
+                    blast_area,
+                )
+            })
+            .map(|(hit_ships, blast_area)| {
+                let destroyed_ships = hit_ships
+                    .iter()
+                    .filter_map(|id| match self.ships.get_mut(id) {
+                        Some(ship) => {
+                            if ship.apply_damage(balancing.multi_missile_damage) {
+                                self.ships.remove(id)
+                            } else {
+                                None
+                            }
+                        }
+                        None => None,
+                    })
+                    .collect();
+
+                AreaOfEffect {
+                    hit_ships: hit_ships
+                        .iter()
+                        .filter_map(|id| self.ships.get(id).cloned())
+                        .collect::<Vec<_>>(),
+                    destroyed_ships,
+                    damage_per_hit: balancing.multi_missile_damage,
+                    area: blast_area,
+                }
+            })
+            .collect::<Vec<_>>())
     }
 }
 
@@ -737,8 +844,8 @@ pub fn envelope_to_points(envelope: AABB<[i32; 2]>) -> impl Iterator<Item = Coor
 }
 
 #[derive(Debug, Clone)]
-pub struct AreaOfEffect<'a> {
-    pub hit_ships: Vec<&'a Ship>,
+pub struct AreaOfEffect {
+    pub hit_ships: Vec<Ship>,
     pub destroyed_ships: Vec<Ship>,
     pub damage_per_hit: u32,
     pub area: AABB<[i32; 2]>,
