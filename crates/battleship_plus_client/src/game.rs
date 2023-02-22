@@ -44,7 +44,7 @@ impl Plugin for GamePlugin {
         .add_exit_system(GameState::Game, despawn_components)
         // raycast system has been added in PlacementPhasePlugin already
         .add_system(process_game_events.run_in_state(GameState::Game))
-        .add_system(process_game_responses.run_in_state(GameState::Game))
+        .add_system(process_responses.run_in_state(GameState::Game))
         .add_system(select_ship.run_in_state(GameState::Game))
         .add_system(draw_menu.run_in_state(GameState::Game))
         .add_system(send_actions.run_in_state(GameState::Game));
@@ -390,29 +390,94 @@ fn process_game_events(
     }
 }
 
-fn process_game_responses(mut events: EventReader<networking::ResponseReceivedEvent>) {
+fn process_responses(
+    mut commands: Commands,
+    mut events: EventReader<networking::ResponseReceivedEvent>,
+    mut turn_state: ResMut<TurnState>,
+) {
     for networking::ResponseReceivedEvent(messages::StatusMessage {
         code,
         message,
         data,
     }) in events.iter()
     {
-        match StatusCode::from_i32(*code) {
+        let original_code = code;
+        let code = StatusCode::from_i32(*code);
+        match code {
             Some(StatusCode::Ok) => {
-                process_game_response_data(data, message);
+                process_response_data(data, message, &mut turn_state);
             }
-            None => {}
-            Some(_) => {}
+            Some(StatusCode::OkWithWarning) => {
+                if message.is_empty() {
+                    warn!("Received OK response with warning but without message");
+                } else {
+                    warn!("Received OK response with warning: {message}");
+                }
+                process_response_data(data, message, &mut turn_state);
+            }
+            Some(StatusCode::BadRequest) => {
+                if message.is_empty() {
+                    warn!("Illegal ship placement");
+                } else {
+                    warn!("Illegal ship placement: {message}");
+                }
+                **turn_state = State::ChoosingAction;
+            }
+            Some(StatusCode::ServerError) => {
+                if message.is_empty() {
+                    error!("Server error, disconnecting");
+                } else {
+                    error!("Server error with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            Some(StatusCode::UnsupportedVersion) => {
+                if message.is_empty() {
+                    error!("Unsupported protocol version, disconnecting");
+                } else {
+                    error!("Unsupported protocol version, disconnecting. Attached message: \"{message}\"");
+                }
+            }
+            Some(other_code) => {
+                if message.is_empty() {
+                    error!("Received inappropriate status code {other_code:?}, disconnecting");
+                } else {
+                    error!("Received inappropriate status code {other_code:?} with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
+            None => {
+                if message.is_empty() {
+                    error!("Received unknown status code {original_code}, disconnecting");
+                } else {
+                    error!("Received unknown status code {original_code} with message \"{message}\", disconnecting");
+                }
+                commands.insert_resource(NextState(GameState::Unconnected));
+            }
         }
     }
 }
 
-fn process_game_response_data(data: &Option<messages::status_message::Data>, message: &str) {
+fn process_response_data(
+    data: &Option<messages::status_message::Data>,
+    message: &str,
+    turn_state: &mut ResMut<TurnState>,
+) {
     match data {
-        Some(messages::status_message::Data::ServerStateResponse(_)) => {
-            println!("{}", message);
+        Some(messages::status_message::Data::ShipActionResponse(_)) => {
+            ***turn_state = State::ChoosingAction;
         }
-        _ => {}
+        Some(_other_response) => {
+            // ignore
+        }
+        None => {
+            if message.is_empty() {
+                warn!("No data in OK response");
+            } else {
+                warn!("No data in OK response with message: {message}");
+            }
+            // ignore
+        }
     }
 }
 
