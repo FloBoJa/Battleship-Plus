@@ -273,7 +273,6 @@ impl Action {
                         }) => Ok(Some(ActionResult {
                             inflicted_damage_at: hit_ships
                                 .iter()
-                                .cloned()
                                 .chain(destroyed_ships.iter())
                                 .flat_map(|s| {
                                     split_damage(
@@ -286,7 +285,6 @@ impl Action {
                             inflicted_damage_by_ship: HashMap::from_iter(
                                 hit_ships
                                     .iter()
-                                    .cloned()
                                     .chain(destroyed_ships.iter())
                                     .map(|ship| (ship.id(), damage_per_hit)),
                             ),
@@ -337,7 +335,6 @@ impl Action {
                     }) => Ok(Some(ActionResult {
                         inflicted_damage_at: hit_ships
                             .iter()
-                            .cloned()
                             .chain(destroyed_ships.iter())
                             .flat_map(|s| {
                                 split_damage(
@@ -350,7 +347,6 @@ impl Action {
                         inflicted_damage_by_ship: HashMap::from_iter(
                             hit_ships
                                 .iter()
-                                .cloned()
                                 .chain(destroyed_ships.iter())
                                 .map(|ship| (ship.id(), damage_per_hit)),
                         ),
@@ -395,55 +391,54 @@ impl Action {
                     ship_id,
                     positions,
                 ) {
-                    Ok(shot_results) => Ok(Some(ActionResult {
-                        inflicted_damage_at: collect_and_sum(
-                            shot_results
-                                .iter()
-                                .cloned()
-                                .filter_map(|(shot, p)| match shot {
-                                    ShotResult::Miss => None,
-                                    ShotResult::Hit(_, damage) => Some((p, damage)),
-                                    ShotResult::Destroyed(_, damage, _) => Some((p, damage)),
-                                })
-                                .collect(),
-                        ),
-                        inflicted_damage_by_ship: collect_and_sum(
-                            shot_results
-                                .iter()
-                                .cloned()
-                                .filter_map(|(shot, _)| match shot {
-                                    ShotResult::Miss => None,
-                                    ShotResult::Hit(ship_id, damage) => Some((ship_id, damage)),
-                                    ShotResult::Destroyed(ship_id, damage, _) => {
-                                        Some((ship_id, damage))
-                                    }
-                                })
-                                .collect(),
-                        ),
-                        ships_destroyed: shot_results
+                    Ok(affected_areas) => {
+                        let inflicted_damage_at = affected_areas
                             .iter()
-                            .filter_map(|(shot, _)| {
-                                if let ShotResult::Destroyed(id, _, _) = shot {
-                                    Some(*id)
-                                } else {
-                                    None
-                                }
+                            .flat_map(|area| {
+                                area.hit_ships
+                                    .iter()
+                                    .chain(area.destroyed_ships.iter())
+                                    .flat_map(|ship| {
+                                        split_damage(
+                                            envelope_to_points(ship.envelope()).collect(),
+                                            area.damage_per_hit,
+                                            &area.area,
+                                        )
+                                    })
                             })
-                            .collect(),
-                        gain_vision_at: HashSet::with_capacity(0),
-                        lost_vision_at: shot_results
+                            .collect::<Vec<_>>();
+                        let inflicted_damage_by_ship = affected_areas
                             .iter()
-                            .filter_map(|(shot, _)| {
-                                if let ShotResult::Destroyed(_, _, tiles) = shot {
-                                    Some(tiles.clone())
-                                } else {
-                                    None
-                                }
+                            .flat_map(|area| {
+                                area.hit_ships
+                                    .iter()
+                                    .chain(area.destroyed_ships.iter())
+                                    .map(|ship| (ship.id(), area.damage_per_hit))
                             })
-                            .flatten()
-                            .collect(),
-                        temp_vision_at: HashSet::with_capacity(0),
-                    })),
+                            .collect::<Vec<_>>();
+                        let ships_destroyed = affected_areas
+                            .iter()
+                            .flat_map(|area| area.destroyed_ships.iter())
+                            .collect::<Vec<_>>();
+                        let lost_vision_at = ships_destroyed
+                            .iter()
+                            .flat_map(|ship| envelope_to_points(ship.envelope()))
+                            .collect::<HashSet<_>>();
+
+                        let ships_destroyed = ships_destroyed
+                            .iter()
+                            .map(|ship| ship.id())
+                            .collect::<HashSet<_>>();
+
+                        Ok(Some(ActionResult {
+                            inflicted_damage_at: collect_and_sum(&inflicted_damage_at),
+                            inflicted_damage_by_ship: collect_and_sum(&inflicted_damage_by_ship),
+                            ships_destroyed,
+                            gain_vision_at: Default::default(),
+                            lost_vision_at,
+                            temp_vision_at: Default::default(),
+                        }))
+                    }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
@@ -568,7 +563,7 @@ fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionEr
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ActionResult {
     pub inflicted_damage_at: HashMap<Coordinate, u32>,
     pub inflicted_damage_by_ship: HashMap<ShipID, u32>,
@@ -686,7 +681,7 @@ fn split_damage(
     zip(tiles, damage_splits)
 }
 
-fn collect_and_sum<K, V>(src: Vec<(K, V)>) -> HashMap<K, V>
+fn collect_and_sum<K, V>(src: &Vec<(K, V)>) -> HashMap<K, V>
 where
     V: Add<Output = V> + Clone,
     K: Eq + PartialEq + Hash + Clone,
