@@ -73,7 +73,7 @@ impl ShipManager {
         let position = [position.x as i32, position.y as i32];
         let ship = self.ships_geo_lookup.locate_at_point(&position);
         if let Some(ShipTreeNode { ship_id, .. }) = ship {
-            self.get_by_id(&ship_id)
+            self.get_by_id(ship_id)
         } else {
             None
         }

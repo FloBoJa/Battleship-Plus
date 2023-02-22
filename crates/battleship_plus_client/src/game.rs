@@ -107,8 +107,7 @@ fn create_resources(
             commands.insert_resource(NextState(GameState::Unconnected));
         }
 
-        for ship_index in 0..allied_ship_count {
-            let ship_state = ship_states[ship_index];
+        for (ship_index, ship_state) in ship_states.iter().enumerate().take(allied_ship_count) {
             let ship_id = (allied_player, ship_index as u32);
             let position = ship_state
                 .position
