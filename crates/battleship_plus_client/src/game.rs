@@ -14,6 +14,7 @@ use battleship_plus_common::{
     messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
     types::{self, Teams},
 };
+use bevy_quinnet_client::Client;
 
 use crate::{
     game_state::{CachedEvents, Config, GameState, PlayerId, PlayerTeam, Ships},
@@ -45,7 +46,8 @@ impl Plugin for GamePlugin {
         .add_system(process_game_events.run_in_state(GameState::Game))
         .add_system(process_game_responses.run_in_state(GameState::Game))
         .add_system(select_ship.run_in_state(GameState::Game))
-        .add_system(draw_menu.run_in_state(GameState::Game));
+        .add_system(draw_menu.run_in_state(GameState::Game))
+        .add_system(send_actions.run_in_state(GameState::Game));
     }
 }
 
@@ -453,6 +455,32 @@ fn select_ship(
  * The contents of the request are encoded in the
  * TurnState(ChoseAction(X)) and SelectedShip resources.
  */
+
+fn send_actions(
+    mut commands: Commands,
+    mut turn_state: ResMut<TurnState>,
+    selected: Option<ResMut<SelectedShip>>,
+    client: Res<Client>,
+) {
+    let ship_number = match selected {
+        Some(selected) => **selected,
+        None => return,
+    };
+    let action_properties = match &**turn_state {
+        State::ChoseAction(action) => action.clone(),
+        _ => return,
+    };
+    let message = messages::ShipActionRequest {
+        ship_number,
+        action_properties,
+    };
+    if let Err(error) = client.connection().send_message(message.into()) {
+        error!("Could not send ShipActionRequest: {error}, disonnecting");
+        commands.insert_resource(NextState(GameState::Unconnected));
+    } else {
+        **turn_state = State::WaitingForResponse;
+    }
+}
 
 fn despawn_components(
     mut commands: Commands,
