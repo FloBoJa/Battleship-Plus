@@ -681,7 +681,7 @@ fn split_damage(
     zip(tiles, damage_splits)
 }
 
-fn collect_and_sum<K, V>(src: &Vec<(K, V)>) -> HashMap<K, V>
+fn collect_and_sum<K, V>(src: &[(K, V)]) -> HashMap<K, V>
 where
     V: Add<Output = V> + Clone,
     K: Eq + PartialEq + Hash + Clone,

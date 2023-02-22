@@ -724,10 +724,10 @@ impl ShipManager {
             .map(|(hit_ships, blast_area)| {
                 let destroyed_ships = hit_ships
                     .iter()
-                    .filter_map(|id| match self.ships.get_mut(&id) {
+                    .filter_map(|id| match self.ships.get_mut(id) {
                         Some(ship) => {
                             if ship.apply_damage(balancing.multi_missile_damage) {
-                                self.ships.remove(&id)
+                                self.ships.remove(id)
                             } else {
                                 None
                             }
@@ -739,7 +739,7 @@ impl ShipManager {
                 AreaOfEffect {
                     hit_ships: hit_ships
                         .iter()
-                        .filter_map(|id| self.ships.get(&id).cloned())
+                        .filter_map(|id| self.ships.get(id).cloned())
                         .collect::<Vec<_>>(),
                     destroyed_ships,
                     damage_per_hit: balancing.multi_missile_damage,
