@@ -43,8 +43,11 @@ impl Plugin for GamePlugin {
         .add_enter_system(GameState::Game, spawn_components)
         .add_exit_system(GameState::Game, despawn_components)
         // raycast system has been added in PlacementPhasePlugin already
-        .add_system(process_game_events.run_in_state(GameState::Game))
         .add_system(process_responses.run_in_state(GameState::Game))
+        .add_system_to_stage(
+            CoreStage::PostUpdate,
+            process_game_events.run_in_state(GameState::Game),
+        )
         .add_system(select_ship.run_in_state(GameState::Game))
         .add_system(draw_menu.run_in_state(GameState::Game))
         .add_system(send_actions.run_in_state(GameState::Game));
@@ -332,21 +335,23 @@ fn process_game_events(
                     info!("Turn started");
                     **turn_state = State::ChoosingAction;
                 } else {
-                    **turn_state = match **turn_state {
-                        State::WaitingForTurn(_) | State::ChoosingAction => {
-                            if *position_in_queue == 0 {
-                                info!("It is {next_player_id}'s turn now");
-                                State::WaitingForTurn(None)
-                            } else {
-                                info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
-                                State::WaitingForTurn(Some(*position_in_queue))
-                            }
+                    match **turn_state {
+                        State::WaitingForTurn(_) | State::ChoosingAction => {}
+                        State::ChoseAction(_) => {
+                            debug!("Action is aborted, the turn ended");
                         }
-                        State::ChoseAction(_) => todo!("Was executing action when turn ended"),
                         State::WaitingForResponse => {
-                            todo!("Was waiting for response when turn ended")
+                            warn!("Was waiting for response when turn ended, assuming that action did not execute.");
+                            // TODO: Robustness: request server state.
                         }
                     };
+                    **turn_state = if *position_in_queue == 0 {
+                        info!("It is {next_player_id}'s turn now");
+                        State::WaitingForTurn(None)
+                    } else {
+                        info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
+                        State::WaitingForTurn(Some(*position_in_queue))
+                    }
                 }
             }
             EventMessage::SplashEvent(splash) => {

@@ -21,8 +21,11 @@ impl Plugin for LobbyPlugin {
         app.init_resource::<LobbyState>()
             .init_resource::<RequestState>()
             .add_system(draw_lobby_screen.run_in_state(GameState::Lobby))
-            .add_system(process_lobby_events.run_in_state(GameState::Lobby))
             .add_system(process_responses.run_in_state(GameState::Lobby))
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                process_lobby_events.run_in_state(GameState::Lobby),
+            )
             // Catch events that happen immediately after joining.
             .add_enter_system(GameState::Lobby, repeat_cached_events)
             .add_enter_system(GameState::Lobby, reset_state);

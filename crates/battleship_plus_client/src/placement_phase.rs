@@ -58,7 +58,10 @@ impl Plugin for PlacementPhasePlugin {
             .add_system(place_ship.run_in_state(GameState::PlacementPhase))
             .add_system(send_placement.run_in_state(GameState::PlacementPhase))
             .add_system(process_responses.run_in_state(GameState::PlacementPhase))
-            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                process_game_start_event.run_in_state(GameState::PlacementPhase),
+            );
     }
 }
 
