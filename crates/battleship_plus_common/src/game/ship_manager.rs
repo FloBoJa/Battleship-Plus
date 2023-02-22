@@ -649,9 +649,9 @@ impl ShipManager {
         ship_id: &ShipID,
         positions: Vec<Coordinate>,
     ) -> Result<Vec<AreaOfEffect>, ActionValidationError> {
-        if !positions
+        if positions
             .iter()
-            .any(|p| bounds.contains_point(&[p.x as i32, p.y as i32]))
+            .any(|p| !bounds.contains_point(&[p.x as i32, p.y as i32]))
         {
             // at least one shot out of map
             return Err(ActionValidationError::OutOfMap);
