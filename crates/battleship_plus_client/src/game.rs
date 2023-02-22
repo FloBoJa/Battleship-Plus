@@ -350,11 +350,43 @@ fn process_game_events(
                     };
                 }
             }
-            EventMessage::SplashEvent(_) => {}
-            EventMessage::HitEvent(_) => {}
-            EventMessage::DestructionEvent(_) => {}
-            EventMessage::VisionEvent(_) => {}
-            EventMessage::ShipActionEvent(_) => {}
+            EventMessage::SplashEvent(splash) => {
+                let splashes: Vec<_> = splash.coordinate.iter().map(|x| (x.x, x.y)).collect();
+                if splashes.len() == 1 {
+                    info!("Splash at {:?}", splashes[0]);
+                } else {
+                    info!("Splashes at {:?}", splashes);
+                }
+            }
+            EventMessage::HitEvent(hit) => {
+                if let Some(types::Coordinate { x, y }) = hit.coordinate {
+                    info!("Hit at ({x}, {y}) for {} damage", hit.damage);
+                }
+            }
+            EventMessage::DestructionEvent(destruction) => {
+                if let Some(types::Coordinate { x, y }) = destruction.coordinate {
+                    info!(
+                        "Player {} lost ship {} at ({x}, {y}), facing {:?}",
+                        destruction.owner,
+                        destruction.ship_number,
+                        destruction.direction()
+                    );
+                }
+            }
+            EventMessage::VisionEvent(vision) => {
+                for types::Coordinate { x, y } in &vision.vanished_ship_fields {
+                    info!("Lost sight of ship at ({x}, {y})");
+                }
+                for types::Coordinate { x, y } in &vision.discovered_ship_fields {
+                    info!("Sighted ship at ({x}, {y})");
+                }
+            }
+            EventMessage::ShipActionEvent(action) => {
+                info!(
+                    "Ship {} executed {:?}",
+                    action.ship_number, action.action_properties
+                );
+            }
             EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
                 let reason = types::GameEndReason::from_i32(*reason);
                 let winner = types::Teams::from_i32(*winner);
