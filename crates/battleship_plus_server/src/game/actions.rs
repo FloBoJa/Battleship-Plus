@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::iter::zip;
+use std::ops::Add;
 
 use log::{debug, error};
 use rstar::{Envelope, RTreeObject, AABB};
@@ -272,7 +273,6 @@ impl Action {
                         }) => Ok(Some(ActionResult {
                             inflicted_damage_at: hit_ships
                                 .iter()
-                                .cloned()
                                 .chain(destroyed_ships.iter())
                                 .flat_map(|s| {
                                     split_damage(
@@ -285,7 +285,6 @@ impl Action {
                             inflicted_damage_by_ship: HashMap::from_iter(
                                 hit_ships
                                     .iter()
-                                    .cloned()
                                     .chain(destroyed_ships.iter())
                                     .map(|ship| (ship.id(), damage_per_hit)),
                             ),
@@ -336,7 +335,6 @@ impl Action {
                     }) => Ok(Some(ActionResult {
                         inflicted_damage_at: hit_ships
                             .iter()
-                            .cloned()
                             .chain(destroyed_ships.iter())
                             .flat_map(|s| {
                                 split_damage(
@@ -349,7 +347,6 @@ impl Action {
                         inflicted_damage_by_ship: HashMap::from_iter(
                             hit_ships
                                 .iter()
-                                .cloned()
                                 .chain(destroyed_ships.iter())
                                 .map(|ship| (ship.id(), damage_per_hit)),
                         ),
@@ -364,7 +361,87 @@ impl Action {
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
-            // TODO Implementation: Action::MultiMissile { .. } => {}
+            Action::MultiMissile {
+                ship_id,
+                properties,
+            } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id)?;
+                check_players_turn(game, player_id)?;
+
+                let positions = vec![
+                    properties.position_a.clone(),
+                    properties.position_b.clone(),
+                    properties.position_c.clone(),
+                ];
+                if positions.iter().any(|p| p.is_none()) {
+                    return Err(ActionExecutionError::BadRequest(String::from(
+                        "at least one position is missing",
+                    )));
+                }
+                let positions = positions
+                    .iter()
+                    .map(|o| o.as_ref().unwrap().clone())
+                    .collect();
+
+                let bounds = game.board_bounds();
+                match game.ships.multi_missile(
+                    &mut game.turn.as_mut().unwrap().action_points_left,
+                    &bounds,
+                    ship_id,
+                    positions,
+                ) {
+                    Ok(affected_areas) => {
+                        let inflicted_damage_at = affected_areas
+                            .iter()
+                            .flat_map(|area| {
+                                area.hit_ships
+                                    .iter()
+                                    .chain(area.destroyed_ships.iter())
+                                    .flat_map(|ship| {
+                                        split_damage(
+                                            envelope_to_points(ship.envelope()).collect(),
+                                            area.damage_per_hit,
+                                            &area.area,
+                                        )
+                                    })
+                            })
+                            .collect::<Vec<_>>();
+                        let inflicted_damage_by_ship = affected_areas
+                            .iter()
+                            .flat_map(|area| {
+                                area.hit_ships
+                                    .iter()
+                                    .chain(area.destroyed_ships.iter())
+                                    .map(|ship| (ship.id(), area.damage_per_hit))
+                            })
+                            .collect::<Vec<_>>();
+                        let ships_destroyed = affected_areas
+                            .iter()
+                            .flat_map(|area| area.destroyed_ships.iter())
+                            .collect::<Vec<_>>();
+                        let lost_vision_at = ships_destroyed
+                            .iter()
+                            .flat_map(|ship| envelope_to_points(ship.envelope()))
+                            .collect::<HashSet<_>>();
+
+                        let ships_destroyed = ships_destroyed
+                            .iter()
+                            .map(|ship| ship.id())
+                            .collect::<HashSet<_>>();
+
+                        Ok(Some(ActionResult {
+                            inflicted_damage_at: collect_and_sum(&inflicted_damage_at),
+                            inflicted_damage_by_ship: collect_and_sum(&inflicted_damage_by_ship),
+                            ships_destroyed,
+                            gain_vision_at: Default::default(),
+                            lost_vision_at,
+                            temp_vision_at: Default::default(),
+                        }))
+                    }
+                    Err(e) => Err(ActionExecutionError::Validation(e)),
+                }
+            }
             Action::None => Ok(None),
             _ => todo!(),
         }
@@ -486,7 +563,7 @@ fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionEr
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ActionResult {
     pub inflicted_damage_at: HashMap<Coordinate, u32>,
     pub inflicted_damage_by_ship: HashMap<ShipID, u32>,
@@ -602,4 +679,18 @@ fn split_damage(
     }
 
     zip(tiles, damage_splits)
+}
+
+fn collect_and_sum<K, V>(src: &[(K, V)]) -> HashMap<K, V>
+where
+    V: Add<Output = V> + Clone,
+    K: Eq + PartialEq + Hash + Clone,
+{
+    src.iter().fold(HashMap::new(), |mut acc, (k, v)| {
+        match acc.get(k) {
+            None => acc.insert(k.clone(), v.clone()),
+            Some(previous) => acc.insert(k.clone(), previous.clone().add(v.clone())),
+        };
+        acc
+    })
 }
