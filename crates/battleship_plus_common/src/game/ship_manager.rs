@@ -225,9 +225,11 @@ impl ShipManager {
             true,
             ActionValidationError::NonExistentShip { id: *ship_id },
             |ship| {
-                let costs = ship.common_balancing().movement_costs.unwrap();
+                let costs = ship.common_balancing().movement_costs;
 
                 if handle_costs {
+                    let costs = costs.as_ref().unwrap();
+
                     // cooldown check
                     let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
                         Cooldown::Movement { remaining_rounds } => Some(*remaining_rounds),
@@ -251,7 +253,7 @@ impl ShipManager {
                         // enforce costs
                         let new_position = new_position;
 
-                        if handle_costs {
+                        if let Some(costs) = costs {
                             *action_points -= costs.action_points;
                             if costs.cooldown > 0 {
                                 ship.cool_downs_mut().push(Cooldown::Movement {
@@ -320,24 +322,25 @@ impl ShipManager {
 
         let result = (do_movement)(self, balancing.clone())?;
 
+        // enforce action point costs
+        *action_points -= balancing
+            .as_ref()
+            .common_balancing
+            .as_ref()
+            .unwrap()
+            .ability_costs
+            .as_ref()
+            .unwrap()
+            .action_points;
+
         match self.ships.get_mut(ship_id) {
             // ship got destroyed
-            None => return Ok(result),
+            None => Ok(result),
             Some(Ship::Cruiser {
-                balancing,
                 cooldowns: cool_downs,
                 ..
             }) => {
-                // enforce costs
-                *action_points -= balancing
-                    .as_ref()
-                    .common_balancing
-                    .as_ref()
-                    .unwrap()
-                    .ability_costs
-                    .as_ref()
-                    .unwrap()
-                    .action_points;
+                // enforce cooldown costs
                 if costs.cooldown > 0 {
                     cool_downs.push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
