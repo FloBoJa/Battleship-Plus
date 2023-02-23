@@ -701,7 +701,21 @@ impl ActionResult {
                     HashSet::from_iter(ships.iter().map(|s| s.id()))
                 }),
             gain_vision_at: difference(new_vision, old_vision),
-            lost_vision_at: difference(old_vision, new_vision),
+            lost_vision_at: difference(old_vision, new_vision)
+                .iter()
+                .chain(
+                    destroyed_ships
+                        .as_ref()
+                        .map_or(vec![], |ships| {
+                            ships
+                                .iter()
+                                .flat_map(|ship| envelope_to_points(ship.envelope()))
+                                .collect()
+                        })
+                        .iter(),
+                )
+                .cloned()
+                .collect(),
             temp_vision_at: HashSet::with_capacity(0),
         }
     }
