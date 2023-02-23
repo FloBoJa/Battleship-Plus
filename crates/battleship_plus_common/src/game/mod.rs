@@ -14,4 +14,5 @@ pub enum ActionValidationError {
     InvalidShipPlacement(ship_manager::ShipPlacementError),
     InvalidShipType,
     NotPlayersTurn,
+    Ignored,
 }

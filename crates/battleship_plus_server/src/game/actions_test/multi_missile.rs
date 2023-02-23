@@ -123,15 +123,15 @@ async fn actions_multi_missile() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(inflicted_damage_by_ship.contains_key(&destroyed1.id()));
         assert!(inflicted_damage_by_ship.contains_key(&hit1.id()));
@@ -239,15 +239,15 @@ async fn actions_multi_missile_same_spot() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 1);
         assert!(inflicted_damage_by_ship.contains_key(&destroyed.id()));
