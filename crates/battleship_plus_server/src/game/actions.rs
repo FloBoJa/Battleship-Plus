@@ -14,8 +14,6 @@ use battleship_plus_common::game::ship_manager::{
 use battleship_plus_common::game::ActionValidationError;
 use battleship_plus_common::game::{ship::ShipID, PlayerID};
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
-use battleship_plus_common::messages::*;
-use battleship_plus_common::types::*;
 use bevy_quinnet_server::ClientId;
 
 use crate::game::data::{Game, Turn};
@@ -355,7 +353,7 @@ impl Action {
                                     if res.is_err() {
                                         let old = encountered_err.load(Ordering::Relaxed);
                                         encountered_err.store(true, Ordering::Relaxed);
-                                        return !old;
+                                        !old
                                     } else {
                                         true
                                     }
@@ -651,6 +649,7 @@ fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionValidationE
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ActionResult {
     None,
     Single {
