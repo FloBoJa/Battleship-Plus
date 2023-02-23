@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
 use crate::game::ship::{ship_distance, Cooldown, GetShipID, Ship, ShipID};
 use crate::game::{ActionValidationError, PlayerID};
-use crate::types::{Coordinate, Direction, MoveDirection, RotateDirection};
+use crate::types::{Coordinate, CruiserBalancing, Direction, MoveDirection, RotateDirection};
 
 #[derive(Debug, Clone, Default)]
 pub struct ShipManager {
@@ -214,6 +215,7 @@ impl ShipManager {
     pub fn move_ship(
         &mut self,
         action_points: &mut u32,
+        handle_costs: bool,
         ship_id: &ShipID,
         direction: MoveDirection,
         bounds: &AABB<[i32; 2]>,
@@ -223,34 +225,39 @@ impl ShipManager {
             true,
             ActionValidationError::NonExistentShip { id: *ship_id },
             |ship| {
-                // cooldown check
-                let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
-                    Cooldown::Movement { remaining_rounds } => Some(*remaining_rounds),
-                    _ => None,
-                });
-                if let Some(remaining_rounds) = remaining_rounds {
-                    return Err(ActionValidationError::Cooldown { remaining_rounds });
-                }
-
-                // check action points of player
                 let costs = ship.common_balancing().movement_costs.unwrap();
-                if *action_points < costs.action_points {
-                    return Err(ActionValidationError::InsufficientPoints {
-                        required: costs.action_points,
+
+                if handle_costs {
+                    // cooldown check
+                    let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
+                        Cooldown::Movement { remaining_rounds } => Some(*remaining_rounds),
+                        _ => None,
                     });
+                    if let Some(remaining_rounds) = remaining_rounds {
+                        return Err(ActionValidationError::Cooldown { remaining_rounds });
+                    }
+
+                    // check action points
+                    if *action_points < costs.action_points {
+                        return Err(ActionValidationError::InsufficientPoints {
+                            required: costs.action_points,
+                        });
+                    }
                 }
 
-                //let old_envelope = ship.envelope();
                 match ship.do_move(direction, bounds) {
                     Err(e) => Err(e),
                     Ok(new_position) => {
                         // enforce costs
                         let new_position = new_position;
-                        *action_points -= costs.action_points;
-                        if costs.cooldown > 0 {
-                            ship.cool_downs_mut().push(Cooldown::Movement {
-                                remaining_rounds: costs.cooldown,
-                            });
+
+                        if handle_costs {
+                            *action_points -= costs.action_points;
+                            if costs.cooldown > 0 {
+                                ship.cool_downs_mut().push(Cooldown::Movement {
+                                    remaining_rounds: costs.cooldown,
+                                });
+                            }
                         }
 
                         Ok(new_position)
@@ -258,6 +265,89 @@ impl ShipManager {
                 }
             },
         )
+    }
+
+    pub fn engine_boost<R, F>(
+        &mut self,
+        action_points: &mut u32,
+        ship_id: &ShipID,
+        do_movement: F,
+    ) -> Result<R, ActionValidationError>
+    where
+        F: FnOnce(&mut ShipManager, Arc<CruiserBalancing>) -> Result<R, ActionValidationError>,
+    {
+        let balancing;
+        let costs;
+        {
+            let ship = self.ships.get(ship_id).cloned();
+            let cruiser = match self.ships.get_mut(ship_id) {
+                None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
+                Some(Ship::Cruiser {
+                    balancing,
+                    cooldowns: cool_downs,
+                    data,
+                }) => (balancing, cool_downs, data),
+                _ => return Err(ActionValidationError::InvalidShipType),
+            };
+            let ship = ship.unwrap();
+
+            // check action points of player
+            balancing = cruiser.0.clone();
+            costs = balancing
+                .common_balancing
+                .as_ref()
+                .unwrap()
+                .ability_costs
+                .as_ref()
+                .unwrap();
+
+            // cooldown check
+            let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
+                Cooldown::Ability { remaining_rounds } => Some(*remaining_rounds),
+                _ => None,
+            });
+            if let Some(remaining_rounds) = remaining_rounds {
+                return Err(ActionValidationError::Cooldown { remaining_rounds });
+            }
+
+            // check action points
+            if *action_points < costs.action_points {
+                return Err(ActionValidationError::InsufficientPoints {
+                    required: costs.action_points,
+                });
+            }
+        }
+
+        let result = (do_movement)(self, balancing.clone())?;
+
+        match self.ships.get_mut(ship_id) {
+            // ship got destroyed
+            None => return Ok(result),
+            Some(Ship::Cruiser {
+                balancing,
+                cooldowns: cool_downs,
+                ..
+            }) => {
+                // enforce costs
+                *action_points -= balancing
+                    .as_ref()
+                    .common_balancing
+                    .as_ref()
+                    .unwrap()
+                    .ability_costs
+                    .as_ref()
+                    .unwrap()
+                    .action_points;
+                if costs.cooldown > 0 {
+                    cool_downs.push(Cooldown::Ability {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+
+                Ok(result)
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Checks for all conditions required for a ship rotation and executes a rotation.

@@ -275,7 +275,6 @@ impl Ship {
         direction: MoveDirection,
         bounds: &AABB<[i32; 2]>,
     ) -> Result<AABB<[i32; 2]>, ActionValidationError> {
-        let balancing = self.common_balancing();
         let orientation = self.orientation();
         let movement = match direction {
             MoveDirection::Forward => 1,
@@ -297,14 +296,6 @@ impl Ship {
 
         if bounds.contains_envelope(&self.get_envelope(new_x, new_y)) {
             self.set_position(new_x, new_y);
-
-            let cooldown = balancing.movement_costs.unwrap().cooldown;
-            if cooldown > 0 {
-                self.cool_downs_mut().push(Cooldown::Movement {
-                    remaining_rounds: cooldown,
-                });
-            }
-
             Ok(self.envelope())
         } else {
             Err(ActionValidationError::OutOfMap)
