@@ -228,9 +228,7 @@ fn draw_menu(
                             y: position.1 as u32,
                         });
                         let shoot_properties = types::ShootProperties { target };
-                        **turn_state = State::ChoseAction(Some(ActionProperties::ShootProperties(
-                            shoot_properties,
-                        )));
+                        **turn_state = State::ChoseAction(Some(shoot_properties.into()));
                     }
 
                     let may_use_special = selected.is_some();
@@ -238,9 +236,33 @@ fn draw_menu(
                         ui.add_enabled(may_use_special, egui::Button::new("Special"));
                     if special_button.clicked() {
                         debug!("Initiating special ability...");
-                        let _selected =
+                        let selected =
                             selected.expect("Button can only be clicked when a ship is selected");
-                        warn!("Special abilities are not yet implemented!");
+                        let position = selected.position();
+                        let target = Some(types::Coordinate {
+                            x: position.0 as u32,
+                            y: position.1 as u32,
+                        });
+                        let action_properties = match selected.ship_type() {
+                            types::ShipType::Carrier => {
+                                types::ScoutPlaneProperties { center: target }.into()
+                            }
+                            types::ShipType::Submarine => types::TorpedoProperties {
+                                direction: types::Direction::from(selected.orientation()).into(),
+                            }
+                            .into(),
+                            types::ShipType::Cruiser => types::EngineBoostProperties {}.into(),
+                            types::ShipType::Battleship => {
+                                types::PredatorMissileProperties { center: target }.into()
+                            }
+                            types::ShipType::Destroyer => types::MultiMissileProperties {
+                                position_a: target.clone(),
+                                position_b: target.clone(),
+                                position_c: target,
+                            }
+                            .into(),
+                        };
+                        **turn_state = State::ChoseAction(Some(action_properties));
                     }
                 });
 
