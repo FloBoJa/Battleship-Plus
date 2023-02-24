@@ -559,7 +559,7 @@ fn configure_client(
         let mut config = ClientConfig::new(Arc::new(crypto));
         let mut transport_config = quinn::TransportConfig::default();
         transport_config.max_idle_timeout(None);
-        transport_config.keep_alive_interval(Some(core::time::Duration::from_secs(30)));
+        transport_config.keep_alive_interval(Some(core::time::Duration::from_secs(10)));
         config.transport_config(Arc::new(transport_config));
         config
     })
