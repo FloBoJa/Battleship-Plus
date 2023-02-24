@@ -451,11 +451,27 @@ fn process_responses(
                 }
                 process_response_data(data, message, &mut turn_state);
             }
+            Some(StatusCode::InsufficientResources) => {
+                if message.is_empty() {
+                    warn!("Server signaled insufficient resources, action was not executed");
+                } else {
+                    warn!("Server signaled insufficient resources, action was not executed: {message}");
+                }
+                **turn_state = State::ChoosingAction;
+            }
+            Some(StatusCode::InvalidMove) => {
+                if message.is_empty() {
+                    warn!("Server understood request, but the action was invalid. The action was not executed");
+                } else {
+                    warn!("Server understood request, but the action was invalid. The action was not executed: {message}");
+                }
+                **turn_state = State::ChoosingAction;
+            }
             Some(StatusCode::BadRequest) => {
                 if message.is_empty() {
-                    warn!("Illegal ship placement");
+                    warn!("Server did not understand or accept request");
                 } else {
-                    warn!("Illegal ship placement: {message}");
+                    warn!("Server did not understand or accept request: {message}");
                 }
                 **turn_state = State::ChoosingAction;
             }
