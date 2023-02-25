@@ -225,10 +225,10 @@ impl ShipManager {
             true,
             ActionValidationError::NonExistentShip { id: *ship_id },
             |ship| {
-                let costs = ship.common_balancing().movement_costs;
-
+                let costs;
                 if handle_costs {
-                    let costs = costs.as_ref().unwrap();
+                    costs = ship.common_balancing().movement_costs;
+                    let action_point_costs = costs.as_ref().unwrap().action_points;
 
                     // cooldown check
                     let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
@@ -240,11 +240,13 @@ impl ShipManager {
                     }
 
                     // check action points
-                    if *action_points < costs.action_points {
+                    if *action_points < action_point_costs {
                         return Err(ActionValidationError::InsufficientPoints {
-                            required: costs.action_points,
+                            required: action_point_costs,
                         });
                     }
+                } else {
+                    costs = None
                 }
 
                 match ship.do_move(direction, bounds) {
