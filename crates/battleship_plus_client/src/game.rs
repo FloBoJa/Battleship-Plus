@@ -8,11 +8,11 @@ use iyes_loopless::prelude::*;
 
 use battleship_plus_common::{
     game::{
-        ship::{GetShipID, Orientation, Ship},
+        ship::{Cooldown, GetShipID, Orientation, Ship},
         ship_manager::ShipManager,
     },
     messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
-    types::{self, Teams},
+    types::{self, CommonBalancing, Teams},
 };
 use bevy_quinnet_client::Client;
 
@@ -75,6 +75,9 @@ struct TurnState(State);
 #[derive(Component)]
 struct DespawnOnExit;
 
+#[derive(Resource, Deref, DerefMut)]
+struct ActionPoints(u32);
+
 fn create_resources(
     mut commands: Commands,
     initial_game_state: Res<InitialGameState>,
@@ -130,6 +133,8 @@ fn create_resources(
     }
 
     commands.insert_resource(Ships(ShipManager::new_with_ships(ships)));
+
+    commands.insert_resource(ActionPoints(0));
 }
 
 fn spawn_components(
@@ -199,12 +204,14 @@ fn draw_menu(
     selected: Option<ResMut<SelectedShip>>,
     ships: ResMut<Ships>,
     player_id: Res<PlayerId>,
-    mut turn_state: ResMut<TurnState>,
+    (action_points, mut turn_state): (Res<ActionPoints>, ResMut<TurnState>),
+    config: Res<Config>,
 ) {
     let selected = match selected {
         Some(selected) => ships.get_by_id(&(**player_id, **selected)),
         None => None,
     };
+    let may_execute_action = matches!(**turn_state, State::ChoosingAction);
 
     egui::TopBottomPanel::bottom(egui::Id::new("placement_menu")).show(
         egui_context.ctx_mut(),
@@ -213,8 +220,8 @@ fn draw_menu(
                 ui.horizontal_centered(|ui| {
                     ui.set_height(50.0);
 
-                    // TODO: respect cooldowns and resources.
-                    let may_shoot = selected.is_some();
+                    let may_shoot =
+                        may_execute_action && may_shoot(&selected, &action_points, &config);
                     let shoot_button = ui.add_enabled(may_shoot, egui::Button::new("Shoot"));
                     if shoot_button.clicked() {
                         debug!("Initiating shot...");
@@ -231,7 +238,8 @@ fn draw_menu(
                         **turn_state = State::ChoseAction(Some(shoot_properties.into()));
                     }
 
-                    let may_use_special = selected.is_some();
+                    let may_use_special =
+                        may_execute_action && may_use_special(&selected, &action_points, &config);
                     let special_button =
                         ui.add_enabled(may_use_special, egui::Button::new("Special"));
                     if special_button.clicked() {
@@ -269,7 +277,7 @@ fn draw_menu(
                 ui.separator();
 
                 ui.label("Move:");
-                let may_move = selected.is_some();
+                let may_move = may_execute_action && may_move(&selected, &action_points, &config);
                 let forward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b06}"));
                 let backward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b07}"));
                 let mut direction = None;
@@ -291,7 +299,8 @@ fn draw_menu(
                 ui.separator();
 
                 ui.label("Rotate:");
-                let may_rotate = selected.is_some();
+                let may_rotate =
+                    may_execute_action && may_rotate(&selected, &action_points, &config);
                 let clockwise_button = ui.add_enabled(may_rotate, egui::Button::new("\u{21A9}"));
                 let counter_clockwise_button =
                     ui.add_enabled(may_rotate, egui::Button::new("\u{21AA}"));
@@ -326,10 +335,8 @@ fn draw_menu(
                         commands.insert_resource(NextState(GameState::Unconnected));
                     }
 
-                    let end_turn_button = ui.add_enabled(
-                        matches!(**turn_state, State::ChoosingAction),
-                        egui::Button::new("End Turn"),
-                    );
+                    let end_turn_button =
+                        ui.add_enabled(may_execute_action, egui::Button::new("End Turn"));
                     if end_turn_button.clicked() {
                         trace!("Ending turn");
                         **turn_state = State::ChoseAction(None);
@@ -340,11 +347,161 @@ fn draw_menu(
     );
 }
 
+fn may_shoot(
+    selected: &Option<&Ship>,
+    action_points: &Res<ActionPoints>,
+    config: &Res<Config>,
+) -> bool {
+    let ship = match selected {
+        Some(selected) => *selected,
+        None => return false,
+    };
+    let cooldown = ship.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Cannon { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    });
+    let available_action_points = ***action_points;
+    let required_action_points =
+        if let Some(costs) = &get_common_balancing(ship, config).shoot_costs {
+            costs.action_points
+        } else {
+            0
+        };
+    let enough_action_points = available_action_points > required_action_points;
+
+    cooldown.is_none() && enough_action_points
+}
+
+fn may_move(
+    selected: &Option<&Ship>,
+    action_points: &Res<ActionPoints>,
+    config: &Res<Config>,
+) -> bool {
+    let ship = match selected {
+        Some(selected) => *selected,
+        None => return false,
+    };
+    let cooldown = ship.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Movement { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    });
+    let available_action_points = ***action_points;
+    let required_action_points =
+        if let Some(costs) = &get_common_balancing(ship, config).movement_costs {
+            costs.action_points
+        } else {
+            0
+        };
+    let enough_action_points = available_action_points > required_action_points;
+
+    cooldown.is_none() && enough_action_points
+}
+
+fn may_rotate(
+    selected: &Option<&Ship>,
+    action_points: &Res<ActionPoints>,
+    config: &Res<Config>,
+) -> bool {
+    let ship = match selected {
+        Some(selected) => *selected,
+        None => return false,
+    };
+    let cooldown = ship.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Rotate { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    });
+    let available_action_points = ***action_points;
+    let required_action_points =
+        if let Some(costs) = &get_common_balancing(ship, config).rotation_costs {
+            costs.action_points
+        } else {
+            0
+        };
+    let enough_action_points = available_action_points > required_action_points;
+
+    cooldown.is_none() && enough_action_points
+}
+
+fn may_use_special(
+    selected: &Option<&Ship>,
+    action_points: &Res<ActionPoints>,
+    config: &Res<Config>,
+) -> bool {
+    let ship = match selected {
+        Some(selected) => *selected,
+        None => return false,
+    };
+    let cooldown = ship.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Ability { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    });
+    let available_action_points = ***action_points;
+    let required_action_points =
+        if let Some(costs) = &get_common_balancing(ship, config).ability_costs {
+            costs.action_points
+        } else {
+            0
+        };
+    let enough_action_points = available_action_points >= required_action_points;
+
+    cooldown.is_none() && enough_action_points
+}
+
+fn get_common_balancing<'a>(ship: &Ship, config: &'a Res<Config>) -> &'a CommonBalancing {
+    &match ship.ship_type() {
+        types::ShipType::Carrier => config
+            .carrier_balancing
+            .as_ref()
+            .expect("Carrier must have a balancing")
+            .common_balancing
+            .as_ref(),
+        types::ShipType::Battleship => config
+            .battleship_balancing
+            .as_ref()
+            .expect("Battleship must have a balancing")
+            .common_balancing
+            .as_ref(),
+        types::ShipType::Cruiser => config
+            .cruiser_balancing
+            .as_ref()
+            .expect("Cruiser must have a balancing")
+            .common_balancing
+            .as_ref(),
+        types::ShipType::Submarine => config
+            .submarine_balancing
+            .as_ref()
+            .expect("Submarine must have a balancing")
+            .common_balancing
+            .as_ref(),
+        types::ShipType::Destroyer => config
+            .destroyer_balancing
+            .as_ref()
+            .expect("Destroyer must have a balancing")
+            .common_balancing
+            .as_ref(),
+    }
+    .expect("Ships must have a CommonBalancing")
+}
+
 fn process_game_events(
     mut commands: Commands,
     mut events: EventReader<messages::EventMessage>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     mut turn_state: ResMut<TurnState>,
+    mut action_points: ResMut<ActionPoints>,
+    config: Res<Config>,
 ) {
     let mut transition_happened = false;
     for event in events.iter() {
@@ -356,6 +513,7 @@ fn process_game_events(
                 if **player_id == *next_player_id {
                     info!("Turn started");
                     **turn_state = State::ChoosingAction;
+                    **action_points = config.action_point_gain;
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_) | State::ChoosingAction => {}
@@ -373,7 +531,8 @@ fn process_game_events(
                     } else {
                         info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
                         State::WaitingForTurn(Some(*position_in_queue))
-                    }
+                    };
+                    **action_points = 0;
                 }
             }
             EventMessage::SplashEvent(splash) => {
@@ -587,13 +746,6 @@ fn select_ship(
         None => commands.insert_resource(SelectedShip(ship_id)),
     }
 }
-
-/*
- * TODO:
- * Action systems should be done similarly to placement_phase::send_placement.
- * The contents of the request are encoded in the
- * TurnState(ChoseAction(X)) and SelectedShip resources.
- */
 
 fn send_actions(
     mut commands: Commands,
