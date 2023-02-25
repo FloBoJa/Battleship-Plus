@@ -254,6 +254,8 @@ async fn actions_engine_boost_collision() {
             assert!(temp_vision_at.is_empty());
         }
 
+        // This error is not propagated to the client.
+        // It indicates that the engine boost stopped early.
         assert!(
             matches!(results[2], Err(ActionExecutionError::Validation(ActionValidationError::NonExistentShip {id})) if id == ship.id())
         );
@@ -342,6 +344,8 @@ async fn actions_engine_boost_respect_world_border() {
             assert!(temp_vision_at.is_empty());
         }
 
+        // This error is not propagated to the client.
+        // It indicates that the engine boost stopped early.
         assert!(matches!(
             results[2],
             Err(ActionExecutionError::Validation(
