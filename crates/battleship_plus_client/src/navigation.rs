@@ -62,7 +62,7 @@ fn zoom(
 
 fn translate(
     mut camera: Query<(&mut Transform, With<Camera3d>)>,
-    mut mouse: Res<Input<MouseButton>>,
+    mouse: Res<Input<MouseButton>>,
     mut mouse_motion_events: EventReader<MouseMotion>,
 ) {
     if !mouse.pressed(MouseButton::Left) {
