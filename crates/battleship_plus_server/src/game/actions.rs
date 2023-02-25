@@ -144,13 +144,13 @@ impl Action {
             } => general_movement(
                 game,
                 ship_id,
-                |ship_manager, action_points, ship_id, bord_bounds| {
+                |ship_manager, action_points, ship_id, board_bounds| {
                     ship_manager.move_ship(
                         action_points,
                         true,
                         ship_id,
                         properties.direction(),
-                        bord_bounds,
+                        board_bounds,
                     )
                 },
             )
@@ -338,14 +338,14 @@ impl Action {
                                         ship_manager,
                                         ship_id,
                                         &bounds,
-                                        |ship_manager, _, ship_id, bord_bounds| {
+                                        |ship_manager, _, ship_id, board_bounds| {
                                             // move ship without costs
                                             ship_manager.move_ship(
                                                 &mut 0,
                                                 false,
                                                 ship_id,
                                                 MoveDirection::Forward,
-                                                bord_bounds,
+                                                board_bounds,
                                             )
                                         },
                                     )

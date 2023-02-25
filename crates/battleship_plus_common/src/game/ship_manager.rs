@@ -286,9 +286,9 @@ impl ShipManager {
                 None => return Err(ActionValidationError::NonExistentShip { id: *ship_id }),
                 Some(Ship::Cruiser {
                     balancing,
-                    cooldowns: cool_downs,
+                    cooldowns,
                     data,
-                }) => (balancing, cool_downs, data),
+                }) => (balancing, cooldowns, data),
                 _ => return Err(ActionValidationError::InvalidShipType),
             };
             let ship = ship.unwrap();
@@ -336,13 +336,10 @@ impl ShipManager {
         match self.ships.get_mut(ship_id) {
             // ship got destroyed
             None => Ok(result),
-            Some(Ship::Cruiser {
-                cooldowns: cool_downs,
-                ..
-            }) => {
+            Some(Ship::Cruiser { cooldowns, .. }) => {
                 // enforce cooldown costs
                 if costs.cooldown > 0 {
-                    cool_downs.push(Cooldown::Ability {
+                    cooldowns.push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
                     });
                 }
