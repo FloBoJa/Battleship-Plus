@@ -1,6 +1,10 @@
 use std::collections::HashSet;
 
-use bevy::{input::mouse::MouseWheel, math::Vec3Swizzles, prelude::*};
+use bevy::{
+    input::mouse::{MouseMotion, MouseWheel},
+    math::Vec3Swizzles,
+    prelude::*,
+};
 use iyes_loopless::prelude::*;
 
 use crate::game_state::GameState;
@@ -29,19 +33,18 @@ fn zoom(
         .expect("This game always has a window");
     let target = match window.cursor_position() {
         Some(position) => {
-            (position - Vec2::new(window.width() / 2.0, window.height() / 2.0))
-                / (window.height() / 2.0)
+            (position - Vec2::new(window.width() / 2.0, window.height() / 2.0)) / window.height()
         }
         None => Vec2::new(0.0, 0.0),
     };
-
     let (mut camera, _) = camera.single_mut();
+
     for &MouseWheel { y, .. } in mouse_wheel_events.iter() {
         // Empirical, hard-coded values are good enough for now.
         // TODO: Make this dependent on the scroll speed (y) without the zoom motion skipping.
         // Currently, the maximum zoom speed is limited to one click per frame.
         let zoom_factor = 1.05;
-        let translation_factor = 17.0;
+        let translation_factor = 34.0;
 
         if y < 0.0 {
             // Zoom in
@@ -57,6 +60,18 @@ fn zoom(
     }
 }
 
-fn translate(_camera: Query<(&mut Transform, With<Camera3d>)>) {
-    // TODO: Implement a map dragging input.
+fn translate(
+    mut camera: Query<(&mut Transform, With<Camera3d>)>,
+    mut mouse: Res<Input<MouseButton>>,
+    mut mouse_motion_events: EventReader<MouseMotion>,
+) {
+    if !mouse.pressed(MouseButton::Left) {
+        return;
+    }
+
+    let (mut camera, _) = camera.single_mut();
+    for &MouseMotion { delta } in mouse_motion_events.iter() {
+        let translation_factor = camera.scale * 0.5;
+        camera.translation += translation_factor * Vec3::new(-delta.x, delta.y, 0.0);
+    }
 }
