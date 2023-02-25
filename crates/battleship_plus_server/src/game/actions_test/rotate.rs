@@ -430,14 +430,15 @@ async fn actions_rotate_destroy_on_collision() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(lost_vision_at.contains(&Coordinate { x: 2, y: 0 }));
         assert!(gain_vision_at.is_empty());

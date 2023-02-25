@@ -133,15 +133,15 @@ async fn actions_predator_missile() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 4);
         assert!(inflicted_damage_by_ship.contains_key(&partial_hit_destroyed.id()));

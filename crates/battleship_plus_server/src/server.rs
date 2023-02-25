@@ -828,6 +828,8 @@ fn action_validation_error_reply(
                     .map_err(MessageHandlerError::Network),
             ActionValidationError::InvalidShipType => ep.send_message(client_id, status_with_msg(StatusCode::InvalidMove, "the selected ship is not able to perform the requested action"))
                 .map_err(MessageHandlerError::Network),
+            ActionValidationError::Ignored => ep.send_message(client_id, status_with_msg(StatusCode::InvalidMove, "the requested action was ignored"))
+                .map_err(MessageHandlerError::Network),
         },
         ActionExecutionError::OutOfState(state) => {
             debug!("client: {client_id} sent an request not allowed in {state}. Aborting connection..");
