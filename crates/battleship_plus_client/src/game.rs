@@ -460,7 +460,7 @@ fn may_use_special(
 }
 
 fn get_common_balancing<'a>(ship: &Ship, config: &'a Res<Config>) -> &'a CommonBalancing {
-    &match ship.ship_type() {
+    match ship.ship_type() {
         types::ShipType::Carrier => config
             .carrier_balancing
             .as_ref()
