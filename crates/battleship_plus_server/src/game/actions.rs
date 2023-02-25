@@ -320,10 +320,6 @@ impl Action {
                         &mut game.turn.as_mut().unwrap().action_points_left,
                         ship_id,
                         |ship_manager, balancing| {
-                            if balancing.engine_boost_distance == 0 {
-                                return Ok(vec![]);
-                            }
-
                             let encountered_err = AtomicBool::new(false);
 
                             let results = (0..balancing.engine_boost_distance)
@@ -362,9 +358,7 @@ impl Action {
                                 })
                                 .collect::<Vec<_>>();
 
-                            if results.is_empty() && balancing.engine_boost_distance > 0 {
-                                unreachable!()
-                            }
+                            assert!(!(results.is_empty() && balancing.engine_boost_distance > 0));
 
                             if let Err(e) = results.first().unwrap() {
                                 return Err(e.clone());
