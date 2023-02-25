@@ -89,14 +89,15 @@ async fn actions_shoot() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 5 }));
         assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 6 }));
@@ -131,14 +132,15 @@ async fn actions_shoot() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(lost_vision_at.is_empty());
         assert!(gain_vision_at.is_empty());
@@ -170,7 +172,7 @@ async fn actions_shoot() {
             },
         }
         .apply_on(&mut g),
-        Ok(None)
+        Ok(ActionResult::None)
     ));
 
     // board untouched
