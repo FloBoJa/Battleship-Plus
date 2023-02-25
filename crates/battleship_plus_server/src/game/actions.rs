@@ -358,7 +358,7 @@ impl Action {
                                 })
                                 .collect::<Vec<_>>();
 
-                            assert!(!(results.is_empty() && balancing.engine_boost_distance > 0));
+                            assert!(!results.is_empty() || balancing.engine_boost_distance == 0));
 
                             if let Err(e) = results.first().unwrap() {
                                 return Err(e.clone());
