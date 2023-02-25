@@ -55,7 +55,7 @@ async fn actions_engine_boost() {
         team_a: HashSet::from([player.id]),
         team_b: HashSet::from([player2.id]),
         ships: ShipManager::new_with_ships(vec![ship.clone(), ship2.clone()]),
-        turn: Some(Turn::new(player.id, 5)),
+        turn: Some(Turn::new(player.id, 6)),
         ..Default::default()
     }));
     let mut g = g.write().await;
@@ -144,7 +144,7 @@ async fn actions_engine_boost() {
                 remaining_rounds: 2
             }));
         assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().cool_downs().len(), 1);
-        assert_eq!(g.turn.as_ref().unwrap().action_points_left, 0);
+        assert_eq!(g.turn.as_ref().unwrap().action_points_left, 1);
     }
 }
 
@@ -190,7 +190,7 @@ async fn actions_engine_boost_collision() {
         team_a: HashSet::from([player.id]),
         team_b: HashSet::from([player2.id]),
         ships: ShipManager::new_with_ships(vec![ship.clone(), ship2.clone()]),
-        turn: Some(Turn::new(player.id, 5)),
+        turn: Some(Turn::new(player.id, 6)),
         ..Default::default()
     }));
     let mut g = g.write().await;
@@ -263,7 +263,7 @@ async fn actions_engine_boost_collision() {
     {
         assert_eq!(g.ships.get_by_id(&ship.id()), None);
         assert_eq!(g.ships.get_by_id(&ship2.id()), None);
-        assert_eq!(g.turn.as_ref().unwrap().action_points_left, 0);
+        assert_eq!(g.turn.as_ref().unwrap().action_points_left, 1);
     }
 }
 
@@ -294,7 +294,7 @@ async fn actions_engine_boost_respect_world_border() {
         players: HashMap::from([(player.id, player.clone())]),
         team_a: HashSet::from([player.id]),
         ships: ShipManager::new_with_ships(vec![ship.clone()]),
-        turn: Some(Turn::new(player.id, 5)),
+        turn: Some(Turn::new(player.id, 6)),
         ..Default::default()
     }));
     let mut g = g.write().await;
@@ -353,6 +353,6 @@ async fn actions_engine_boost_respect_world_border() {
     // check ship's new position
     {
         assert_eq!(g.ships.get_by_id(&ship.id()).unwrap().position(), (2, 0));
-        assert_eq!(g.turn.as_ref().unwrap().action_points_left, 0);
+        assert_eq!(g.turn.as_ref().unwrap().action_points_left, 1);
     }
 }
