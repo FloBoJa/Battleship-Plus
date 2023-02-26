@@ -849,6 +849,10 @@ fn process_game_events(
     }
 }
 
+// Move and rotate ships, but do not check for collisions.
+// For the other events, do not deal any damage either, only initiate visualization.
+// Damage is handled by the server, the client only reacts to HitEvents and
+// DestructionEvents.
 fn process_action_event(
     commands: &mut Commands,
     ship_id: ShipID,
@@ -881,19 +885,79 @@ fn process_action_event(
             let target = match properties.target {
                 Some(ref target) => target,
                 None => {
-                    warn!("Received shoot event without target, ignoring it");
+                    warn!("Received shoot action without a target, ignoring it");
                     return;
                 }
             };
-            let result = ships.attack_with_ship(&mut action_points, &ship_id, target, &bounds);
 
             // TODO: Implement shot visualization.
-            type ShotBundle = PbrBundle;
-            if result.is_ok() {
-                commands.spawn(ShotBundle::default()).insert(DespawnOnExit);
+            type ShotEffect = PbrBundle;
+            commands
+                .spawn(ShotEffect {
+                    transform: Transform::from_translation(Vec3::new(
+                        target.x as f32,
+                        target.y as f32,
+                        45.0,
+                    )),
+                    ..default()
+                })
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::ScoutPlaneProperties(ref properties) => {
+            let center = match properties.center {
+                Some(ref center) => center,
+                None => {
+                    warn!("Received scout plane action without a location, ignoring it");
+                    return;
+                }
+            };
+
+            // TODO: Implement scout plane visualization.
+            type ScoutPlaneEffect = PbrBundle;
+            commands
+                .spawn(ScoutPlaneEffect {
+                    transform: Transform::from_translation(Vec3::new(
+                        center.x as f32,
+                        center.y as f32,
+                        45.0,
+                    )),
+                    ..default()
+                })
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::MultiMissileProperties(ref properties) => {
+            for position in &[
+                &properties.position_a,
+                &properties.position_b,
+                &properties.position_c,
+            ] {
+                let position = match position {
+                    Some(position) => position,
+                    None => {
+                        warn!("Received multi missile attack with a missing target, ignoring that target");
+                        continue;
+                    }
+                };
+
+                // TODO: Implement multi missil attack visualization.
+                type MultiMissileEffect = PbrBundle;
+                commands
+                    .spawn(MultiMissileEffect {
+                        transform: Transform::from_translation(Vec3::new(
+                            position.x as f32,
+                            position.y as f32,
+                            45.0,
+                        )),
+                        ..default()
+                    })
+                    .insert(DespawnOnExit);
             }
 
-            result.err()
+            None
         }
         other_action => {
             warn!("Unimplemented: Received unsupported action event: {other_action:?}");
