@@ -49,6 +49,7 @@ impl Plugin for GamePlugin {
             process_game_events.run_in_state(GameState::Game),
         )
         .add_system(select_ship.run_in_state(GameState::Game))
+        .add_system(select_target.run_in_state(GameState::Game))
         .add_system(draw_menu.run_in_state(GameState::Game))
         .add_system(send_actions.run_in_state(GameState::Game));
     }
@@ -63,7 +64,7 @@ struct SelectedShip(u32);
 #[derive(Resource, Deref, DerefMut)]
 struct SelectedTargets(Vec<types::Coordinate>);
 
-type TargetCount = u32;
+type TargetCount = usize;
 type PositionInQueue = Option<u32>;
 
 enum State {
@@ -206,7 +207,7 @@ fn spawn_components(
 fn draw_menu(
     mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
-    selected: Option<ResMut<SelectedShip>>,
+    (selected, mut selected_targets): (Option<ResMut<SelectedShip>>, ResMut<SelectedTargets>),
     ships: ResMut<Ships>,
     player_id: Res<PlayerId>,
     (action_points, mut turn_state): (Res<ActionPoints>, ResMut<TurnState>),
@@ -322,6 +323,7 @@ fn draw_menu(
                     let action_properties = match ship.ship_type() {
                         types::ShipType::Carrier => {
                             trace!("Waiting for target selection...");
+                            selected_targets.clear();
                             **turn_state = State::ChoosingTargets(
                                 1,
                                 types::ScoutPlaneProperties::default().into(),
@@ -338,6 +340,7 @@ fn draw_menu(
                         types::ShipType::Cruiser => Some(types::EngineBoostProperties {}.into()),
                         types::ShipType::Battleship => {
                             trace!("Waiting for target selection...");
+                            selected_targets.clear();
                             **turn_state = State::ChoosingTargets(
                                 1,
                                 types::PredatorMissileProperties::default().into(),
@@ -346,6 +349,7 @@ fn draw_menu(
                         }
                         types::ShipType::Destroyer => {
                             trace!("Waiting for three target selections...");
+                            selected_targets.clear();
                             **turn_state = State::ChoosingTargets(
                                 3,
                                 types::MultiMissileProperties::default().into(),
@@ -926,6 +930,7 @@ fn select_ship(
     mut commands: Commands,
     intersections: Query<&Intersection<RaycastSet>>,
     selected: Option<ResMut<SelectedShip>>,
+    turn_state: Res<TurnState>,
     ships: Res<Ships>,
     player_id: Res<PlayerId>,
     mouse_input: Res<Input<MouseButton>>,
@@ -933,11 +938,17 @@ fn select_ship(
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
+    // Only allow to change the selection while waiting for the player's turn or while choosing an action.
+    // This excludes changing the selection during the target selection of the selected ship's
+    // action, among other things.
+    if !matches!(
+        **turn_state,
+        State::WaitingForTurn(_) | State::ChoosingAction
+    ) {
+        return;
+    }
     let position = match board_position_from_intersection(intersections) {
-        Some(position) => types::Coordinate {
-            x: position[0] as u32,
-            y: position[1] as u32,
-        },
+        Some(position) => position,
         None => return,
     };
     let (selected_player_id, ship_id) = match ships.get_by_position(position) {
@@ -953,6 +964,32 @@ fn select_ship(
         Some(mut selected) => **selected = ship_id,
         None => commands.insert_resource(SelectedShip(ship_id)),
     }
+}
+
+fn select_target(
+    intersections: Query<&Intersection<RaycastSet>>,
+    turn_state: Res<TurnState>,
+    mut selected_targets: ResMut<SelectedTargets>,
+    mouse_input: Res<Input<MouseButton>>,
+) {
+    if !mouse_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let target_count = match **turn_state {
+        State::ChoosingTargets(target_count, _) => target_count,
+        _ => return,
+    };
+    if selected_targets.len() >= target_count {
+        return;
+    }
+
+    let position = match board_position_from_intersection(intersections) {
+        Some(position) => position,
+        None => return,
+    };
+
+    trace!("Selected target: ({}, {})", position.x, position.y);
+    selected_targets.push(position);
 }
 
 fn send_actions(
@@ -1005,9 +1042,12 @@ fn repeat_cached_events(
 
 fn board_position_from_intersection(
     intersections: Query<&Intersection<RaycastSet>>,
-) -> Option<[i32; 2]> {
+) -> Option<types::Coordinate> {
     let intersection = intersections.get_single().ok()?;
     intersection
         .position()
-        .map(|Vec3 { x, y, .. }| [*x as i32, *y as i32])
+        .map(|&Vec3 { x, y, .. }| types::Coordinate {
+            x: x as u32,
+            y: y as u32,
+        })
 }
