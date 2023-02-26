@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContext;
 use bevy_mod_raycast::{Intersection, RaycastMesh};
 use iyes_loopless::prelude::*;
+use rstar::AABB;
 
 use battleship_plus_common::{
     game::{
@@ -715,8 +716,8 @@ fn process_game_events(
     mut events: EventReader<messages::EventMessage>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     mut current_player: ResMut<CurrentPlayer>,
-    mut turn_state: ResMut<TurnState>,
-    mut action_points: ResMut<ActionPoints>,
+    (mut turn_state, mut action_points): (ResMut<TurnState>, ResMut<ActionPoints>),
+    mut ships: ResMut<Ships>,
     config: Res<Config>,
 ) {
     let mut transition_happened = false;
@@ -788,14 +789,15 @@ fn process_game_events(
             EventMessage::ShipActionEvent(action) => {
                 trace!(
                     "Ship {} executed {:?}",
-                    action.ship_number, action.action_properties
+                    action.ship_number,
+                    action.action_properties
                 );
                 let current_player = match **current_player {
                     Some(current_player) => current_player,
                     None => {
                         warn!("Received an action event while no turn started yet, ignoring it");
                         continue;
-                    },
+                    }
                 };
                 let action_properties = match action.action_properties {
                     Some(ref action_properties) => action_properties.clone(),
@@ -804,7 +806,13 @@ fn process_game_events(
                         continue;
                     }
                 };
-                process_action_event((current_player, action.ship_number), action_properties);
+                process_action_event(
+                    &mut commands,
+                    (current_player, action.ship_number),
+                    action_properties,
+                    &mut ships,
+                    &config,
+                );
             }
             EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
                 let reason = types::GameEndReason::from_i32(*reason);
@@ -841,7 +849,60 @@ fn process_game_events(
     }
 }
 
-fn process_action_event(_ship_id: ShipID, _action_properties: messages::ship_action_event::ActionProperties) {
+fn process_action_event(
+    commands: &mut Commands,
+    ship_id: ShipID,
+    action_properties: messages::ship_action_event::ActionProperties,
+    ships: &mut ResMut<Ships>,
+    config: &Res<Config>,
+) {
+    // Fake an action point account.
+    let mut action_points = config.action_point_gain;
+    let bounds = AABB::from_corners([0, 0], [config.board_size as i32, config.board_size as i32]);
+    use messages::ship_action_event::ActionProperties;
+    let error = match action_properties {
+        ActionProperties::MoveProperties(ref properties) => ships
+            .move_ship(
+                &mut action_points,
+                &ship_id,
+                properties.direction(),
+                &bounds,
+            )
+            .err(),
+        ActionProperties::RotateProperties(ref properties) => ships
+            .rotate_ship(
+                &mut action_points,
+                &ship_id,
+                properties.direction(),
+                &bounds,
+            )
+            .err(),
+        ActionProperties::ShootProperties(ref properties) => {
+            let target = match properties.target {
+                Some(ref target) => target,
+                None => {
+                    warn!("Received shoot event without target, ignoring it");
+                    return;
+                }
+            };
+            let result = ships.attack_with_ship(&mut action_points, &ship_id, target, &bounds);
+
+            // TODO: Implement shot visualization.
+            type ShotBundle = PbrBundle;
+            if result.is_ok() {
+                commands.spawn(ShotBundle::default()).insert(DespawnOnExit);
+            }
+
+            result.err()
+        }
+        other_action => {
+            warn!("Unimplemented: Received unsupported action event: {other_action:?}");
+            return;
+        }
+    };
+    if let Some(error) = error {
+        error!("Could not process event for ship {ship_id:?}: {error:?}\nEvent contained: {action_properties:?}");
+    }
 }
 
 fn process_responses(
