@@ -240,19 +240,16 @@ fn draw_menu(
 
                 let (required_action_points, cooldown, damage, range) = match selected {
                     Some(ship) => {
-                        let balancing = get_common_balancing(&ship, &config);
-                        let (action_points, cooldown) = balancing.shoot_costs.clone().map_or_else(
-                            || (0, 0),
-                            |types::Costs {
-                                 action_points,
-                                 cooldown,
-                             }| (action_points, cooldown),
-                        );
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.shoot_costs.clone().unwrap_or_default();
                         let damage = balancing.shoot_damage;
                         let range = balancing.shoot_range;
                         (action_points, cooldown, damage, range)
                     }
-                    None => (0, 0, 0, 0),
+                    None => default(),
                 };
 
                 let shoot_button = shoot_button.on_hover_text(format!(
@@ -278,23 +275,21 @@ fn draw_menu(
                     may_execute_action && may_use_special(&selected, &action_points, &config);
                 let special_button = ui.add_enabled(may_use_special, egui::Button::new("Special"));
 
-                let (required_action_points, cooldown) = match selected {
+                let (required_action_points, cooldown, special_description) = match selected {
                     Some(ship) => {
-                        let balancing = get_common_balancing(&ship, &config);
-                        let (action_points, cooldown) = balancing.ability_costs.clone().map_or_else(
-                            || (0, 0),
-                            |types::Costs {
-                                 action_points,
-                                 cooldown,
-                             }| (action_points, cooldown),
-                        );
-                        (action_points, cooldown)
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.ability_costs.clone().unwrap_or_default();
+                        let special_description =
+                            format!("\n{}", get_special_description(ship, &config));
+                        (action_points, cooldown, special_description)
                     }
-                    None => (0, 0),
+                    None => default(),
                 };
-
                 let special_button = special_button.on_hover_text(format!(
-                    "AP: {required_action_points}\nCD: {cooldown}\n[ TODO: special info ]"
+                    "AP: {required_action_points}\nCD: {cooldown}{special_description}"
                 ));
 
                 if special_button.clicked() {
@@ -337,22 +332,17 @@ fn draw_menu(
 
                 let (required_action_points, cooldown) = match selected {
                     Some(ship) => {
-                        let balancing = get_common_balancing(&ship, &config);
-                        let (action_points, cooldown) = balancing.movement_costs.clone().map_or_else(
-                            || (0, 0),
-                            |types::Costs {
-                                 action_points,
-                                 cooldown,
-                             }| (action_points, cooldown),
-                        );
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.movement_costs.clone().unwrap_or_default();
                         (action_points, cooldown)
                     }
-                    None => (0, 0),
+                    None => default(),
                 };
 
-                let text = format!(
-                    "AP: {required_action_points}\nCD: {cooldown}"
-                );
+                let text = format!("AP: {required_action_points}\nCD: {cooldown}");
                 let forward_button = forward_button.on_hover_text(text.clone());
                 let backward_button = backward_button.on_hover_text(text);
 
@@ -383,22 +373,17 @@ fn draw_menu(
 
                 let (required_action_points, cooldown) = match selected {
                     Some(ship) => {
-                        let balancing = get_common_balancing(&ship, &config);
-                        let (action_points, cooldown) = balancing.rotation_costs.clone().map_or_else(
-                            || (0, 0),
-                            |types::Costs {
-                                 action_points,
-                                 cooldown,
-                             }| (action_points, cooldown),
-                        );
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.rotation_costs.clone().unwrap_or_default();
                         (action_points, cooldown)
                     }
-                    None => (0, 0),
+                    None => default(),
                 };
 
-                let text = format!(
-                    "AP: {required_action_points}\nCD: {cooldown}"
-                );
+                let text = format!("AP: {required_action_points}\nCD: {cooldown}");
                 let clockwise_button = clockwise_button.on_hover_text(text.clone());
                 let counter_clockwise_button = counter_clockwise_button.on_hover_text(text);
 
@@ -555,6 +540,60 @@ fn may_use_special(
     let enough_action_points = available_action_points >= required_action_points;
 
     cooldown.is_none() && enough_action_points
+}
+
+fn get_special_description(ship: &Ship, config: &Res<Config>) -> String {
+    match ship.ship_type() {
+        types::ShipType::Carrier => {
+            let balancing = config
+                .carrier_balancing
+                .as_ref()
+                .expect("Carrier must have a balancing");
+            format!(
+                "RADIUS: {}\nRANGE: {}",
+                balancing.scout_plane_radius, balancing.scout_plane_range
+            )
+        }
+        types::ShipType::Battleship => {
+            let balancing = config
+                .battleship_balancing
+                .as_ref()
+                .expect("Battleship must have a balancing");
+            format!(
+                "DMG: {}\nRADIUS: {}\nRANGE: {}",
+                balancing.predator_missile_damage,
+                balancing.predator_missile_radius,
+                balancing.predator_missile_range
+            )
+        }
+        types::ShipType::Cruiser => {
+            let balancing = config
+                .cruiser_balancing
+                .as_ref()
+                .expect("Cruiser must have a balancing");
+            format!("DIST: {}", balancing.engine_boost_distance)
+        }
+        types::ShipType::Submarine => {
+            let balancing = config
+                .submarine_balancing
+                .as_ref()
+                .expect("Submarine must have a balancing");
+            format!(
+                "DMG: {}\nRANGE: {}",
+                balancing.torpedo_damage, balancing.torpedo_range
+            )
+        }
+        types::ShipType::Destroyer => {
+            let balancing = config
+                .destroyer_balancing
+                .as_ref()
+                .expect("Destroyer must have a balancing");
+            format!(
+                "DMG: 3x{}\nRADIUS: {}",
+                balancing.multi_missile_damage, balancing.multi_missile_radius
+            )
+        }
+    }
 }
 
 fn get_common_balancing<'a>(ship: &Ship, config: &'a Res<Config>) -> &'a CommonBalancing {
