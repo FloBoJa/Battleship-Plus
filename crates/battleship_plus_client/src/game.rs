@@ -237,6 +237,28 @@ fn draw_menu(
 
                 let may_shoot = may_execute_action && may_shoot(&selected, &action_points, &config);
                 let shoot_button = ui.add_enabled(may_shoot, egui::Button::new("Shoot"));
+
+                let (required_action_points, cooldown, damage, range) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(&ship, &config);
+                        let (action_points, cooldown) = balancing.shoot_costs.clone().map_or_else(
+                            || (0, 0),
+                            |types::Costs {
+                                 action_points,
+                                 cooldown,
+                             }| (action_points, cooldown),
+                        );
+                        let damage = balancing.shoot_damage;
+                        let range = balancing.shoot_range;
+                        (action_points, cooldown, damage, range)
+                    }
+                    None => (0, 0, 0, 0),
+                };
+
+                let shoot_button = shoot_button.on_hover_text(format!(
+                    "AP: {required_action_points}\nCD: {cooldown}\nDMG: {damage}\nRANGE: {range}"
+                ));
+
                 if shoot_button.clicked() {
                     debug!("Initiating shot...");
                     debug!("Selecting target...");
@@ -255,6 +277,26 @@ fn draw_menu(
                 let may_use_special =
                     may_execute_action && may_use_special(&selected, &action_points, &config);
                 let special_button = ui.add_enabled(may_use_special, egui::Button::new("Special"));
+
+                let (required_action_points, cooldown) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(&ship, &config);
+                        let (action_points, cooldown) = balancing.ability_costs.clone().map_or_else(
+                            || (0, 0),
+                            |types::Costs {
+                                 action_points,
+                                 cooldown,
+                             }| (action_points, cooldown),
+                        );
+                        (action_points, cooldown)
+                    }
+                    None => (0, 0),
+                };
+
+                let special_button = special_button.on_hover_text(format!(
+                    "AP: {required_action_points}\nCD: {cooldown}\n[ TODO: special info ]"
+                ));
+
                 if special_button.clicked() {
                     debug!("Initiating special ability...");
                     let selected =
@@ -292,6 +334,28 @@ fn draw_menu(
                 let may_move = may_execute_action && may_move(&selected, &action_points, &config);
                 let forward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b06}"));
                 let backward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b07}"));
+
+                let (required_action_points, cooldown) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(&ship, &config);
+                        let (action_points, cooldown) = balancing.movement_costs.clone().map_or_else(
+                            || (0, 0),
+                            |types::Costs {
+                                 action_points,
+                                 cooldown,
+                             }| (action_points, cooldown),
+                        );
+                        (action_points, cooldown)
+                    }
+                    None => (0, 0),
+                };
+
+                let text = format!(
+                    "AP: {required_action_points}\nCD: {cooldown}"
+                );
+                let forward_button = forward_button.on_hover_text(text.clone());
+                let backward_button = backward_button.on_hover_text(text);
+
                 let mut direction = None;
                 if forward_button.clicked() {
                     trace!("Moving forward");
@@ -316,6 +380,28 @@ fn draw_menu(
                 let clockwise_button = ui.add_enabled(may_rotate, egui::Button::new("\u{21A9}"));
                 let counter_clockwise_button =
                     ui.add_enabled(may_rotate, egui::Button::new("\u{21AA}"));
+
+                let (required_action_points, cooldown) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(&ship, &config);
+                        let (action_points, cooldown) = balancing.rotation_costs.clone().map_or_else(
+                            || (0, 0),
+                            |types::Costs {
+                                 action_points,
+                                 cooldown,
+                             }| (action_points, cooldown),
+                        );
+                        (action_points, cooldown)
+                    }
+                    None => (0, 0),
+                };
+
+                let text = format!(
+                    "AP: {required_action_points}\nCD: {cooldown}"
+                );
+                let clockwise_button = clockwise_button.on_hover_text(text.clone());
+                let counter_clockwise_button = counter_clockwise_button.on_hover_text(text);
+
                 let mut direction = None;
                 if clockwise_button.clicked() {
                     trace!("Rotating clockwise");
