@@ -8,7 +8,7 @@ use iyes_loopless::prelude::*;
 
 use battleship_plus_common::{
     game::{
-        ship::{Cooldown, GetShipID, Orientation, Ship},
+        ship::{Cooldown, GetShipID, Orientation, Ship, ShipID},
         ship_manager::ShipManager,
     },
     messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
@@ -78,6 +78,9 @@ enum State {
 #[derive(Resource, Deref, DerefMut)]
 struct TurnState(State);
 
+#[derive(Resource, Deref, DerefMut)]
+struct CurrentPlayer(Option<battleship_plus_common::game::PlayerID>);
+
 #[derive(Component)]
 struct DespawnOnExit;
 
@@ -92,6 +95,7 @@ fn create_resources(
     player_team: Res<PlayerTeam>,
 ) {
     commands.insert_resource(TurnState(State::WaitingForTurn(None)));
+    commands.insert_resource(CurrentPlayer(None));
     commands.insert_resource(ActionPoints(0));
     commands.insert_resource(SelectedTargets(Vec::with_capacity(3)));
 
@@ -710,6 +714,7 @@ fn process_game_events(
     mut commands: Commands,
     mut events: EventReader<messages::EventMessage>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
+    mut current_player: ResMut<CurrentPlayer>,
     mut turn_state: ResMut<TurnState>,
     mut action_points: ResMut<ActionPoints>,
     config: Res<Config>,
@@ -721,6 +726,7 @@ fn process_game_events(
                 next_player_id,
                 position_in_queue,
             }) => {
+                **current_player = Some(*next_player_id);
                 if **player_id == *next_player_id {
                     info!("Turn started");
                     **turn_state = State::ChoosingAction;
@@ -780,10 +786,25 @@ fn process_game_events(
                 }
             }
             EventMessage::ShipActionEvent(action) => {
-                info!(
+                trace!(
                     "Ship {} executed {:?}",
                     action.ship_number, action.action_properties
                 );
+                let current_player = match **current_player {
+                    Some(current_player) => current_player,
+                    None => {
+                        warn!("Received an action event while no turn started yet, ignoring it");
+                        continue;
+                    },
+                };
+                let action_properties = match action.action_properties {
+                    Some(ref action_properties) => action_properties.clone(),
+                    None => {
+                        warn!("Received an action event without action properties, ignoring it");
+                        continue;
+                    }
+                };
+                process_action_event((current_player, action.ship_number), action_properties);
             }
             EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
                 let reason = types::GameEndReason::from_i32(*reason);
@@ -818,6 +839,9 @@ fn process_game_events(
         let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
         commands.insert_resource(CachedEvents(events));
     }
+}
+
+fn process_action_event(_ship_id: ShipID, _action_properties: messages::ship_action_event::ActionProperties) {
 }
 
 fn process_responses(
