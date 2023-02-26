@@ -236,7 +236,15 @@ fn draw_menu(
                 ui.separator();
 
                 let may_shoot = may_execute_action && may_shoot(&selected, &action_points, &config);
-                let shoot_button = ui.add_enabled(may_shoot, egui::Button::new("Shoot"));
+                let cooldown = get_shoot_cooldown(&selected);
+                let button_text = match cooldown {
+                    Some(cooldown) => format!("Shoot ({cooldown})"),
+                    None => "Shoot".to_string(),
+                };
+                let shoot_button = ui.add_enabled(
+                    may_shoot,
+                    egui::Button::new(button_text).min_size(egui::Vec2::new(100.0, 0.0)),
+                );
 
                 let (required_action_points, cooldown, damage, range) = match selected {
                     Some(ship) => {
@@ -273,7 +281,16 @@ fn draw_menu(
 
                 let may_use_special =
                     may_execute_action && may_use_special(&selected, &action_points, &config);
-                let special_button = ui.add_enabled(may_use_special, egui::Button::new("Special"));
+                let cooldown = get_special_cooldown(&selected);
+                // TODO: Display the actual ability name here.
+                let button_text = match cooldown {
+                    Some(cooldown) => format!("Special ({cooldown})"),
+                    None => "Special".to_string(),
+                };
+                let special_button = ui.add_enabled(
+                    may_use_special,
+                    egui::Button::new(button_text).min_size(egui::Vec2::new(100.0, 0.0)),
+                );
 
                 let (required_action_points, cooldown, special_description) = match selected {
                     Some(ship) => {
@@ -325,7 +342,16 @@ fn draw_menu(
 
                 ui.separator();
 
-                ui.label("Move:");
+                let cooldown = get_move_cooldown(&selected);
+                let label_text = match cooldown {
+                    Some(cooldown) => format!("Move ({cooldown}):"),
+                    None => "Move:".to_string(),
+                };
+                ui.horizontal(|ui| {
+                    ui.set_min_size(egui::Vec2::new(60.0, 0.0));
+                    ui.label(label_text);
+                });
+
                 let may_move = may_execute_action && may_move(&selected, &action_points, &config);
                 let forward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b06}"));
                 let backward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b07}"));
@@ -364,7 +390,16 @@ fn draw_menu(
 
                 ui.separator();
 
-                ui.label("Rotate:");
+                let cooldown = get_move_cooldown(&selected);
+                let label_text = match cooldown {
+                    Some(cooldown) => format!("Rotate ({cooldown}):"),
+                    None => "Rotate:".to_string(),
+                };
+                ui.horizontal(|ui| {
+                    ui.set_min_size(egui::Vec2::new(60.0, 0.0));
+                    ui.label(label_text);
+                });
+
                 let may_rotate =
                     may_execute_action && may_rotate(&selected, &action_points, &config);
                 let clockwise_button = ui.add_enabled(may_rotate, egui::Button::new("\u{21A9}"));
@@ -430,6 +465,16 @@ fn draw_menu(
     );
 }
 
+fn get_shoot_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Cannon { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_shoot(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -439,13 +484,7 @@ fn may_shoot(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Cannon { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_shoot_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).shoot_costs {
@@ -458,6 +497,16 @@ fn may_shoot(
     cooldown.is_none() && enough_action_points
 }
 
+fn get_move_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Movement { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_move(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -467,13 +516,7 @@ fn may_move(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Movement { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_move_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).movement_costs {
@@ -486,6 +529,16 @@ fn may_move(
     cooldown.is_none() && enough_action_points
 }
 
+fn get_rotate_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Rotate { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_rotate(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -495,13 +548,7 @@ fn may_rotate(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Rotate { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_rotate_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).rotation_costs {
@@ -514,6 +561,16 @@ fn may_rotate(
     cooldown.is_none() && enough_action_points
 }
 
+fn get_special_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Ability { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_use_special(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -523,13 +580,7 @@ fn may_use_special(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Ability { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_special_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).ability_costs {
