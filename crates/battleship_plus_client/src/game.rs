@@ -968,15 +968,19 @@ fn select_ship(
 
 fn select_target(
     intersections: Query<&Intersection<RaycastSet>>,
-    turn_state: Res<TurnState>,
+    mut turn_state: ResMut<TurnState>,
     mut selected_targets: ResMut<SelectedTargets>,
     mouse_input: Res<Input<MouseButton>>,
 ) {
+    // TODO: Allow aborting selection mode.
+
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
-    let target_count = match **turn_state {
-        State::ChoosingTargets(target_count, _) => target_count,
+    let (&target_count, action_properties) = match &**turn_state {
+        State::ChoosingTargets(target_count, action_properties) => {
+            (target_count, action_properties)
+        }
         _ => return,
     };
     if selected_targets.len() >= target_count {
@@ -990,6 +994,29 @@ fn select_target(
 
     trace!("Selected target: ({}, {})", position.x, position.y);
     selected_targets.push(position);
+
+    if selected_targets.len() >= target_count {
+        // This position was the last one.
+        let mut action_properties = action_properties.clone();
+        match &mut action_properties {
+            ActionProperties::ShootProperties(properties) => {
+                properties.target = selected_targets.pop();
+            }
+            ActionProperties::ScoutPlaneProperties(properties) => {
+                properties.center = selected_targets.pop();
+            }
+            ActionProperties::PredatorMissileProperties(properties) => {
+                properties.center = selected_targets.pop();
+            }
+            ActionProperties::MultiMissileProperties(properties) => {
+                properties.position_a = selected_targets.pop();
+                properties.position_b = selected_targets.pop();
+                properties.position_c = selected_targets.pop();
+            }
+            _ => unreachable!("Only actions with targets are allowed here"),
+        }
+        **turn_state = State::ChoseAction(Some(action_properties));
+    }
 }
 
 fn send_actions(
