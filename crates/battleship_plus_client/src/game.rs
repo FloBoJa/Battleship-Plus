@@ -330,13 +330,14 @@ fn draw_menu(
                             );
                             None
                         }
-                        // TODO: Orientation selection
-                        types::ShipType::Submarine => Some(
-                            types::TorpedoProperties {
-                                direction: types::Direction::from(ship.orientation()).into(),
-                            }
-                            .into(),
-                        ),
+                        types::ShipType::Submarine => {
+                            trace!("Waiting for target direction selection...");
+                            **turn_state = State::ChoosingTargets(
+                                1,
+                                types::TorpedoProperties::default().into(),
+                            );
+                            None
+                        }
                         types::ShipType::Cruiser => Some(types::EngineBoostProperties {}.into()),
                         types::ShipType::Battleship => {
                             trace!("Waiting for target selection...");
@@ -969,6 +970,9 @@ fn select_ship(
 fn select_target(
     intersections: Query<&Intersection<RaycastSet>>,
     mut turn_state: ResMut<TurnState>,
+    selected: Option<ResMut<SelectedShip>>,
+    player_id: Res<PlayerId>,
+    ships: Res<Ships>,
     mut selected_targets: ResMut<SelectedTargets>,
     mouse_input: Res<Input<MouseButton>>,
 ) {
@@ -987,13 +991,13 @@ fn select_target(
         return;
     }
 
-    let position = match board_position_from_intersection(intersections) {
+    let target = match board_position_from_intersection(intersections) {
         Some(position) => position,
         None => return,
     };
 
-    trace!("Selected target: ({}, {})", position.x, position.y);
-    selected_targets.push(position);
+    trace!("Selected target: ({}, {})", target.x, target.y);
+    selected_targets.push(target.clone());
 
     if selected_targets.len() >= target_count {
         // This position was the last one.
@@ -1012,6 +1016,30 @@ fn select_target(
                 properties.position_a = selected_targets.pop();
                 properties.position_b = selected_targets.pop();
                 properties.position_c = selected_targets.pop();
+            }
+            ActionProperties::TorpedoProperties(properties) => {
+                let ship = selected
+                    .expect("Target selection mode cannot be enabled without a selected ship");
+                let ship = ships.get_by_id(&(**ship, **player_id)).expect(
+                    "Target selection mode cannot be enabled without a legal selected ship",
+                );
+                let ship_position = ship.position();
+                let (d_x, d_y) = (
+                    target.x as i32 - ship_position.0,
+                    target.y as i32 - ship_position.1,
+                );
+                let direction = if d_x.abs() > d_y.abs() {
+                    if d_x > 0 {
+                        types::Direction::East
+                    } else {
+                        types::Direction::West
+                    }
+                } else if d_y > 0 {
+                    types::Direction::North
+                } else {
+                    types::Direction::South
+                };
+                properties.set_direction(direction);
             }
             _ => unreachable!("Only actions with targets are allowed here"),
         }
