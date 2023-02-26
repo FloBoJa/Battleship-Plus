@@ -60,11 +60,16 @@ pub struct InitialGameState(pub types::ServerState);
 #[derive(Resource, Deref, DerefMut)]
 struct SelectedShip(u32);
 
+#[derive(Resource, Deref, DerefMut)]
+struct SelectedTargets(Vec<types::Coordinate>);
+
+type TargetCount = u32;
 type PositionInQueue = Option<u32>;
 
 enum State {
     WaitingForTurn(PositionInQueue),
     ChoosingAction,
+    ChoosingTargets(TargetCount, ActionProperties),
     ChoseAction(Option<ActionProperties>),
     WaitingForResponse,
 }
@@ -86,6 +91,8 @@ fn create_resources(
     player_team: Res<PlayerTeam>,
 ) {
     commands.insert_resource(TurnState(State::WaitingForTurn(None)));
+    commands.insert_resource(ActionPoints(0));
+    commands.insert_resource(SelectedTargets(Vec::with_capacity(3)));
 
     let team_state = match **player_team {
         Teams::TeamA => &lobby.team_state_a,
@@ -133,8 +140,6 @@ fn create_resources(
     }
 
     commands.insert_resource(Ships(ShipManager::new_with_ships(ships)));
-
-    commands.insert_resource(ActionPoints(0));
 }
 
 fn spawn_components(
@@ -265,18 +270,19 @@ fn draw_menu(
                 ));
 
                 if shoot_button.clicked() {
-                    debug!("Initiating shot...");
-                    debug!("Selecting target...");
-                    debug!("Selected self");
-                    let selected =
-                        selected.expect("Button can only be clicked when a ship is selected");
-                    let position = selected.position();
-                    let target = Some(types::Coordinate {
-                        x: position.0 as u32,
-                        y: position.1 as u32,
-                    });
-                    let shoot_properties = types::ShootProperties { target };
-                    **turn_state = State::ChoseAction(Some(shoot_properties.into()));
+                    trace!("Initiating shot, waiting for target selection...");
+                    **turn_state =
+                        State::ChoosingTargets(1, types::ShootProperties::default().into());
+
+                    // let selected =
+                    //     selected.expect("Button can only be clicked when a ship is selected");
+                    // let position = selected.position();
+                    // let target = Some(types::Coordinate {
+                    //     x: position.0 as u32,
+                    //     y: position.1 as u32,
+                    // });
+                    // let shoot_properties = types::ShootProperties { target };
+                    // **turn_state = State::ChoseAction(Some(shoot_properties.into()));
                 }
 
                 let may_use_special =
@@ -310,34 +316,46 @@ fn draw_menu(
                 ));
 
                 if special_button.clicked() {
-                    debug!("Initiating special ability...");
-                    let selected =
+                    trace!("Initiating special ability...");
+                    let ship =
                         selected.expect("Button can only be clicked when a ship is selected");
-                    let position = selected.position();
-                    let target = Some(types::Coordinate {
-                        x: position.0 as u32,
-                        y: position.1 as u32,
-                    });
-                    let action_properties = match selected.ship_type() {
+                    let action_properties = match ship.ship_type() {
                         types::ShipType::Carrier => {
-                            types::ScoutPlaneProperties { center: target }.into()
+                            trace!("Waiting for target selection...");
+                            **turn_state = State::ChoosingTargets(
+                                1,
+                                types::ScoutPlaneProperties::default().into(),
+                            );
+                            None
                         }
-                        types::ShipType::Submarine => types::TorpedoProperties {
-                            direction: types::Direction::from(selected.orientation()).into(),
-                        }
-                        .into(),
-                        types::ShipType::Cruiser => types::EngineBoostProperties {}.into(),
+                        // TODO: Orientation selection
+                        types::ShipType::Submarine => Some(
+                            types::TorpedoProperties {
+                                direction: types::Direction::from(ship.orientation()).into(),
+                            }
+                            .into(),
+                        ),
+                        types::ShipType::Cruiser => Some(types::EngineBoostProperties {}.into()),
                         types::ShipType::Battleship => {
-                            types::PredatorMissileProperties { center: target }.into()
+                            trace!("Waiting for target selection...");
+                            **turn_state = State::ChoosingTargets(
+                                1,
+                                types::PredatorMissileProperties::default().into(),
+                            );
+                            None
                         }
-                        types::ShipType::Destroyer => types::MultiMissileProperties {
-                            position_a: target.clone(),
-                            position_b: target.clone(),
-                            position_c: target,
+                        types::ShipType::Destroyer => {
+                            trace!("Waiting for three target selections...");
+                            **turn_state = State::ChoosingTargets(
+                                3,
+                                types::MultiMissileProperties::default().into(),
+                            );
+                            None
                         }
-                        .into(),
                     };
-                    **turn_state = State::ChoseAction(Some(action_properties));
+                    if let Some(action_properties) = action_properties {
+                        **turn_state = State::ChoseAction(Some(action_properties));
+                    }
                 }
 
                 ui.separator();
@@ -704,7 +722,9 @@ fn process_game_events(
                     **action_points = config.action_point_gain;
                 } else {
                     match **turn_state {
-                        State::WaitingForTurn(_) | State::ChoosingAction => {}
+                        State::WaitingForTurn(_)
+                        | State::ChoosingAction
+                        | State::ChoosingTargets(_, _) => {}
                         State::ChoseAction(_) => {
                             debug!("Action is aborted, the turn ended");
                         }
