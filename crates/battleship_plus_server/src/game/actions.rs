@@ -2,12 +2,15 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::iter::zip;
 use std::ops::Add;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{debug, error};
 use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::game::ship::{GetShipID, Ship};
-use battleship_plus_common::game::ship_manager::{envelope_to_points, AreaOfEffect, ShotResult};
+use battleship_plus_common::game::ship_manager::{
+    envelope_to_points, AreaOfEffect, ShipManager, ShotResult,
+};
 use battleship_plus_common::game::ActionValidationError;
 use battleship_plus_common::game::{ship::ShipID, PlayerID};
 use battleship_plus_common::messages::ship_action_request::ActionProperties;
@@ -81,17 +84,14 @@ pub enum ActionExecutionError {
 }
 
 impl Action {
-    pub(crate) fn apply_on(
-        &self,
-        game: &mut Game,
-    ) -> Result<Option<ActionResult>, ActionExecutionError> {
+    pub(crate) fn apply_on(&self, game: &mut Game) -> Result<ActionResult, ActionExecutionError> {
         // TODO Implementation: implement actions below
         // TODO Implementation: add tests for all actions
         // TODO Refactor: refactor :3
 
         match self {
             Action::TeamSwitch { player_id } => {
-                check_player_exists(game, *player_id)?;
+                check_player_exists(game, *player_id).map_err(ActionExecutionError::Validation)?;
 
                 match (game.team_a.remove(player_id), game.team_b.remove(player_id)) {
                     (true, false) => game.team_b.insert(*player_id),
@@ -105,16 +105,16 @@ impl Action {
 
                 game.unready_players();
 
-                Ok(None)
+                Ok(ActionResult::None)
             }
             Action::SetReady { player_id, request } => {
-                check_player_exists(game, *player_id)?;
+                check_player_exists(game, *player_id).map_err(ActionExecutionError::Validation)?;
 
                 match game.players.get_mut(player_id) {
                     Some(p) => p.is_ready = request.ready_state,
                     None => panic!("player should exist"),
                 }
-                Ok(None)
+                Ok(ActionResult::None)
             }
             Action::PlaceShips {
                 player_id,
@@ -131,8 +131,8 @@ impl Action {
             .iter()
             .map(|(&ship_id, ship)| game.ships.place_ship(ship_id, ship.clone()))
             .find(|res| res.is_err())
-            .map_or(Ok(None), |res| match res {
-                Ok(_) => Ok(None),
+            .map_or(Ok(ActionResult::None), |res| match res {
+                Ok(_) => Ok(ActionResult::None),
                 Err(e) => Err(ActionExecutionError::Validation(
                     ActionValidationError::InvalidShipPlacement(e),
                 )),
@@ -144,37 +144,40 @@ impl Action {
             } => general_movement(
                 game,
                 ship_id,
-                |game, action_points, ship_id, bord_bounds| {
-                    game.ships.move_ship(
+                |ship_manager, action_points, ship_id, board_bounds| {
+                    ship_manager.move_ship(
                         action_points,
+                        true,
                         ship_id,
                         properties.direction(),
-                        bord_bounds,
+                        board_bounds,
                     )
                 },
-            ),
+            )
+            .map_err(ActionExecutionError::Validation),
             Action::Rotate {
                 ship_id,
                 properties,
             } => general_movement(
                 game,
                 ship_id,
-                |game, action_points, ship_id, board_bounds| {
-                    game.ships.rotate_ship(
+                |ship_manager, action_points, ship_id, board_bounds| {
+                    ship_manager.rotate_ship(
                         action_points,
                         ship_id,
                         properties.direction(),
                         board_bounds,
                     )
                 },
-            ),
+            )
+            .map_err(ActionExecutionError::Validation),
             Action::Shoot {
                 ship_id,
                 properties,
             } => {
                 let player_id = ship_id.0;
-                check_player_exists(game, player_id)?;
-                check_players_turn(game, player_id)?;
+                check_player_exists(game, player_id).map_err(ActionExecutionError::Validation)?;
+                check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
 
                 let target = properties.target.as_ref().unwrap();
 
@@ -193,17 +196,17 @@ impl Action {
                             .expect("unable to update player");
 
                         match shot {
-                            ShotResult::Miss => Ok(None),
+                            ShotResult::Miss => Ok(ActionResult::None),
                             ShotResult::Hit(ship_id, damage) => {
-                                Ok(Some(ActionResult::hit(ship_id, target.clone(), damage)))
+                                Ok(ActionResult::hit(ship_id, target.clone(), damage))
                             }
                             ShotResult::Destroyed(ship_id, damage, ship_parts) => {
-                                Ok(Some(ActionResult::destroyed(
+                                Ok(ActionResult::destroyed(
                                     ship_id,
                                     target.clone(),
                                     damage,
                                     ship_parts,
-                                )))
+                                ))
                             }
                         }
                     }
@@ -215,8 +218,8 @@ impl Action {
                 properties,
             } => {
                 let player_id = ship_id.0;
-                check_player_exists(game, player_id)?;
-                check_players_turn(game, player_id)?;
+                check_player_exists(game, player_id).map_err(ActionExecutionError::Validation)?;
+                check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
 
                 let enemy_team = match (
                     game.team_a.contains(&player_id),
@@ -240,7 +243,7 @@ impl Action {
                         &bounds,
                         enemy_team,
                     ) {
-                        Ok(vision) => Ok(Some(ActionResult::scouting(vision))),
+                        Ok(vision) => Ok(ActionResult::scouting(vision)),
                         Err(e) => Err(ActionExecutionError::Validation(e)),
                     }
                 } else {
@@ -254,8 +257,8 @@ impl Action {
                 properties,
             } => {
                 let player_id = ship_id.0;
-                check_player_exists(game, player_id)?;
-                check_players_turn(game, player_id)?;
+                check_player_exists(game, player_id).map_err(ActionExecutionError::Validation)?;
+                check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
 
                 let bounds = game.board_bounds();
                 if let Some(center) = properties.center.as_ref() {
@@ -270,7 +273,7 @@ impl Action {
                             destroyed_ships,
                             damage_per_hit,
                             area,
-                        }) => Ok(Some(ActionResult {
+                        }) => Ok(ActionResult::Single {
                             inflicted_damage_at: hit_ships
                                 .iter()
                                 .chain(destroyed_ships.iter())
@@ -295,7 +298,7 @@ impl Action {
                                 .flat_map(|ship| envelope_to_points(ship.envelope()))
                                 .collect(),
                             temp_vision_at: HashSet::with_capacity(0),
-                        })),
+                        }),
                         Err(e) => Err(ActionExecutionError::Validation(e)),
                     }
                 } else {
@@ -304,14 +307,82 @@ impl Action {
                     )))
                 }
             }
-            // TODO Implementation: Action::EngineBoost { .. } => {}
+            Action::EngineBoost { ship_id, .. } => {
+                let player_id = ship_id.0;
+                check_player_exists(game, player_id).map_err(ActionExecutionError::Validation)?;
+                check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
+
+                let bounds = game.board_bounds();
+
+                let results = game
+                    .ships
+                    .engine_boost(
+                        &mut game.turn.as_mut().unwrap().action_points_left,
+                        ship_id,
+                        |ship_manager, balancing| {
+                            let encountered_err = AtomicBool::new(false);
+
+                            let results = (0..balancing.engine_boost_distance)
+                                .map(|_| {
+                                    if encountered_err.load(Ordering::Relaxed) {
+                                        // after the first error is encountered we ignore every other attempt
+                                        return Err(ActionValidationError::Ignored);
+                                    }
+
+                                    general_movement_inner(
+                                        &mut 0,
+                                        ship_manager,
+                                        ship_id,
+                                        &bounds,
+                                        |ship_manager, _, ship_id, board_bounds| {
+                                            // move ship without costs
+                                            ship_manager.move_ship(
+                                                &mut 0,
+                                                false,
+                                                ship_id,
+                                                MoveDirection::Forward,
+                                                board_bounds,
+                                            )
+                                        },
+                                    )
+                                })
+                                .take_while(|res| {
+                                    // stop at the first error
+                                    if res.is_err() {
+                                        let old = encountered_err.load(Ordering::Relaxed);
+                                        encountered_err.store(true, Ordering::Relaxed);
+                                        !old
+                                    } else {
+                                        true
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+
+                            assert!(!results.is_empty() || balancing.engine_boost_distance == 0);
+
+                            if let Err(e) = results.first().unwrap() {
+                                return Err(e.clone());
+                            }
+
+                            Ok(results)
+                        },
+                    )
+                    .map(|v| {
+                        v.iter()
+                            .map(|r| r.clone().map_err(ActionExecutionError::Validation))
+                            .collect::<Vec<_>>()
+                    })
+                    .map_err(ActionExecutionError::Validation);
+
+                results.map(ActionResult::Multiple)
+            }
             Action::Torpedo {
                 ship_id,
                 properties,
             } => {
                 let player_id = ship_id.0;
-                check_player_exists(game, player_id)?;
-                check_players_turn(game, player_id)?;
+                check_player_exists(game, player_id).map_err(ActionExecutionError::Validation)?;
+                check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
 
                 let direction = match Direction::from_i32(properties.direction) {
                     Some(d) => d,
@@ -332,7 +403,7 @@ impl Action {
                         destroyed_ships,
                         damage_per_hit,
                         area,
-                    }) => Ok(Some(ActionResult {
+                    }) => Ok(ActionResult::Single {
                         inflicted_damage_at: hit_ships
                             .iter()
                             .chain(destroyed_ships.iter())
@@ -357,7 +428,7 @@ impl Action {
                             .flat_map(|ship| envelope_to_points(ship.envelope()))
                             .collect(),
                         temp_vision_at: HashSet::with_capacity(0),
-                    })),
+                    }),
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
@@ -366,8 +437,8 @@ impl Action {
                 properties,
             } => {
                 let player_id = ship_id.0;
-                check_player_exists(game, player_id)?;
-                check_players_turn(game, player_id)?;
+                check_player_exists(game, player_id).map_err(ActionExecutionError::Validation)?;
+                check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
 
                 let positions = vec![
                     properties.position_a.clone(),
@@ -430,27 +501,26 @@ impl Action {
                             .map(|ship| ship.id())
                             .collect::<HashSet<_>>();
 
-                        Ok(Some(ActionResult {
+                        Ok(ActionResult::Single {
                             inflicted_damage_at: collect_and_sum(&inflicted_damage_at),
                             inflicted_damage_by_ship: collect_and_sum(&inflicted_damage_by_ship),
                             ships_destroyed,
                             gain_vision_at: Default::default(),
                             lost_vision_at,
                             temp_vision_at: Default::default(),
-                        }))
+                        })
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
-            Action::None => Ok(None),
-            _ => todo!(),
+            Action::None => Ok(ActionResult::None),
         }
     }
 }
 
 fn general_movement<
     F: FnOnce(
-        &mut Game,
+        &mut ShipManager,
         &mut u32,
         &ShipID,
         &AABB<[i32; 2]>,
@@ -459,35 +529,50 @@ fn general_movement<
     game: &mut Game,
     ship_id: &ShipID,
     do_movement: F,
-) -> Result<Option<ActionResult>, ActionExecutionError> {
+) -> Result<ActionResult, ActionValidationError> {
     let player_id = ship_id.0;
     check_player_exists(game, player_id)?;
     check_players_turn(game, player_id)?;
 
     let board_bounds = game.board_bounds();
-    let player = game.players.get(&player_id).unwrap().clone();
 
-    let mut action_points = game.turn.as_ref().unwrap().action_points_left;
+    general_movement_inner(
+        &mut game.turn.as_mut().unwrap().action_points_left,
+        &mut game.ships,
+        ship_id,
+        &board_bounds,
+        do_movement,
+    )
+}
 
-    let old_vision = game.ships.get_ship_parts_seen_by([*ship_id].as_slice());
-    let trajectory = match do_movement(game, &mut action_points, ship_id, &board_bounds) {
+fn general_movement_inner<
+    F: FnOnce(
+        &mut ShipManager,
+        &mut u32,
+        &ShipID,
+        &AABB<[i32; 2]>,
+    ) -> Result<AABB<[i32; 2]>, ActionValidationError>,
+>(
+    action_points: &mut u32,
+    ship_manager: &mut ShipManager,
+    ship_id: &ShipID,
+    board_bounds: &AABB<[i32; 2]>,
+    do_movement: F,
+) -> Result<ActionResult, ActionValidationError> {
+    let old_vision = ship_manager.get_ship_parts_seen_by([*ship_id].as_slice());
+    let trajectory = match do_movement(ship_manager, action_points, ship_id, board_bounds) {
         Ok(trajectory) => trajectory,
-        Err(e) => return Err(ActionExecutionError::Validation(e)),
+        Err(e) => return Err(e),
     };
-    game.turn.as_mut().unwrap().action_points_left = action_points;
 
-    // update player stats
-    game.players.insert(player_id, player);
+    let destroyed_ships = ship_manager.destroy_colliding_ships_in_envelope(&trajectory);
+    let new_vision = ship_manager.get_ship_parts_seen_by([*ship_id].as_slice());
 
-    let destroyed_ships = game.ships.destroy_colliding_ships_in_envelope(&trajectory);
-
-    let new_vision = game.ships.get_ship_parts_seen_by([*ship_id].as_slice());
-
-    Ok(Some(ActionResult::movement_result(
+    Ok(ActionResult::movement_result(
         &destroyed_ships,
         &old_vision,
         &new_vision,
-    )))
+    ))
 }
 
 impl From<(ClientId, &SetPlacementRequest)> for Action {
@@ -542,35 +627,36 @@ impl From<(ClientId, &ShipActionRequest)> for Action {
     }
 }
 
-fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
+fn check_player_exists(game: &Game, id: PlayerID) -> Result<(), ActionValidationError> {
     if !game.players.contains_key(&id) {
         let msg = format!("PlayerID {id} is unknown",);
         debug!("{}", msg.as_str());
-        Err(ActionExecutionError::Validation(
-            ActionValidationError::NonExistentPlayer { id },
-        ))
+        Err(ActionValidationError::NonExistentPlayer { id })
     } else {
         Ok(())
     }
 }
 
-fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionExecutionError> {
+fn check_players_turn(game: &Game, id: PlayerID) -> Result<(), ActionValidationError> {
     match game.turn {
         Some(Turn { player_id, .. }) if player_id == id => Ok(()),
-        _ => Err(ActionExecutionError::Validation(
-            ActionValidationError::NotPlayersTurn,
-        )),
+        _ => Err(ActionValidationError::NotPlayersTurn),
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ActionResult {
-    pub inflicted_damage_at: HashMap<Coordinate, u32>,
-    pub inflicted_damage_by_ship: HashMap<ShipID, u32>,
-    pub ships_destroyed: HashSet<ShipID>,
-    pub gain_vision_at: HashSet<Coordinate>,
-    pub lost_vision_at: HashSet<Coordinate>,
-    pub temp_vision_at: HashSet<Coordinate>,
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum ActionResult {
+    None,
+    Single {
+        inflicted_damage_at: HashMap<Coordinate, u32>,
+        inflicted_damage_by_ship: HashMap<ShipID, u32>,
+        ships_destroyed: HashSet<ShipID>,
+        gain_vision_at: HashSet<Coordinate>,
+        lost_vision_at: HashSet<Coordinate>,
+        temp_vision_at: HashSet<Coordinate>,
+    },
+    Multiple(Vec<Result<ActionResult, ActionExecutionError>>),
 }
 
 impl ActionResult {
@@ -579,7 +665,7 @@ impl ActionResult {
         old_vision: &[Coordinate],
         new_vision: &[Coordinate],
     ) -> Self {
-        ActionResult {
+        ActionResult::Single {
             inflicted_damage_at: destroyed_ships.as_ref().map_or(
                 HashMap::with_capacity(0),
                 |ships| {
@@ -610,13 +696,27 @@ impl ActionResult {
                     HashSet::from_iter(ships.iter().map(|s| s.id()))
                 }),
             gain_vision_at: difference(new_vision, old_vision),
-            lost_vision_at: difference(old_vision, new_vision),
+            lost_vision_at: difference(old_vision, new_vision)
+                .iter()
+                .chain(
+                    destroyed_ships
+                        .as_ref()
+                        .map_or(vec![], |ships| {
+                            ships
+                                .iter()
+                                .flat_map(|ship| envelope_to_points(ship.envelope()))
+                                .collect()
+                        })
+                        .iter(),
+                )
+                .cloned()
+                .collect(),
             temp_vision_at: HashSet::with_capacity(0),
         }
     }
 
     fn hit(ship_id: ShipID, target: Coordinate, damage: u32) -> Self {
-        ActionResult {
+        ActionResult::Single {
             inflicted_damage_at: HashMap::from([(target, damage)]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::with_capacity(0),
@@ -632,7 +732,7 @@ impl ActionResult {
         damage: u32,
         vision_lost: HashSet<Coordinate>,
     ) -> Self {
-        ActionResult {
+        ActionResult::Single {
             inflicted_damage_at: HashMap::from([(target, damage)]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
             ships_destroyed: HashSet::from([ship_id]),
@@ -643,7 +743,7 @@ impl ActionResult {
     }
 
     fn scouting(scouting_vision: HashSet<Coordinate>) -> Self {
-        ActionResult {
+        ActionResult::Single {
             inflicted_damage_at: HashMap::with_capacity(0),
             inflicted_damage_by_ship: HashMap::with_capacity(0),
             ships_destroyed: HashSet::with_capacity(0),

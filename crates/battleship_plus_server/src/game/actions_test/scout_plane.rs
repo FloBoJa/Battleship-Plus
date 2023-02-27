@@ -99,15 +99,15 @@ async fn actions_scout_plane() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(inflicted_damage_by_ship.is_empty());
         assert!(inflicted_damage_at.is_empty());

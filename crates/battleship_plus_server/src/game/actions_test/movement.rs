@@ -54,14 +54,15 @@ async fn actions_movement() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
         ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(ships_destroyed.is_empty());
         assert!(inflicted_damage_by_ship.is_empty());
@@ -84,14 +85,15 @@ async fn actions_movement() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
         ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(ships_destroyed.is_empty());
         assert!(inflicted_damage_by_ship.is_empty());
@@ -171,14 +173,15 @@ async fn actions_movement_vision() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
         ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(ships_destroyed.is_empty());
         assert!(inflicted_damage_by_ship.is_empty());
@@ -201,14 +204,15 @@ async fn actions_movement_vision() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
         ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(ships_destroyed.is_empty());
         assert!(inflicted_damage_by_ship.is_empty());
@@ -548,14 +552,15 @@ async fn actions_movement_destroy_on_collision() {
         },
     }
     .apply_on(&mut g);
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
         inflicted_damage_by_ship,
         inflicted_damage_at,
         ships_destroyed,
         lost_vision_at,
         gain_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert!(lost_vision_at.contains(&Coordinate { x: 0, y: 10 }));
         assert!(lost_vision_at.contains(&Coordinate { x: 0, y: 11 }));
