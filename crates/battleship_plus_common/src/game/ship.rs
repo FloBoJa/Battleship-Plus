@@ -275,7 +275,6 @@ impl Ship {
         direction: MoveDirection,
         bounds: &AABB<[i32; 2]>,
     ) -> Result<AABB<[i32; 2]>, ActionValidationError> {
-        let balancing = self.common_balancing();
         let orientation = self.orientation();
         let movement = match direction {
             MoveDirection::Forward => 1,
@@ -297,14 +296,6 @@ impl Ship {
 
         if bounds.contains_envelope(&self.get_envelope(new_x, new_y)) {
             self.set_position(new_x, new_y);
-
-            let cooldown = balancing.movement_costs.unwrap().cooldown;
-            if cooldown > 0 {
-                self.cool_downs_mut().push(Cooldown::Movement {
-                    remaining_rounds: cooldown,
-                });
-            }
-
             Ok(self.envelope())
         } else {
             Err(ActionValidationError::OutOfMap)
@@ -316,7 +307,6 @@ impl Ship {
         direction: RotateDirection,
         bounds: &AABB<[i32; 2]>,
     ) -> Result<AABB<[i32; 2]>, ActionValidationError> {
-        let balancing = self.common_balancing();
         let (x, y) = self.position();
         let new_orientation = match (direction, self.orientation()) {
             (RotateDirection::Clockwise, Orientation::North) => Orientation::East,
@@ -331,14 +321,6 @@ impl Ship {
 
         if bounds.contains_envelope(&self.get_envelope_with_orientation(x, y, new_orientation)) {
             self.set_orientation(new_orientation);
-
-            let cooldown = balancing.movement_costs.unwrap().cooldown;
-            if cooldown > 0 {
-                self.cool_downs_mut().push(Cooldown::Movement {
-                    remaining_rounds: cooldown,
-                });
-            }
-
             Ok(self.envelope())
         } else {
             Err(ActionValidationError::OutOfMap)
