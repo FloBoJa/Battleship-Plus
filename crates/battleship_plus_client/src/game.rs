@@ -423,7 +423,7 @@ fn draw_menu(
 
                 ui.separator();
 
-                let cooldown = get_move_cooldown(&selected);
+                let cooldown = get_rotate_cooldown(&selected);
                 let label_text = match cooldown {
                     Some(cooldown) => format!("Rotate ({cooldown}):"),
                     None => "Rotate:".to_string(),
