@@ -228,7 +228,7 @@ fn draw_menu(
                 ui.horizontal(|ui| {
                     ui.set_width(120.0);
                     match **turn_state {
-                        State::WaitingForTurn(Some(1)) => ui.label(format!("1 turn before you")),
+                        State::WaitingForTurn(Some(1)) => ui.label("1 turn before you".to_string()),
                         State::WaitingForTurn(Some(remaining_turns)) => {
                             ui.label(format!("{remaining_turns} turns before you"))
                         }
