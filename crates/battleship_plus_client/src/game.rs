@@ -774,16 +774,20 @@ fn process_game_events(
             }) => {
                 **current_player = Some(*next_player_id);
                 if **player_id == *next_player_id {
-                    info!("Turn started");
-                    **turn_state = State::ChoosingAction;
-                    **action_points += config.action_point_gain;
-                    ships.iter_ships_mut().for_each(|(_, ship)| {
-                        let cooldowns = ship.cool_downs_mut();
-                        *cooldowns = cooldowns
-                            .iter_mut()
-                            .filter_map(|cooldown| cooldown.decremented())
-                            .collect();
-                    });
+                    // Only transition from the correct state.
+                    // This mitigates the potential consequences of duplicate events.
+                    if matches!(**turn_state, State::WaitingForTurn(_)) {
+                        info!("Turn started");
+                        **turn_state = State::ChoosingAction;
+                        **action_points += config.action_point_gain;
+                        ships.iter_ships_mut().for_each(|(_, ship)| {
+                            let cooldowns = ship.cool_downs_mut();
+                            *cooldowns = cooldowns
+                                .iter_mut()
+                                .filter_map(|cooldown| cooldown.decremented())
+                                .collect();
+                        });
+                    }
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_)
@@ -1397,13 +1401,18 @@ fn send_actions(
     selected: Option<ResMut<SelectedShip>>,
     client: Res<Client>,
 ) {
-    let ship_number = match selected {
-        Some(selected) => **selected,
-        None => return,
-    };
     let action_properties = match &**turn_state {
         State::ChoseAction(action) => action.clone(),
         _ => return,
+    };
+    let ship_number = if action_properties.is_some() {
+        match selected {
+            Some(selected) => **selected,
+            None => return,
+        }
+    } else {
+        // Specify an arbitrary ship number for the end turn message.
+        default()
     };
     let message = messages::ShipActionRequest {
         ship_number,
