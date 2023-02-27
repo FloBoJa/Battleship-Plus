@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use battleship_plus_common::game::{ActionValidationError, PlayerID};
 
-use crate::game::actions::{Action, ActionExecutionError};
+use crate::game::actions::{Action, ActionExecutionError, ActionResult};
 use crate::game::data::{Game, Player};
 
 #[tokio::test]
@@ -34,7 +34,7 @@ async fn actions_team_switch() {
     // switch team a -> b
     assert!(matches!(
         Action::TeamSwitch { player_id }.apply_on(&mut g),
-        Ok(None)
+        Ok(ActionResult::None)
     ));
     {
         assert!(!g.team_a.contains(&player_id));
@@ -44,7 +44,7 @@ async fn actions_team_switch() {
     // switch team b -> a
     assert!(matches!(
         Action::TeamSwitch { player_id }.apply_on(&mut g),
-        Ok(None)
+        Ok(ActionResult::None)
     ));
     {
         assert!(g.team_a.contains(&player_id));
