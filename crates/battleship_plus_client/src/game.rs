@@ -777,6 +777,13 @@ fn process_game_events(
                     info!("Turn started");
                     **turn_state = State::ChoosingAction;
                     **action_points += config.action_point_gain;
+                    ships.iter_ships_mut().for_each(|(_, ship)| {
+                        let cooldowns = ship.cool_downs_mut();
+                        *cooldowns = cooldowns
+                            .iter_mut()
+                            .filter_map(|cooldown| cooldown.decremented())
+                            .collect();
+                    });
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_)
