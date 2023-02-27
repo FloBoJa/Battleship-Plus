@@ -20,7 +20,10 @@ use bevy_quinnet_client::Client;
 use crate::{
     game_state::{CachedEvents, Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby,
-    models::{GameAssets, OceanBundle, ShipBundle, ShipMeshes, CLICK_PLANE_OFFSET_Z},
+    models::{
+        get_ship_model_transform, GameAssets, OceanBundle, Ship as ModelShip, ShipBundle,
+        ShipMeshes, CLICK_PLANE_OFFSET_Z,
+    },
     networking, RaycastSet,
 };
 
@@ -51,6 +54,7 @@ impl Plugin for GamePlugin {
         )
         .add_system(select_ship.run_in_state(GameState::Game))
         .add_system(select_target.run_in_state(GameState::Game))
+        .add_system(update_ships.run_in_state(GameState::Game))
         .add_system(draw_menu.run_in_state(GameState::Game))
         .add_system(send_actions.run_in_state(GameState::Game));
     }
@@ -207,6 +211,33 @@ fn spawn_components(
         .insert(RaycastMesh::<RaycastSet>::default())
         .insert(Name::new("Grid"))
         .insert(DespawnOnExit);
+}
+
+fn update_ships(
+    mut commands: Commands,
+    game_ships: Res<Ships>,
+    mut model_ships: Query<(&ModelShip, &mut Transform)>,
+    ship_meshes: Res<ShipMeshes>,
+) {
+    for (ship_id, game_ship) in game_ships.iter_ships() {
+        let model_transform = model_ships.iter_mut().find_map(|(model_ship, transform)| {
+            if model_ship.id == *ship_id {
+                Some(transform)
+            } else {
+                None
+            }
+        });
+        match model_transform {
+            Some(mut transform) => *transform = get_ship_model_transform(game_ship),
+            None => {
+                warn!("Ship model for {ship_id:?} got lost, recreating it");
+                commands
+                    .spawn(ShipBundle::new(game_ship, &ship_meshes))
+                    .insert(DespawnOnExit);
+                continue;
+            }
+        }
+    }
 }
 
 fn draw_menu(
