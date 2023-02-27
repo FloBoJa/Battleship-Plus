@@ -736,9 +736,13 @@ fn process_game_events(
                 position_in_queue,
             }) => {
                 if **player_id == *next_player_id {
-                    info!("Turn started");
-                    **turn_state = State::ChoosingAction;
-                    **action_points += config.action_point_gain;
+                    // Only transition from the correct state.
+                    // This mitigates the potential consequences of duplicate events.
+                    if matches!(**turn_state, State::WaitingForTurn(_)) {
+                        info!("Turn started");
+                        **turn_state = State::ChoosingAction;
+                        **action_points += config.action_point_gain;
+                    }
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_)
