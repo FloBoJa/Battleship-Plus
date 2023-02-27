@@ -226,7 +226,7 @@ fn draw_menu(
                 ui.set_height(50.0);
 
                 ui.horizontal(|ui| {
-                    ui.set_width(120.0);
+                    ui.set_width(150.0);
                     match **turn_state {
                         State::WaitingForTurn(Some(1)) => ui.label("1 turn before you".to_string()),
                         State::WaitingForTurn(Some(remaining_turns)) => {
@@ -234,7 +234,7 @@ fn draw_menu(
                         }
                         State::WaitingForTurn(None) => ui.label("Waiting for turn..."),
                         _ => ui.label(format!(
-                            "Action Points: {}/{}",
+                            "Action Points: {} (+{}/turn)",
                             **action_points, config.action_point_gain
                         )),
                     }
