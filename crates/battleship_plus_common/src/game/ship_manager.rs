@@ -65,6 +65,10 @@ impl ShipManager {
         self.ships.iter()
     }
 
+    pub fn iter_ships_mut(&mut self) -> impl Iterator<Item = (&ShipID, &mut Ship)> {
+        self.ships.iter_mut()
+    }
+
     pub fn get_by_id(&self, ship_id: &ShipID) -> Option<&Ship> {
         self.ships.get(ship_id)
     }
