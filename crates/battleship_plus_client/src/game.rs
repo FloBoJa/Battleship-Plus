@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
@@ -959,9 +959,61 @@ fn process_action_event(
 
             None
         }
-        other_action => {
-            warn!("Unimplemented: Received unsupported action event: {other_action:?}");
-            return;
+        ActionProperties::PredatorMissileProperties(ref properties) => {
+            let target = match properties.center {
+                Some(ref target) => target,
+                None => {
+                    warn!("Received predator missile action without a target, ignoring it");
+                    return;
+                }
+            };
+
+            // TODO: Implement predator missile visualization.
+            type PredatorMissileEffect = PbrBundle;
+            commands
+                .spawn(PredatorMissileEffect {
+                    transform: Transform::from_translation(Vec3::new(
+                        target.x as f32,
+                        target.y as f32,
+                        45.0,
+                    )),
+                    ..default()
+                })
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::TorpedoProperties(ref properties) => {
+            let direction = properties.direction();
+            let angle = match direction {
+                types::Direction::North => 0.0,
+                types::Direction::East => FRAC_PI_2,
+                types::Direction::South => PI,
+                types::Direction::West => -FRAC_PI_2,
+            };
+
+            // TODO: Implement torpedo visualization.
+            type TorpedoEffect = PbrBundle;
+            commands
+                .spawn(TorpedoEffect {
+                    transform: Transform::from_rotation(Quat::from_rotation_z(angle)),
+                    ..default()
+                })
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::EngineBoostProperties(_) => {
+            // An engine boost triggers multiple move events as well, so the movement should not
+            // be handled here.
+
+            // TODO: Maybe implement engine boost visualization?
+            type EngineBoostEffect = PbrBundle;
+            commands
+                .spawn(EngineBoostEffect::default())
+                .insert(DespawnOnExit);
+
+            None
         }
     };
     if let Some(error) = error {
