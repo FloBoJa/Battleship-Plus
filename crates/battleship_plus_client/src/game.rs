@@ -228,6 +228,9 @@ fn draw_menu(
                 ui.horizontal(|ui| {
                     ui.set_width(120.0);
                     match **turn_state {
+                        State::WaitingForTurn(Some(1)) => {
+                            ui.label(format!("1 turn before you"))
+                        }
                         State::WaitingForTurn(Some(remaining_turns)) => {
                             ui.label(format!("{remaining_turns} turns before you"))
                         }
@@ -741,6 +744,9 @@ fn process_game_events(
                     **turn_state = if *position_in_queue == 0 {
                         info!("It is {next_player_id}'s turn now");
                         State::WaitingForTurn(None)
+                    } else if *position_in_queue == 1 {
+                        info!("It is {next_player_id}'s turn now. {position_in_queue} turn remaining");
+                        State::WaitingForTurn(Some(*position_in_queue))
                     } else {
                         info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
                         State::WaitingForTurn(Some(*position_in_queue))
