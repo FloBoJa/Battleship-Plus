@@ -945,7 +945,7 @@ fn process_action_event(
 
     let error = match action_properties {
         ActionProperties::MoveProperties(ref properties) => ships
-            .move_ship(action_points, &ship_id, properties.direction(), &bounds)
+            .move_ship(action_points, true, &ship_id, properties.direction(), &bounds)
             .err(),
         ActionProperties::RotateProperties(ref properties) => ships
             .rotate_ship(action_points, &ship_id, properties.direction(), &bounds)
