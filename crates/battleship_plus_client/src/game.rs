@@ -1071,13 +1071,18 @@ fn send_actions(
     selected: Option<ResMut<SelectedShip>>,
     client: Res<Client>,
 ) {
-    let ship_number = match selected {
-        Some(selected) => **selected,
-        None => return,
-    };
     let action_properties = match &**turn_state {
         State::ChoseAction(action) => action.clone(),
         _ => return,
+    };
+    let ship_number = if action_properties.is_some() {
+        match selected {
+            Some(selected) => **selected,
+            None => return,
+        }
+    } else {
+        // Specify an arbitrary ship number for the end turn message.
+        default()
     };
     let message = messages::ShipActionRequest {
         ship_number,
