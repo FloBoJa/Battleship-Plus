@@ -231,14 +231,15 @@ fn draw_menu(
                 ui.set_height(50.0);
 
                 ui.horizontal(|ui| {
-                    ui.set_width(120.0);
+                    ui.set_width(150.0);
                     match **turn_state {
+                        State::WaitingForTurn(Some(1)) => ui.label("1 turn before you".to_string()),
                         State::WaitingForTurn(Some(remaining_turns)) => {
                             ui.label(format!("{remaining_turns} turns before you"))
                         }
                         State::WaitingForTurn(None) => ui.label("Waiting for turn..."),
                         _ => ui.label(format!(
-                            "Action Points: {}/{}",
+                            "Action Points: {} (+{}/turn)",
                             **action_points, config.action_point_gain
                         )),
                     }
@@ -271,9 +272,12 @@ fn draw_menu(
                     None => default(),
                 };
 
-                let shoot_button = shoot_button.on_hover_text(format!(
+                let hover_text = format!(
                     "AP: {required_action_points}\nCD: {cooldown}\nDMG: {damage}\nRANGE: {range}"
-                ));
+                );
+                let shoot_button = shoot_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
 
                 if shoot_button.clicked() {
                     trace!("Initiating shot, waiting for target selection...");
@@ -317,9 +321,11 @@ fn draw_menu(
                     }
                     None => default(),
                 };
-                let special_button = special_button.on_hover_text(format!(
-                    "AP: {required_action_points}\nCD: {cooldown}{special_description}"
-                ));
+                let hover_text =
+                    format!("AP: {required_action_points}\nCD: {cooldown}{special_description}");
+                let special_button = special_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
 
                 if special_button.clicked() {
                     trace!("Initiating special ability...");
@@ -396,9 +402,13 @@ fn draw_menu(
                     None => default(),
                 };
 
-                let text = format!("AP: {required_action_points}\nCD: {cooldown}");
-                let forward_button = forward_button.on_hover_text(text.clone());
-                let backward_button = backward_button.on_hover_text(text);
+                let hover_text = format!("AP: {required_action_points}\nCD: {cooldown}");
+                let forward_button = forward_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text.clone());
+                let backward_button = backward_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
 
                 let mut direction = None;
                 if forward_button.clicked() {
@@ -446,9 +456,13 @@ fn draw_menu(
                     None => default(),
                 };
 
-                let text = format!("AP: {required_action_points}\nCD: {cooldown}");
-                let clockwise_button = clockwise_button.on_hover_text(text.clone());
-                let counter_clockwise_button = counter_clockwise_button.on_hover_text(text);
+                let hover_text = format!("AP: {required_action_points}\nCD: {cooldown}");
+                let clockwise_button = clockwise_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text.clone());
+                let counter_clockwise_button = counter_clockwise_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
 
                 let mut direction = None;
                 if clockwise_button.clicked() {
@@ -731,7 +745,7 @@ fn process_game_events(
                 if **player_id == *next_player_id {
                     info!("Turn started");
                     **turn_state = State::ChoosingAction;
-                    **action_points = config.action_point_gain;
+                    **action_points += config.action_point_gain;
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_)
@@ -748,11 +762,15 @@ fn process_game_events(
                     **turn_state = if *position_in_queue == 0 {
                         info!("It is {next_player_id}'s turn now");
                         State::WaitingForTurn(None)
+                    } else if *position_in_queue == 1 {
+                        info!(
+                            "It is {next_player_id}'s turn now. {position_in_queue} turn remaining"
+                        );
+                        State::WaitingForTurn(Some(*position_in_queue))
                     } else {
                         info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
                         State::WaitingForTurn(Some(*position_in_queue))
                     };
-                    **action_points = 0;
                 }
             }
             EventMessage::SplashEvent(splash) => {
