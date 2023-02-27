@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use battleship_plus_common::game::{ActionValidationError, PlayerID};
 use battleship_plus_common::messages::SetReadyStateRequest;
 
-use crate::game::actions::{Action, ActionExecutionError};
+use crate::game::actions::{Action, ActionExecutionError, ActionResult};
 use crate::game::data::{Game, Player};
 
 #[tokio::test]
@@ -33,7 +33,7 @@ async fn actions_player_set_ready() {
             request: SetReadyStateRequest { ready_state: true },
         }
         .apply_on(&mut g),
-        Ok(None)
+        Ok(ActionResult::None)
     ));
     {
         assert!(g.players.get(&player_id).unwrap().is_ready);
@@ -46,7 +46,7 @@ async fn actions_player_set_ready() {
             request: SetReadyStateRequest { ready_state: false },
         }
         .apply_on(&mut g),
-        Ok(None)
+        Ok(ActionResult::None)
     ));
     {
         assert!(!g.players.get(&player_id).unwrap().is_ready);
