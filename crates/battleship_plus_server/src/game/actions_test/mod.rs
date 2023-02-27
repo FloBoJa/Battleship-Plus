@@ -1,3 +1,4 @@
+mod engine_boost;
 mod movement;
 mod multi_missile;
 mod place_ships;
