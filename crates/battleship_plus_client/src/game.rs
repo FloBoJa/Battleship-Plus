@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
@@ -18,6 +18,7 @@ use battleship_plus_common::{
 use bevy_quinnet_client::Client;
 
 use crate::{
+    effects,
     game_state::{CachedEvents, Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby,
     models::{
@@ -945,7 +946,13 @@ fn process_action_event(
 
     let error = match action_properties {
         ActionProperties::MoveProperties(ref properties) => ships
-            .move_ship(action_points, true, &ship_id, properties.direction(), &bounds)
+            .move_ship(
+                action_points,
+                true,
+                &ship_id,
+                properties.direction(),
+                &bounds,
+            )
             .err(),
         ActionProperties::RotateProperties(ref properties) => ships
             .rotate_ship(action_points, &ship_id, properties.direction(), &bounds)
@@ -972,17 +979,8 @@ fn process_action_event(
                 }
             };
 
-            // TODO: Implement shot visualization.
-            type ShotEffect = PbrBundle;
             commands
-                .spawn(ShotEffect {
-                    transform: Transform::from_translation(Vec3::new(
-                        target.x as f32,
-                        target.y as f32,
-                        45.0,
-                    )),
-                    ..default()
-                })
+                .spawn(effects::ShotEffect::new(ship, target))
                 .insert(DespawnOnExit);
 
             None
@@ -1009,17 +1007,12 @@ fn process_action_event(
                 }
             };
 
-            // TODO: Implement scout plane visualization.
-            type ScoutPlaneEffect = PbrBundle;
             commands
-                .spawn(ScoutPlaneEffect {
-                    transform: Transform::from_translation(Vec3::new(
-                        center.x as f32,
-                        center.y as f32,
-                        45.0,
-                    )),
-                    ..default()
-                })
+                .spawn(effects::ScoutPlaneEffect::new(
+                    ship,
+                    center,
+                    config.0.clone(),
+                ))
                 .insert(DespawnOnExit);
 
             None
@@ -1051,17 +1044,12 @@ fn process_action_event(
                     }
                 };
 
-                // TODO: Implement multi missil attack visualization.
-                type MultiMissileEffect = PbrBundle;
                 commands
-                    .spawn(MultiMissileEffect {
-                        transform: Transform::from_translation(Vec3::new(
-                            position.x as f32,
-                            position.y as f32,
-                            45.0,
-                        )),
-                        ..default()
-                    })
+                    .spawn(effects::MultiMissileEffect::new(
+                        ship,
+                        position,
+                        config.0.clone(),
+                    ))
                     .insert(DespawnOnExit);
             }
 
@@ -1089,17 +1077,12 @@ fn process_action_event(
                 }
             };
 
-            // TODO: Implement predator missile visualization.
-            type PredatorMissileEffect = PbrBundle;
             commands
-                .spawn(PredatorMissileEffect {
-                    transform: Transform::from_translation(Vec3::new(
-                        target.x as f32,
-                        target.y as f32,
-                        45.0,
-                    )),
-                    ..default()
-                })
+                .spawn(effects::PredatorMissileEffect::new(
+                    ship,
+                    target,
+                    config.0.clone(),
+                ))
                 .insert(DespawnOnExit);
 
             None
@@ -1118,21 +1101,12 @@ fn process_action_event(
                 }
             }
 
-            let direction = properties.direction();
-            let angle = match direction {
-                types::Direction::North => 0.0,
-                types::Direction::East => FRAC_PI_2,
-                types::Direction::South => PI,
-                types::Direction::West => -FRAC_PI_2,
-            };
-
-            // TODO: Implement torpedo visualization.
-            type TorpedoEffect = PbrBundle;
             commands
-                .spawn(TorpedoEffect {
-                    transform: Transform::from_rotation(Quat::from_rotation_z(angle)),
-                    ..default()
-                })
+                .spawn(effects::TorpedoEffect::new(
+                    ship,
+                    properties.direction(),
+                    config.0.clone(),
+                ))
                 .insert(DespawnOnExit);
 
             None
@@ -1155,10 +1129,6 @@ fn process_action_event(
             // be handled here.
 
             // TODO: Maybe implement engine boost visualization?
-            type EngineBoostEffect = PbrBundle;
-            commands
-                .spawn(EngineBoostEffect::default())
-                .insert(DespawnOnExit);
 
             None
         }
