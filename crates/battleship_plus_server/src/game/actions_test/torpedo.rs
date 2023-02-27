@@ -83,15 +83,15 @@ async fn actions_torpedo_north() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
         assert!(inflicted_damage_by_ship.contains_key(&hit.id()));
@@ -195,15 +195,15 @@ async fn actions_torpedo_south() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
         assert!(inflicted_damage_by_ship.contains_key(&hit.id()));
@@ -307,15 +307,15 @@ async fn actions_torpedo_east() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
         assert!(inflicted_damage_by_ship.contains_key(&hit.id()));
@@ -419,15 +419,15 @@ async fn actions_torpedo_west() {
         },
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(Some(ActionResult { .. }))));
-    if let Ok(Some(ActionResult {
+    assert!(matches!(result, Ok(ActionResult::Single { .. })));
+    if let Ok(ActionResult::Single {
+        ships_destroyed,
         inflicted_damage_by_ship,
         inflicted_damage_at,
-        ships_destroyed,
-        lost_vision_at,
         gain_vision_at,
+        lost_vision_at,
         temp_vision_at,
-    })) = result
+    }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
         assert!(inflicted_damage_by_ship.contains_key(&hit.id()));

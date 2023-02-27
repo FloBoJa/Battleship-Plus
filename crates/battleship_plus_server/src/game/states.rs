@@ -94,7 +94,7 @@ impl GameState {
         &self,
         action: Action,
         game: &mut RwLockWriteGuard<Game>,
-    ) -> Result<Option<ActionResult>, ActionExecutionError> {
+    ) -> Result<ActionResult, ActionExecutionError> {
         if !self.is_action_valid(&action) {
             return Err(ActionExecutionError::OutOfState(*self));
         }
