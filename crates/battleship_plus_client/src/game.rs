@@ -861,6 +861,8 @@ fn process_game_events(
                     action_properties,
                     &mut ships,
                     &config,
+                    &mut action_points,
+                    &player_id,
                 );
             }
             EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
@@ -908,33 +910,53 @@ fn process_action_event(
     action_properties: messages::ship_action_event::ActionProperties,
     ships: &mut ResMut<Ships>,
     config: &Res<Config>,
+    action_points: &mut ResMut<ActionPoints>,
+    player_id: &Res<PlayerId>,
 ) {
     // Fake an action point account.
-    let mut action_points = config.action_point_gain;
+    let mut enough_action_points = u32::MAX;
+    let is_player = ship_id.0 == ***player_id;
+    let action_points = if is_player {
+        &mut **action_points
+    } else {
+        &mut enough_action_points
+    };
     let bounds = AABB::from_corners([0, 0], [config.board_size as i32, config.board_size as i32]);
     use messages::ship_action_event::ActionProperties;
+
+    let ship = match ships.get_by_id_mut(&ship_id) {
+        Some(ship) => ship,
+        None => {
+            warn!("Received action event for unknown ship {ship_id:?}, ignoring it");
+            return;
+        }
+    };
+
     let error = match action_properties {
         ActionProperties::MoveProperties(ref properties) => ships
-            .move_ship(
-                &mut action_points,
-                &ship_id,
-                properties.direction(),
-                &bounds,
-            )
+            .move_ship(action_points, &ship_id, properties.direction(), &bounds)
             .err(),
         ActionProperties::RotateProperties(ref properties) => ships
-            .rotate_ship(
-                &mut action_points,
-                &ship_id,
-                properties.direction(),
-                &bounds,
-            )
+            .rotate_ship(action_points, &ship_id, properties.direction(), &bounds)
             .err(),
         ActionProperties::ShootProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .shoot_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
             let target = match properties.target {
                 Some(ref target) => target,
                 None => {
-                    warn!("Received shoot action without a target, ignoring it");
+                    warn!("Received shoot action without a target");
                     return;
                 }
             };
@@ -955,10 +977,23 @@ fn process_action_event(
             None
         }
         ActionProperties::ScoutPlaneProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
             let center = match properties.center {
                 Some(ref center) => center,
                 None => {
-                    warn!("Received scout plane action without a location, ignoring it");
+                    warn!("Received scout plane action without a location");
                     return;
                 }
             };
@@ -979,6 +1014,19 @@ fn process_action_event(
             None
         }
         ActionProperties::MultiMissileProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
             for position in &[
                 &properties.position_a,
                 &properties.position_b,
@@ -1009,10 +1057,23 @@ fn process_action_event(
             None
         }
         ActionProperties::PredatorMissileProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
             let target = match properties.center {
                 Some(ref target) => target,
                 None => {
-                    warn!("Received predator missile action without a target, ignoring it");
+                    warn!("Received predator missile action without a target");
                     return;
                 }
             };
@@ -1033,6 +1094,19 @@ fn process_action_event(
             None
         }
         ActionProperties::TorpedoProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
             let direction = properties.direction();
             let angle = match direction {
                 types::Direction::North => 0.0,
@@ -1053,6 +1127,19 @@ fn process_action_event(
             None
         }
         ActionProperties::EngineBoostProperties(_) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
             // An engine boost triggers multiple move events as well, so the movement should not
             // be handled here.
 
