@@ -738,7 +738,7 @@ fn process_game_events(
                 if **player_id == *next_player_id {
                     info!("Turn started");
                     **turn_state = State::ChoosingAction;
-                    **action_points = config.action_point_gain;
+                    **action_points += config.action_point_gain;
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_)
@@ -764,7 +764,6 @@ fn process_game_events(
                         info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
                         State::WaitingForTurn(Some(*position_in_queue))
                     };
-                    **action_points = 0;
                 }
             }
             EventMessage::SplashEvent(splash) => {
