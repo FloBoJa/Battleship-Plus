@@ -9,6 +9,7 @@ use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_mod_raycast::{DefaultRaycastingPlugin, RaycastSource};
 use iyes_loopless::prelude::*;
 
+mod effects;
 mod game;
 mod game_state;
 mod lobby;
@@ -50,6 +51,7 @@ fn main() {
         .add_plugin(navigation::NavigationPlugin {
             enabled_in: HashSet::from([GameState::PlacementPhase, GameState::Game]),
         })
+        .add_plugin(effects::EffectsPlugin)
         .add_startup_system(fps_counter)
         .add_startup_system(camera_setup)
         .insert_resource(lobby::UserName("Userus Namus XXVII.".to_string()))
