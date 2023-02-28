@@ -1,7 +1,10 @@
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::Arc;
 
+use rand::prelude::IteratorRandom;
+use rand::thread_rng;
 use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::game::ship::{Ship, ShipID};
@@ -222,6 +225,17 @@ impl Game {
         }
 
         Ok(ship_manager.into())
+    }
+
+    pub(crate) fn advance_turn(&mut self) {
+        self.turn = Some(Turn::new(
+            *self
+                .players
+                .keys()
+                .choose_stable(&mut thread_rng())
+                .unwrap(),
+            self.config.action_point_gain,
+        ));
     }
 }
 

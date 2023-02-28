@@ -14,7 +14,7 @@ use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship}
 use battleship_plus_common::game::{ActionValidationError, PlayerID};
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
+    GameStart, JoinResponse, LobbyChangeEvent, NextTurn, PlacementPhase, ProtocolMessage,
     ServerConfigResponse, ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse,
     StatusCode, StatusMessage, TeamSwitchResponse,
 };
@@ -28,7 +28,7 @@ use bevy_quinnet_server::{
 };
 
 use crate::config_provider::ConfigProvider;
-use crate::game::actions::{Action, ActionExecutionError};
+use crate::game::actions::{Action, ActionExecutionError, ActionResult};
 use crate::game::data::{Game, Player, Turn};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
@@ -486,6 +486,7 @@ async fn handle_message(
             if g.can_change_into_game_phase() {
                 info!("GamePhase: InGame");
                 g.state = GameState::InGame;
+                g.advance_turn();
                 broadcast_game_start(&g, broadcast_tx)?;
             }
 
@@ -553,13 +554,16 @@ async fn handle_message(
             }
 
             let mut g = game.write().await;
-            let /*action_result*/ _ = g
+            let action_result = g
                 .get_state()
                 .execute_action(action, &mut g)
-                .map_err(MessageHandlerError::Protocol);
+                .map_err(MessageHandlerError::Protocol)?;
 
-            // TODO: respond according to the action and the action result
-            todo!()
+            match action_result {
+                ActionResult::None => todo!(),
+                ActionResult::Single { .. } => todo!(),
+                ActionResult::Multiple(_) => todo!(),
+            }
         }
 
         // received a client-bound message
@@ -693,7 +697,7 @@ fn broadcast_game_start(
         broadcast_tx
             .send((
                 vec![id],
-                game_state_for_player(
+                game_start_for_player(
                     player,
                     game,
                     (team_ships_a.clone(), team_ships_b.clone()),
@@ -706,6 +710,17 @@ fn broadcast_game_start(
             ))
             .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
     }
+
+    let turn = game.turn.as_ref().unwrap();
+    broadcast_tx
+        .send((
+            vec![turn.player_id],
+            ProtocolMessage::NextTurn(NextTurn {
+                next_player_id: turn.player_id,
+                position_in_queue: 0, // TODO
+            }),
+        ))
+        .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
 
     Ok(())
 }
@@ -761,7 +776,7 @@ fn get_server_state_for_player(
     }
 }
 
-fn game_state_for_player(
+fn game_start_for_player(
     player: &Player,
     game: &Game,
     (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),
