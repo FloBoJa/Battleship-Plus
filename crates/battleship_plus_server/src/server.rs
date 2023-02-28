@@ -317,6 +317,16 @@ async fn endpoint_task(
                     "unable to handle message from client {}: {payload:?}: {e}",
                     payload.client_id
                 );
+
+                if let Err(e) = ep.send_message(
+                    payload.client_id,
+                    status_with_msg(StatusCode::BadRequest, e.to_string().as_str()),
+                ) {
+                    error!(
+                        "unable to send error message to {}: {}",
+                        payload.client_id, e
+                    )
+                }
             }
         };
     }
@@ -582,8 +592,22 @@ async fn handle_message(
             .cloned()
             .collect::<Vec<_>>();
             if let Action::None = action {
-                return g.clear_temp_vision_and_advance_turn(team.as_slice(), broadcast_tx);
+                let turn = g.clear_temp_vision_and_advance_turn(team.as_slice(), broadcast_tx)?;
+                return ep
+                    .broadcast_message(
+                        NextTurn {
+                            next_player_id: turn.player_id,
+                            position_in_queue: 0, //TODO
+                        }
+                        .into(),
+                    )
+                    .map_err(MessageHandlerError::Network);
             }
+
+            let action_result = g
+                .get_state()
+                .execute_action(action, &mut g)
+                .map_err(MessageHandlerError::Protocol)?;
 
             broadcast_tx
                 .send((
@@ -620,11 +644,6 @@ async fn handle_message(
                     .into(),
                 ))
                 .map_err(|e| MessageHandlerError::Broadcast(e.into()))?;
-
-            let action_result = g
-                .get_state()
-                .execute_action(action, &mut g)
-                .map_err(MessageHandlerError::Protocol)?;
 
             match action_result {
                 ActionResult::None => Ok(()),

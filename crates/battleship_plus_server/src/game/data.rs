@@ -235,7 +235,7 @@ impl Game {
         &mut self,
         team: &[PlayerID],
         broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
-    ) -> Result<(), MessageHandlerError> {
+    ) -> Result<Turn, MessageHandlerError> {
         if let Some(Turn { temp_vision, .. }) = self.turn.as_ref() {
             if !temp_vision.is_empty() {
                 broadcast_tx
@@ -251,19 +251,21 @@ impl Game {
             }
         }
 
-        self.advance_turn();
-        Ok(())
+        Ok(self.advance_turn())
     }
 
-    pub(crate) fn advance_turn(&mut self) {
-        self.turn = Some(Turn::new(
+    pub(crate) fn advance_turn(&mut self) -> Turn {
+        let turn = Turn::new(
             *self
                 .players
                 .keys()
                 .choose_stable(&mut thread_rng())
                 .unwrap(),
             self.config.action_point_gain,
-        ));
+        );
+
+        self.turn = Some(turn.clone());
+        turn
     }
 
     pub(crate) fn game_result(&self) -> GameResult {
