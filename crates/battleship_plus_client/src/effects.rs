@@ -16,7 +16,8 @@ impl Plugin for EffectsPlugin {
             .add_system(initialize_shot_effects.run_in_state(GameState::Game))
             .add_system(initialize_scout_plane_effects.run_in_state(GameState::Game))
             .add_system(initialize_predator_missile_effects.run_in_state(GameState::Game))
-            .add_system(initialize_multi_missile_effects.run_in_state(GameState::Game));
+            .add_system(initialize_multi_missile_effects.run_in_state(GameState::Game))
+            .add_system(initialize_torpedo_effects.run_in_state(GameState::Game));
     }
 }
 
@@ -34,6 +35,8 @@ pub struct EffectAssets {
     multi_missile_travel_material: Handle<StandardMaterial>,
     multi_missile_impact_mesh: Handle<Mesh>,
     multi_missile_impact_material: Handle<StandardMaterial>,
+    torpedo_mesh: Handle<Mesh>,
+    torpedo_material: Handle<StandardMaterial>,
 }
 
 fn load_assets(
@@ -85,6 +88,13 @@ fn load_assets(
     let multi_missile_impact_mesh = predator_missile_impact_mesh.clone();
     let multi_missile_impact_material = multi_missile_travel_material.clone();
 
+    let torpedo_mesh = shot_mesh.clone();
+    let torpedo_material = materials.add(StandardMaterial {
+        base_color: Color::rgba(1.0, 1.0, 1.0, 0.5),
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+
     commands.insert_resource(EffectAssets {
         shot_mesh,
         shot_material,
@@ -98,6 +108,8 @@ fn load_assets(
         multi_missile_travel_material,
         multi_missile_impact_mesh,
         multi_missile_impact_material,
+        torpedo_mesh,
+        torpedo_material,
     });
 }
 
@@ -353,10 +365,74 @@ fn initialize_multi_missile_effects(
 }
 
 #[derive(Component)]
-pub struct TorpedoEffect {}
+pub struct TorpedoEffect {
+    ship_position: Vec2,
+    ship_orientation: Vec2,
+    direction: Vec2,
+    initialized: bool,
+}
 
 impl TorpedoEffect {
     pub fn new(ship: &Ship, direction: Direction) -> Self {
-        Self {}
+        let ship_position = ship.position();
+        let ship_position = Vec2::new(ship_position.0 as f32, ship_position.1 as f32);
+        let ship_orientation = direction_to_vector(ship.orientation().into());
+        let direction = direction_to_vector(direction);
+
+        Self {
+            ship_position,
+            ship_orientation,
+            direction,
+            initialized: false,
+        }
+    }
+}
+
+fn initialize_torpedo_effects(
+    mut commands: Commands,
+    mut effects: Query<(Entity, &mut TorpedoEffect)>,
+    assets: Res<EffectAssets>,
+    config: Res<Config>,
+) {
+    for (entity, mut effect) in effects.iter_mut() {
+        if effect.initialized {
+            continue;
+        }
+
+        let distance = config
+            .cruiser_balancing
+            .as_ref()
+            .expect("Cruisers must have a balancing during a game")
+            .engine_boost_distance as f32;
+        let offset = if effect.ship_orientation.abs_diff_eq(effect.direction, 0.01) {
+            // Length of a cruiser:
+            3.0
+        } else {
+            0.0
+        };
+        let torpedo_origin = effect.ship_position + offset * effect.direction;
+        let angle = Vec2::X.angle_between(effect.direction);
+
+        let height = 10.0;
+
+        commands.entity(entity).insert(PbrBundle {
+            mesh: assets.torpedo_mesh.clone(),
+            transform: Transform::from_xyz(torpedo_origin.x, torpedo_origin.y, height)
+                .with_scale(Vec3::new(distance, 1.0, 1.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
+            material: assets.torpedo_material.clone(),
+            ..default()
+        });
+
+        effect.initialized = true;
+    }
+}
+
+fn direction_to_vector(direction: Direction) -> Vec2 {
+    match direction {
+        Direction::North => Vec2::Y,
+        Direction::East => Vec2::X,
+        Direction::South => Vec2::NEG_Y,
+        Direction::West => Vec2::NEG_X,
     }
 }
