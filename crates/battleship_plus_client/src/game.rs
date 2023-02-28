@@ -1408,8 +1408,10 @@ fn board_position_from_intersection(
     let intersection = intersections.get_single().ok()?;
     intersection
         .position()
+        // Shift intersections by (0.5, 0.5) to have integer world coordinates at the center of the
+        // tiles.
         .map(|&Vec3 { x, y, .. }| types::Coordinate {
-            x: x as u32,
-            y: y as u32,
+            x: (x + 0.5) as u32,
+            y: (y + 0.5) as u32,
         })
 }

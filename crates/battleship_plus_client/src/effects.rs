@@ -313,6 +313,10 @@ fn initialize_predator_missile_effects(
 
         let height = 9.0;
 
+        commands.entity(entity).insert(TransformBundle::default()).insert(Lifetime {
+            ends_at: time.elapsed() + Duration::from_secs(5),
+        });
+
         commands
             .spawn(PbrBundle {
                 mesh: assets.predator_missile_travel_mesh.clone(),
@@ -339,10 +343,6 @@ fn initialize_predator_missile_effects(
             })
             .insert(Name::new("Impact"))
             .set_parent(entity);
-
-        commands.entity(entity).insert(Lifetime {
-            ends_at: time.elapsed() + Duration::from_secs(5),
-        });
 
         effect.initialized = true;
     }
@@ -403,6 +403,10 @@ fn initialize_multi_missile_effects(
 
         let height = 9.0;
 
+        commands.entity(entity).insert(TransformBundle::default()).insert(Lifetime {
+            ends_at: time.elapsed() + Duration::from_secs(5),
+        });
+
         commands
             .spawn(PbrBundle {
                 mesh: assets.multi_missile_travel_mesh.clone(),
@@ -429,10 +433,6 @@ fn initialize_multi_missile_effects(
             })
             .insert(Name::new("Impact"))
             .set_parent(entity);
-
-        commands.entity(entity).insert(Lifetime {
-            ends_at: time.elapsed() + Duration::from_secs(5),
-        });
 
         effect.initialized = true;
     }
