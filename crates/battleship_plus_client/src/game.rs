@@ -1358,7 +1358,7 @@ fn select_target(
             ActionProperties::TorpedoProperties(properties) => {
                 let ship = selected
                     .expect("Target selection mode cannot be enabled without a selected ship");
-                let ship = ships.get_by_id(&(**ship, **player_id)).expect(
+                let ship = ships.get_by_id(&(**player_id, **ship)).expect(
                     "Target selection mode cannot be enabled without a legal selected ship",
                 );
                 let ship_position = ship.position();
