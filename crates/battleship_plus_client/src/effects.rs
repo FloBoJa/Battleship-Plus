@@ -1,20 +1,20 @@
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
-use std::sync::Arc;
 
 use battleship_plus_common::{
     game::ship::Ship,
-    types::{Config, Coordinate, Direction},
+    types::{Coordinate, Direction},
 };
 
-use crate::game_state::GameState;
+use crate::game_state::{Config, GameState};
 
 pub struct EffectsPlugin;
 
 impl Plugin for EffectsPlugin {
     fn build(&self, app: &mut App) {
         app.add_startup_system(load_assets)
-            .add_system(initialize_shot_effects.run_in_state(GameState::Game));
+            .add_system(initialize_shot_effects.run_in_state(GameState::Game))
+            .add_system(initialize_scout_plane_effects.run_in_state(GameState::Game));
     }
 }
 
@@ -22,6 +22,8 @@ impl Plugin for EffectsPlugin {
 pub struct EffectAssets {
     shot_mesh: Handle<Mesh>,
     shot_material: Handle<StandardMaterial>,
+    scout_plane_mesh: Handle<Mesh>,
+    scout_plane_material: Handle<StandardMaterial>,
 }
 
 fn load_assets(
@@ -45,9 +47,19 @@ fn load_assets(
         alpha_mode: AlphaMode::Blend,
         ..default()
     });
+
+    let scout_plane_mesh = meshes.add(shape::Plane { size: 1.0 }.into());
+    let scout_plane_material = materials.add(StandardMaterial {
+        base_color: Color::rgba(0.0, 1.0, 1.0, 0.5),
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+
     commands.insert_resource(EffectAssets {
         shot_mesh,
         shot_material,
+        scout_plane_mesh,
+        scout_plane_material,
     });
 }
 
@@ -73,15 +85,15 @@ impl ShotEffect {
 
 fn initialize_shot_effects(
     mut commands: Commands,
-    mut shot_effects: Query<(Entity, &mut ShotEffect)>,
+    mut effects: Query<(Entity, &mut ShotEffect)>,
     assets: Res<EffectAssets>,
 ) {
-    for (entity, mut shot_effect) in shot_effects.iter_mut() {
-        if shot_effect.initialized {
+    for (entity, mut effect) in effects.iter_mut() {
+        if effect.initialized {
             continue;
         }
 
-        let shot_vector = shot_effect.target - shot_effect.ship_position;
+        let shot_vector = effect.target - effect.ship_position;
         let length = shot_vector.length();
         let angle = Vec2::X.angle_between(shot_vector);
 
@@ -89,27 +101,63 @@ fn initialize_shot_effects(
 
         commands.entity(entity).insert(PbrBundle {
             mesh: assets.shot_mesh.clone(),
-            transform: Transform::from_xyz(
-                shot_effect.ship_position.x,
-                shot_effect.ship_position.y,
-                height,
-            )
-            .with_scale(Vec3::new(length, 1.0, 1.0))
-            .with_rotation(Quat::from_rotation_z(angle)),
+            transform: Transform::from_xyz(effect.ship_position.x, effect.ship_position.y, height)
+                .with_scale(Vec3::new(length, 1.0, 1.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
             material: assets.shot_material.clone(),
             ..default()
         });
 
-        shot_effect.initialized = true;
+        effect.initialized = true;
     }
 }
 
 #[derive(Component)]
-pub struct ScoutPlaneEffect {}
+pub struct ScoutPlaneEffect {
+    center: Vec2,
+    initialized: bool,
+}
 
 impl ScoutPlaneEffect {
-    pub fn new(ship: &Ship, target: &Coordinate) -> Self {
-        Self {}
+    pub fn new(_ship: &Ship, center: &Coordinate) -> Self {
+        let center = Vec2::new(center.x as f32, center.y as f32);
+
+        Self {
+            center,
+            initialized: false,
+        }
+    }
+}
+
+fn initialize_scout_plane_effects(
+    mut commands: Commands,
+    mut effects: Query<(Entity, &mut ScoutPlaneEffect)>,
+    assets: Res<EffectAssets>,
+    config: Res<Config>,
+) {
+    for (entity, mut effect) in effects.iter_mut() {
+        if effect.initialized {
+            continue;
+        }
+
+        let radius = config
+            .carrier_balancing
+            .as_ref()
+            .expect("Carriers must have a balancing during a game")
+            .scout_plane_radius as f32;
+        let diameter = 1.0 + radius * 2.0;
+
+        let height = 20.0;
+
+        commands.entity(entity).insert(PbrBundle {
+            mesh: assets.scout_plane_mesh.clone(),
+            transform: Transform::from_xyz(effect.center.x, effect.center.y, height)
+                .with_scale(Vec3::new(diameter, diameter, 1.0)),
+            material: assets.scout_plane_material.clone(),
+            ..default()
+        });
+
+        effect.initialized = true;
     }
 }
 
