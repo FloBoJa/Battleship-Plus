@@ -22,8 +22,8 @@ use crate::{
     game_state::{CachedEvents, Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby,
     models::{
-        get_ship_model_transform, GameAssets, OceanBundle, Ship as ModelShip, ShipBundle,
-        ShipMeshes, CLICK_PLANE_OFFSET_Z,
+        get_ship_model_transform, GameAssets, HostileShipBundle, HostileShipTile, OceanBundle,
+        Ship as ModelShip, ShipBundle, ShipMeshes, CLICK_PLANE_OFFSET_Z,
     },
     networking, RaycastSet,
 };
@@ -155,6 +155,7 @@ fn create_resources(
 
 fn spawn_components(
     mut commands: Commands,
+    initial_game_state: Res<InitialGameState>,
     ships: Res<Ships>,
     ship_meshes: Res<ShipMeshes>,
     assets: Res<GameAssets>,
@@ -183,6 +184,12 @@ fn spawn_components(
     for (_ship_id, ship) in ships.iter_ships() {
         commands
             .spawn(ShipBundle::new(ship, &ship_meshes))
+            .insert(DespawnOnExit);
+    }
+
+    for position in initial_game_state.visible_hostile_ships.iter() {
+        commands
+            .spawn(HostileShipBundle::new(&assets, position))
             .insert(DespawnOnExit);
     }
 
@@ -763,8 +770,8 @@ fn process_game_events(
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
     mut current_player: ResMut<CurrentPlayer>,
     (mut turn_state, mut action_points): (ResMut<TurnState>, ResMut<ActionPoints>),
-    mut ships: ResMut<Ships>,
-    config: Res<Config>,
+    (mut ships, enemy_ship_tiles): (ResMut<Ships>, Query<(Entity, &HostileShipTile)>),
+    (config, assets): (Res<Config>, Res<GameAssets>),
 ) {
     let mut transition_happened = false;
     for event in events.iter() {
@@ -840,11 +847,16 @@ fn process_game_events(
                 }
             }
             EventMessage::VisionEvent(vision) => {
-                for types::Coordinate { x, y } in &vision.vanished_ship_fields {
-                    info!("Lost sight of ship at ({x}, {y})");
+                for position @ types::Coordinate { x, y } in &vision.vanished_ship_fields {
+                    debug!("Lost sight of ship at ({x}, {y})");
+                    enemy_ship_tiles
+                        .iter()
+                        .filter(|(_, tile)| &tile.position == position)
+                        .for_each(|(entity, _)| commands.entity(entity).despawn_recursive());
                 }
-                for types::Coordinate { x, y } in &vision.discovered_ship_fields {
-                    info!("Sighted ship at ({x}, {y})");
+                for position @ types::Coordinate { x, y } in &vision.discovered_ship_fields {
+                    debug!("Sighted ship at ({x}, {y})");
+                    commands.spawn(HostileShipBundle::new(&assets, position));
                 }
             }
             EventMessage::ShipActionEvent(action) => {
