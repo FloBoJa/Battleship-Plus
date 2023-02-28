@@ -993,7 +993,7 @@ fn process_action_event(
                     .unwrap_or_default();
                 *action_points -= costs.action_points;
                 if costs.cooldown > 0 {
-                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
                     });
                 }
@@ -1021,7 +1021,7 @@ fn process_action_event(
                     .unwrap_or_default();
                 *action_points -= costs.action_points;
                 if costs.cooldown > 0 {
-                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
                     });
                 }
@@ -1055,7 +1055,7 @@ fn process_action_event(
                     .unwrap_or_default();
                 *action_points -= costs.action_points;
                 if costs.cooldown > 0 {
-                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
                     });
                 }
@@ -1083,7 +1083,7 @@ fn process_action_event(
                     .unwrap_or_default();
                 *action_points -= costs.action_points;
                 if costs.cooldown > 0 {
-                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
                     });
                 }
@@ -1103,7 +1103,7 @@ fn process_action_event(
                     .unwrap_or_default();
                 *action_points -= costs.action_points;
                 if costs.cooldown > 0 {
-                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
                         remaining_rounds: costs.cooldown,
                     });
                 }
