@@ -438,12 +438,15 @@ async fn actions_rotate_destroy_on_collision() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(lost_vision_at.contains(&Coordinate { x: 2, y: 0 }));
         assert!(gain_vision_at.is_empty());
-        assert!(ships_destroyed.contains(&rotating_ship.id()));
-        assert!(ships_destroyed.contains(&ship_to_be_destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == rotating_ship.id()));
+        assert!(ships_destroyed
+            .iter()
+            .any(|s| s.id() == ship_to_be_destroyed.id()));
         assert!(inflicted_damage_by_ship.contains_key(&rotating_ship.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship_to_be_destroyed.id()));
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 2, y: 0 }));

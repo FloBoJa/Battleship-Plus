@@ -62,6 +62,7 @@ async fn actions_movement() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(ships_destroyed.is_empty());
@@ -93,6 +94,7 @@ async fn actions_movement() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(ships_destroyed.is_empty());
@@ -181,6 +183,7 @@ async fn actions_movement_vision() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(ships_destroyed.is_empty());
@@ -212,6 +215,7 @@ async fn actions_movement_vision() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(ships_destroyed.is_empty());
@@ -560,13 +564,14 @@ async fn actions_movement_destroy_on_collision() {
         lost_vision_at,
         gain_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(lost_vision_at.contains(&Coordinate { x: 0, y: 10 }));
         assert!(lost_vision_at.contains(&Coordinate { x: 0, y: 11 }));
         assert!(gain_vision_at.is_empty());
-        assert!(ships_destroyed.contains(&ship1.id()));
-        assert!(ships_destroyed.contains(&ship2.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == ship1.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == ship2.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship1.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship2.id()));
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 0, y: 11 }));

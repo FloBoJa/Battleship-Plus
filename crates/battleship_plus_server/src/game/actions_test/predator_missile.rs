@@ -110,6 +110,7 @@ async fn actions_predator_missile() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -141,6 +142,7 @@ async fn actions_predator_missile() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 4);
@@ -158,8 +160,10 @@ async fn actions_predator_missile() {
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 6, y: 6 }));
 
         assert_eq!(ships_destroyed.len(), 2);
-        assert!(ships_destroyed.contains(&partial_hit_destroyed.id()));
-        assert!(ships_destroyed.contains(&destroyed.id()));
+        assert!(ships_destroyed
+            .iter()
+            .any(|s| s.id() == partial_hit_destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed.id()));
 
         assert_eq!(lost_vision_at.len(), 4);
         assert!(lost_vision_at.contains(&Coordinate { x: 9, y: 9 }));

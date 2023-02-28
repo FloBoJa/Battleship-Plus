@@ -82,6 +82,7 @@ async fn actions_scout_plane() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -107,6 +108,7 @@ async fn actions_scout_plane() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(inflicted_damage_by_ship.is_empty());

@@ -62,6 +62,15 @@ impl ShipManager {
             .collect()
     }
 
+    pub fn get_for_players(&self, players: &HashSet<PlayerID>) -> HashSet<ShipID> {
+        self.ships
+            .iter()
+            .filter(|(&id, _)| players.contains(&id.0))
+            .map(|(id, _)| id)
+            .cloned()
+            .collect()
+    }
+
     pub fn iter_ships(&self) -> impl Iterator<Item = (&ShipID, &Ship)> {
         self.ships.iter()
     }
@@ -213,12 +222,12 @@ impl ShipManager {
                     .unwrap()
                     .apply_damage(balancing.shoot_damage)
                 {
+                    let ship = self.ships.remove(&ship_node.ship_id).unwrap();
+
                     // ship got destroyed
                     let destroyed_node = self
                         .ships_geo_lookup
-                        .remove(&ShipTreeNode::from(
-                            &self.ships.remove(&ship_node.ship_id).unwrap(),
-                        ))
+                        .remove(&ShipTreeNode::from(&ship))
                         .unwrap();
 
                     let l = destroyed_node.envelope.lower();
@@ -232,7 +241,7 @@ impl ShipManager {
                         })
                         .collect();
 
-                    ShotResult::Destroyed(ship_node.ship_id, balancing.shoot_damage, parts)
+                    ShotResult::Destroyed(ship, balancing.shoot_damage, parts)
                 } else {
                     ShotResult::Hit(ship_node.ship_id, balancing.shoot_damage)
                 }
@@ -875,7 +884,7 @@ impl ShipManager {
 pub enum ShotResult {
     Miss,
     Hit(ShipID, u32),
-    Destroyed(ShipID, u32, HashSet<Coordinate>),
+    Destroyed(Ship, u32, HashSet<Coordinate>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
