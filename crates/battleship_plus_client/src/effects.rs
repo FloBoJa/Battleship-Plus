@@ -22,6 +22,8 @@ impl Plugin for EffectsPlugin {
             .add_system(initialize_torpedo_effects.run_in_state(GameState::Game))
             .add_system(initialize_hit_effects.run_in_state(GameState::Game))
             .add_system(animate_hit_material.run_in_state(GameState::Game))
+            .add_system(initialize_splash_effects.run_in_state(GameState::Game))
+            .add_system(animate_splash_material.run_in_state(GameState::Game))
             .add_system(check_lifetimes);
     }
 }
@@ -44,6 +46,8 @@ pub struct EffectAssets {
     torpedo_material: Handle<StandardMaterial>,
     hit_mesh: Handle<Mesh>,
     hit_material: Handle<StandardMaterial>,
+    splash_mesh: Handle<Mesh>,
+    splash_material: Handle<StandardMaterial>,
 }
 
 fn load_assets(
@@ -119,6 +123,13 @@ fn load_assets(
         ..default()
     });
 
+    let splash_mesh = hit_mesh.clone();
+    let splash_material = materials.add(StandardMaterial {
+        base_color: Color::rgba(1.0, 1.0, 1.0, 0.5),
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+
     commands.insert_resource(EffectAssets {
         shot_mesh,
         shot_material,
@@ -136,6 +147,8 @@ fn load_assets(
         torpedo_material,
         hit_mesh,
         hit_material,
+        splash_mesh,
+        splash_material,
     });
 }
 
@@ -619,6 +632,81 @@ fn animate_hit_material(
     let alpha = pulse_frequency * 2.0 * PI * time.elapsed().as_secs_f32();
 
     hit_material.base_color.set_a(alpha);
+}
+
+#[derive(Bundle)]
+pub struct SplashEffect {
+    data: SplashEffectData,
+    name: Name,
+}
+
+#[derive(Component)]
+pub struct SplashEffectData {
+    position: Vec2,
+    initialized: bool,
+}
+
+impl SplashEffect {
+    pub fn new(position: &Coordinate) -> Self {
+        let position = Vec2::new(position.x as f32, position.y as f32);
+
+        Self {
+            data: SplashEffectData {
+                position,
+                initialized: false,
+            },
+            name: Name::new("Hit Effect"),
+        }
+    }
+}
+
+fn initialize_splash_effects(
+    mut commands: Commands,
+    mut effects: Query<(Entity, &mut SplashEffectData)>,
+    assets: Res<EffectAssets>,
+    time: Res<Time>,
+) {
+    for (entity, mut effect) in effects.iter_mut() {
+        if effect.initialized {
+            continue;
+        }
+
+        let height = 9.0;
+
+        commands
+            .entity(entity)
+            .insert(PbrBundle {
+                mesh: assets.splash_mesh.clone(),
+                transform: Transform::from_xyz(effect.position.x, effect.position.y, height),
+                material: assets.splash_material.clone(),
+                ..default()
+            })
+            .insert(Lifetime {
+                ends_at: time.elapsed() + Duration::from_secs(5),
+            });
+
+        effect.initialized = true;
+    }
+}
+
+fn animate_splash_material(
+    splash_effects: Query<&SplashEffectData>,
+    assets: Res<EffectAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
+) {
+    if splash_effects.is_empty() {
+        return;
+    }
+
+    let splash_material = materials
+        .get_mut(&assets.splash_material)
+        .expect("Splash material was created at startup");
+
+    let pulse_frequency = 1.0;
+    let alpha = pulse_frequency * 2.0 * PI * time.elapsed().as_secs_f32();
+
+    splash_material.base_color.set_a(alpha);
 }
 
 #[derive(Component)]

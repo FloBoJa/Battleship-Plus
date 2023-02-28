@@ -803,9 +803,12 @@ fn process_game_events(
             EventMessage::SplashEvent(splash) => {
                 let splashes: Vec<_> = splash.coordinate.iter().map(|x| (x.x, x.y)).collect();
                 if splashes.len() == 1 {
-                    info!("Splash at {:?}", splashes[0]);
+                    debug!("Splash at {:?}", splashes[0]);
                 } else {
-                    info!("Splashes at {:?}", splashes);
+                    debug!("Splashes at {:?}", splashes);
+                }
+                for position in &splash.coordinate {
+                    commands.spawn(effects::HitEffect::new(position));
                 }
             }
             EventMessage::HitEvent(hit) => {
