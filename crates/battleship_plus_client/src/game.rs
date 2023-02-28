@@ -1008,11 +1008,7 @@ fn process_action_event(
             };
 
             commands
-                .spawn(effects::ScoutPlaneEffect::new(
-                    ship,
-                    center,
-                    config.0.clone(),
-                ))
+                .spawn(effects::ScoutPlaneEffect::new(ship, center))
                 .insert(DespawnOnExit);
 
             None
@@ -1045,11 +1041,7 @@ fn process_action_event(
                 };
 
                 commands
-                    .spawn(effects::MultiMissileEffect::new(
-                        ship,
-                        position,
-                        config.0.clone(),
-                    ))
+                    .spawn(effects::MultiMissileEffect::new(ship, position))
                     .insert(DespawnOnExit);
             }
 
@@ -1078,11 +1070,7 @@ fn process_action_event(
             };
 
             commands
-                .spawn(effects::PredatorMissileEffect::new(
-                    ship,
-                    target,
-                    config.0.clone(),
-                ))
+                .spawn(effects::PredatorMissileEffect::new(ship, target))
                 .insert(DespawnOnExit);
 
             None
@@ -1102,11 +1090,7 @@ fn process_action_event(
             }
 
             commands
-                .spawn(effects::TorpedoEffect::new(
-                    ship,
-                    properties.direction(),
-                    config.0.clone(),
-                ))
+                .spawn(effects::TorpedoEffect::new(ship, properties.direction()))
                 .insert(DespawnOnExit);
 
             None
