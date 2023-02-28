@@ -809,7 +809,7 @@ fn process_game_events(
                 }
                 for position in &splash.coordinate {
                     commands
-                        .spawn(effects::HitEffect::new(position))
+                        .spawn(effects::SplashEffect::new(position))
                         .insert(DespawnOnExit);
                 }
             }
