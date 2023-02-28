@@ -50,10 +50,10 @@ fn load_assets(
         shape::Box {
             min_x: 0.0,
             max_x: 1.0,
-            min_y: -0.5,
-            max_y: 0.5,
-            min_z: -0.5,
-            max_z: 0.5,
+            min_y: -0.25,
+            max_y: 0.25,
+            min_z: -0.25,
+            max_z: 0.25,
         }
         .into(),
     );
@@ -90,7 +90,17 @@ fn load_assets(
     let multi_missile_impact_mesh = predator_missile_impact_mesh.clone();
     let multi_missile_impact_material = multi_missile_travel_material.clone();
 
-    let torpedo_mesh = shot_mesh.clone();
+    let torpedo_mesh = meshes.add(
+        shape::Box {
+            min_x: 0.0,
+            max_x: 1.0,
+            min_y: -0.5,
+            max_y: 0.5,
+            min_z: -0.5,
+            max_z: 0.5,
+        }
+        .into(),
+    );
     let torpedo_material = materials.add(StandardMaterial {
         base_color: Color::rgba(1.0, 1.0, 1.0, 0.5),
         alpha_mode: AlphaMode::Blend,
