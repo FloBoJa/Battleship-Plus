@@ -96,6 +96,7 @@ async fn actions_multi_missile() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -131,6 +132,7 @@ async fn actions_multi_missile() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(inflicted_damage_by_ship.contains_key(&destroyed1.id()));
@@ -152,9 +154,11 @@ async fn actions_multi_missile() {
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 29, y: 0 }));
         assert_eq!(inflicted_damage_at.len(), 10);
 
-        assert!(ships_destroyed.contains(&destroyed1.id()));
-        assert!(ships_destroyed.contains(&destroyed2.id()));
-        assert!(ships_destroyed.contains(&destroyed_overlapping.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed1.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed2.id()));
+        assert!(ships_destroyed
+            .iter()
+            .any(|s| s.id() == destroyed_overlapping.id()));
         assert_eq!(ships_destroyed.len(), 3);
 
         assert!(lost_vision_at.contains(&Coordinate { x: 20, y: 0 }));
@@ -221,6 +225,7 @@ async fn actions_multi_missile_same_spot() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -247,6 +252,7 @@ async fn actions_multi_missile_same_spot() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 1);
@@ -264,7 +270,7 @@ async fn actions_multi_missile_same_spot() {
         );
 
         assert_eq!(ships_destroyed.len(), 1);
-        assert!(ships_destroyed.contains(&destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed.id()));
 
         assert_eq!(lost_vision_at.len(), 2);
         assert!(lost_vision_at.contains(&Coordinate { x: 2, y: 0 }));

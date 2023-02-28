@@ -76,6 +76,7 @@ async fn actions_engine_boost() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[0].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -98,6 +99,7 @@ async fn actions_engine_boost() {
                 gain_vision_at,
                 lost_vision_at,
                 temp_vision_at,
+                ..
             }) = results[i as usize].clone()
             {
                 assert!(ships_destroyed.is_empty());
@@ -116,6 +118,7 @@ async fn actions_engine_boost() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[(engine_boost_range - 1) as usize].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -211,6 +214,7 @@ async fn actions_engine_boost_collision() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[0].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -230,10 +234,11 @@ async fn actions_engine_boost_collision() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[1].clone()
         {
-            assert!(ships_destroyed.contains(&ship.id()));
-            assert!(ships_destroyed.contains(&ship2.id()));
+            assert!(ships_destroyed.iter().any(|s| s.id() == ship.id()));
+            assert!(ships_destroyed.iter().any(|s| s.id() == ship2.id()));
             assert_eq!(ships_destroyed.len(), 2);
             assert!(inflicted_damage_by_ship.contains_key(&ship.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship2.id()));
@@ -317,6 +322,7 @@ async fn actions_engine_boost_respect_world_border() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[0].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -334,6 +340,7 @@ async fn actions_engine_boost_respect_world_border() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[1].clone()
         {
             assert!(ships_destroyed.is_empty());

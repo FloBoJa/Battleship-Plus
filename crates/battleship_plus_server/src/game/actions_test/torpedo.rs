@@ -62,6 +62,7 @@ async fn actions_torpedo_north() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -91,6 +92,7 @@ async fn actions_torpedo_north() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
@@ -103,7 +105,7 @@ async fn actions_torpedo_north() {
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 27 }));
 
         assert_eq!(ships_destroyed.len(), 1);
-        assert!(ships_destroyed.contains(&destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed.id()));
 
         assert_eq!(lost_vision_at.len(), 2);
         assert!(lost_vision_at.contains(&Coordinate { x: 20, y: 25 }));
@@ -174,6 +176,7 @@ async fn actions_torpedo_south() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -203,6 +206,7 @@ async fn actions_torpedo_south() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
@@ -215,7 +219,7 @@ async fn actions_torpedo_south() {
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 20, y: 13 }));
 
         assert_eq!(ships_destroyed.len(), 1);
-        assert!(ships_destroyed.contains(&destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed.id()));
 
         assert_eq!(lost_vision_at.len(), 2);
         assert!(lost_vision_at.contains(&Coordinate { x: 20, y: 15 }));
@@ -286,6 +290,7 @@ async fn actions_torpedo_east() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -315,6 +320,7 @@ async fn actions_torpedo_east() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
@@ -327,7 +333,7 @@ async fn actions_torpedo_east() {
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 27, y: 20 }));
 
         assert_eq!(ships_destroyed.len(), 1);
-        assert!(ships_destroyed.contains(&destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed.id()));
 
         assert_eq!(lost_vision_at.len(), 2);
         assert!(lost_vision_at.contains(&Coordinate { x: 25, y: 20 }));
@@ -398,6 +404,7 @@ async fn actions_torpedo_west() {
         turn: Some(Turn {
             action_points_left: 42,
             player_id: player.id,
+            temp_vision: Default::default(),
         }),
         state: GameState::InGame,
         players: HashMap::from([(player.id, player.clone())]),
@@ -427,6 +434,7 @@ async fn actions_torpedo_west() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert_eq!(inflicted_damage_by_ship.len(), 2);
@@ -439,7 +447,7 @@ async fn actions_torpedo_west() {
         assert!(inflicted_damage_at.contains_key(&Coordinate { x: 13, y: 20 }));
 
         assert_eq!(ships_destroyed.len(), 1);
-        assert!(ships_destroyed.contains(&destroyed.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == destroyed.id()));
 
         assert_eq!(lost_vision_at.len(), 2);
         assert!(lost_vision_at.contains(&Coordinate { x: 15, y: 20 }));

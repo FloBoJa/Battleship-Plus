@@ -268,37 +268,7 @@ impl Action {
                         &[center.x as i32, center.y as i32],
                         &bounds,
                     ) {
-                        Ok(AreaOfEffect {
-                            hit_ships,
-                            destroyed_ships,
-                            damage_per_hit,
-                            area,
-                        }) => Ok(ActionResult::Single {
-                            inflicted_damage_at: hit_ships
-                                .iter()
-                                .chain(destroyed_ships.iter())
-                                .flat_map(|s| {
-                                    split_damage(
-                                        envelope_to_points(s.envelope()).collect(),
-                                        damage_per_hit,
-                                        &area,
-                                    )
-                                })
-                                .collect(),
-                            inflicted_damage_by_ship: HashMap::from_iter(
-                                hit_ships
-                                    .iter()
-                                    .chain(destroyed_ships.iter())
-                                    .map(|ship| (ship.id(), damage_per_hit)),
-                            ),
-                            ships_destroyed: destroyed_ships.iter().map(|ship| ship.id()).collect(),
-                            gain_vision_at: HashSet::with_capacity(0),
-                            lost_vision_at: destroyed_ships
-                                .iter()
-                                .flat_map(|ship| envelope_to_points(ship.envelope()))
-                                .collect(),
-                            temp_vision_at: HashSet::with_capacity(0),
-                        }),
+                        Ok(aoe) => Ok(aoe.into()),
                         Err(e) => Err(ActionExecutionError::Validation(e)),
                     }
                 } else {
@@ -313,6 +283,22 @@ impl Action {
                 check_players_turn(game, player_id).map_err(ActionExecutionError::Validation)?;
 
                 let bounds = game.board_bounds();
+
+                let enemy_team = match (
+                    game.team_a.contains(&(*ship_id).0),
+                    game.team_b.contains(&(*ship_id).0),
+                ) {
+                    (true, false) => &game.team_b,
+                    (false, true) => &game.team_a,
+                    _ => unreachable!(),
+                };
+
+                let enemy_ships = game
+                    .ships
+                    .get_for_players(enemy_team)
+                    .iter()
+                    .cloned()
+                    .collect();
 
                 let results = game
                     .ships
@@ -334,6 +320,7 @@ impl Action {
                                         ship_manager,
                                         ship_id,
                                         &bounds,
+                                        &enemy_ships,
                                         |ship_manager, _, ship_id, board_bounds| {
                                             // move ship without costs
                                             ship_manager.move_ship(
@@ -398,37 +385,7 @@ impl Action {
                     ship_id,
                     direction,
                 ) {
-                    Ok(AreaOfEffect {
-                        hit_ships,
-                        destroyed_ships,
-                        damage_per_hit,
-                        area,
-                    }) => Ok(ActionResult::Single {
-                        inflicted_damage_at: hit_ships
-                            .iter()
-                            .chain(destroyed_ships.iter())
-                            .flat_map(|s| {
-                                split_damage(
-                                    envelope_to_points(s.envelope()).collect(),
-                                    damage_per_hit,
-                                    &area,
-                                )
-                            })
-                            .collect(),
-                        inflicted_damage_by_ship: HashMap::from_iter(
-                            hit_ships
-                                .iter()
-                                .chain(destroyed_ships.iter())
-                                .map(|ship| (ship.id(), damage_per_hit)),
-                        ),
-                        ships_destroyed: destroyed_ships.iter().map(|ship| ship.id()).collect(),
-                        gain_vision_at: HashSet::with_capacity(0),
-                        lost_vision_at: destroyed_ships
-                            .iter()
-                            .flat_map(|ship| envelope_to_points(ship.envelope()))
-                            .collect(),
-                        temp_vision_at: HashSet::with_capacity(0),
-                    }),
+                    Ok(aoe) => Ok(aoe.into()),
                     Err(e) => Err(ActionExecutionError::Validation(e)),
                 }
             }
@@ -490,24 +447,31 @@ impl Action {
                         let ships_destroyed = affected_areas
                             .iter()
                             .flat_map(|area| area.destroyed_ships.iter())
+                            .cloned()
                             .collect::<Vec<_>>();
                         let lost_vision_at = ships_destroyed
                             .iter()
                             .flat_map(|ship| envelope_to_points(ship.envelope()))
                             .collect::<HashSet<_>>();
 
-                        let ships_destroyed = ships_destroyed
+                        let inflicted_damage_at = collect_and_sum(&inflicted_damage_at);
+
+                        let splash_tiles = affected_areas
                             .iter()
-                            .map(|ship| ship.id())
-                            .collect::<HashSet<_>>();
+                            .flat_map(|a| envelope_to_points(a.area))
+                            .filter(|c| !inflicted_damage_at.contains_key(c))
+                            .collect();
 
                         Ok(ActionResult::Single {
-                            inflicted_damage_at: collect_and_sum(&inflicted_damage_at),
+                            inflicted_damage_at,
                             inflicted_damage_by_ship: collect_and_sum(&inflicted_damage_by_ship),
                             ships_destroyed,
-                            gain_vision_at: Default::default(),
+                            lost_enemy_vision: lost_vision_at.clone(),
                             lost_vision_at,
+                            splash_tiles,
+                            gain_enemy_vision: Default::default(),
                             temp_vision_at: Default::default(),
+                            gain_vision_at: Default::default(),
                         })
                     }
                     Err(e) => Err(ActionExecutionError::Validation(e)),
@@ -536,11 +500,28 @@ fn general_movement<
 
     let board_bounds = game.board_bounds();
 
+    let enemy_team = match (
+        game.team_a.contains(&(*ship_id).0),
+        game.team_b.contains(&(*ship_id).0),
+    ) {
+        (true, false) => &game.team_b,
+        (false, true) => &game.team_a,
+        _ => unreachable!(),
+    };
+
+    let enemy_ships = game
+        .ships
+        .get_for_players(enemy_team)
+        .iter()
+        .cloned()
+        .collect();
+
     general_movement_inner(
         &mut game.turn.as_mut().unwrap().action_points_left,
         &mut game.ships,
         ship_id,
         &board_bounds,
+        &enemy_ships,
         do_movement,
     )
 }
@@ -557,8 +538,10 @@ fn general_movement_inner<
     ship_manager: &mut ShipManager,
     ship_id: &ShipID,
     board_bounds: &AABB<[i32; 2]>,
+    enemy_ships: &Vec<ShipID>,
     do_movement: F,
 ) -> Result<ActionResult, ActionValidationError> {
+    let old_enemy_vision = ship_manager.get_ship_parts_seen_by(enemy_ships);
     let old_vision = ship_manager.get_ship_parts_seen_by([*ship_id].as_slice());
     let trajectory = match do_movement(ship_manager, action_points, ship_id, board_bounds) {
         Ok(trajectory) => trajectory,
@@ -567,11 +550,14 @@ fn general_movement_inner<
 
     let destroyed_ships = ship_manager.destroy_colliding_ships_in_envelope(&trajectory);
     let new_vision = ship_manager.get_ship_parts_seen_by([*ship_id].as_slice());
+    let new_enemy_vision = ship_manager.get_ship_parts_seen_by(enemy_ships);
 
     Ok(ActionResult::movement_result(
-        &destroyed_ships,
+        destroyed_ships,
         &old_vision,
         &new_vision,
+        &old_enemy_vision,
+        &new_enemy_vision,
     ))
 }
 
@@ -651,19 +637,24 @@ pub enum ActionResult {
     Single {
         inflicted_damage_at: HashMap<Coordinate, u32>,
         inflicted_damage_by_ship: HashMap<ShipID, u32>,
-        ships_destroyed: HashSet<ShipID>,
+        ships_destroyed: Vec<Ship>,
         gain_vision_at: HashSet<Coordinate>,
         lost_vision_at: HashSet<Coordinate>,
         temp_vision_at: HashSet<Coordinate>,
+        gain_enemy_vision: HashSet<Coordinate>,
+        lost_enemy_vision: HashSet<Coordinate>,
+        splash_tiles: HashSet<Coordinate>,
     },
     Multiple(Vec<Result<ActionResult, ActionExecutionError>>),
 }
 
 impl ActionResult {
     fn movement_result(
-        destroyed_ships: &Option<Vec<Ship>>,
+        destroyed_ships: Option<Vec<Ship>>,
         old_vision: &[Coordinate],
         new_vision: &[Coordinate],
+        old_enemy_vision: &[Coordinate],
+        new_enemy_vision: &[Coordinate],
     ) -> Self {
         ActionResult::Single {
             inflicted_damage_at: destroyed_ships.as_ref().map_or(
@@ -690,11 +681,6 @@ impl ActionResult {
                     })
                 },
             ),
-            ships_destroyed: destroyed_ships
-                .as_ref()
-                .map_or(HashSet::with_capacity(0), |ships| {
-                    HashSet::from_iter(ships.iter().map(|s| s.id()))
-                }),
             gain_vision_at: difference(new_vision, old_vision),
             lost_vision_at: difference(old_vision, new_vision)
                 .iter()
@@ -711,7 +697,25 @@ impl ActionResult {
                 )
                 .cloned()
                 .collect(),
-            temp_vision_at: HashSet::with_capacity(0),
+            gain_enemy_vision: difference(new_enemy_vision, old_enemy_vision),
+            lost_enemy_vision: difference(old_enemy_vision, new_enemy_vision)
+                .iter()
+                .chain(
+                    destroyed_ships
+                        .as_ref()
+                        .map_or(vec![], |ships| {
+                            ships
+                                .iter()
+                                .flat_map(|ship| envelope_to_points(ship.envelope()))
+                                .collect()
+                        })
+                        .iter(),
+                )
+                .cloned()
+                .collect(),
+            ships_destroyed: destroyed_ships.unwrap_or(vec![]),
+            temp_vision_at: Default::default(),
+            splash_tiles: Default::default(),
         }
     }
 
@@ -719,37 +723,87 @@ impl ActionResult {
         ActionResult::Single {
             inflicted_damage_at: HashMap::from([(target, damage)]),
             inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
-            ships_destroyed: HashSet::with_capacity(0),
-            gain_vision_at: HashSet::with_capacity(0),
-            lost_vision_at: HashSet::with_capacity(0),
-            temp_vision_at: HashSet::with_capacity(0),
+            ships_destroyed: Default::default(),
+            gain_vision_at: Default::default(),
+            lost_vision_at: Default::default(),
+            temp_vision_at: Default::default(),
+            gain_enemy_vision: Default::default(),
+            lost_enemy_vision: Default::default(),
+            splash_tiles: Default::default(),
         }
     }
 
     fn destroyed(
-        ship_id: ShipID,
+        ship: Ship,
         target: Coordinate,
         damage: u32,
         vision_lost: HashSet<Coordinate>,
     ) -> Self {
         ActionResult::Single {
             inflicted_damage_at: HashMap::from([(target, damage)]),
-            inflicted_damage_by_ship: HashMap::from([(ship_id, damage)]),
-            ships_destroyed: HashSet::from([ship_id]),
-            gain_vision_at: HashSet::with_capacity(0),
-            lost_vision_at: vision_lost,
-            temp_vision_at: HashSet::with_capacity(0),
+            inflicted_damage_by_ship: HashMap::from([(ship.id(), damage)]),
+            ships_destroyed: vec![ship],
+            lost_vision_at: vision_lost.clone(),
+            lost_enemy_vision: vision_lost,
+            gain_vision_at: Default::default(),
+            temp_vision_at: Default::default(),
+            gain_enemy_vision: Default::default(),
+            splash_tiles: Default::default(),
         }
     }
 
     fn scouting(scouting_vision: HashSet<Coordinate>) -> Self {
         ActionResult::Single {
-            inflicted_damage_at: HashMap::with_capacity(0),
-            inflicted_damage_by_ship: HashMap::with_capacity(0),
-            ships_destroyed: HashSet::with_capacity(0),
-            gain_vision_at: HashSet::with_capacity(0),
-            lost_vision_at: HashSet::with_capacity(0),
             temp_vision_at: scouting_vision,
+            inflicted_damage_at: Default::default(),
+            inflicted_damage_by_ship: Default::default(),
+            ships_destroyed: Default::default(),
+            gain_vision_at: Default::default(),
+            lost_vision_at: Default::default(),
+            gain_enemy_vision: Default::default(),
+            lost_enemy_vision: Default::default(),
+            splash_tiles: Default::default(),
+        }
+    }
+}
+
+impl From<AreaOfEffect> for ActionResult {
+    fn from(value: AreaOfEffect) -> Self {
+        let inflicted_damage_at: HashMap<Coordinate, u32> = value
+            .hit_ships
+            .iter()
+            .chain(value.destroyed_ships.iter())
+            .flat_map(|s| {
+                split_damage(
+                    envelope_to_points(s.envelope()).collect(),
+                    value.damage_per_hit,
+                    &value.area,
+                )
+            })
+            .collect();
+
+        ActionResult::Single {
+            inflicted_damage_by_ship: HashMap::from_iter(
+                value
+                    .hit_ships
+                    .iter()
+                    .chain(value.destroyed_ships.iter())
+                    .map(|ship| (ship.id(), value.damage_per_hit)),
+            ),
+            lost_vision_at: value
+                .destroyed_ships
+                .iter()
+                .flat_map(|ship| envelope_to_points(ship.envelope()))
+                .collect(),
+            ships_destroyed: value.destroyed_ships,
+            splash_tiles: envelope_to_points(value.area)
+                .filter(|c| !inflicted_damage_at.contains_key(c))
+                .collect(),
+            inflicted_damage_at,
+            temp_vision_at: Default::default(),
+            gain_vision_at: Default::default(),
+            gain_enemy_vision: Default::default(),
+            lost_enemy_vision: Default::default(),
         }
     }
 }
