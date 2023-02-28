@@ -844,8 +844,9 @@ fn process_game_events(
                 }
             }
             EventMessage::HitEvent(hit) => {
-                if let Some(types::Coordinate { x, y }) = hit.coordinate {
-                    info!("Hit at ({x}, {y}) for {} damage", hit.damage);
+                if let Some(position @ types::Coordinate { x, y }) = &hit.coordinate {
+                    debug!("Hit at ({x}, {y}) for {} damage", hit.damage);
+                    commands.spawn(effects::HitEffect::new(position));
                 }
             }
             EventMessage::DestructionEvent(destruction) => {
