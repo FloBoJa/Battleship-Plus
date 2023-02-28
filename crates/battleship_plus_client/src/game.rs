@@ -13,7 +13,7 @@ use battleship_plus_common::{
         ship_manager::ShipManager,
     },
     messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
-    types::{self, CommonBalancing, Teams},
+    types::{self, CommonBalancing, GameEndReason, Teams},
 };
 use bevy_quinnet_client::Client;
 
@@ -891,13 +891,23 @@ fn process_game_events(
                     &player_id,
                 );
             }
-            EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
+            EventMessage::GameOverEvent(event @ messages::GameOverEvent { reason, winner }) => {
                 let reason = types::GameEndReason::from_i32(*reason);
                 let winner = types::Teams::from_i32(*winner);
                 if Some(types::GameEndReason::Disconnect) == reason {
                     info!("Someone left the game, forcing it to be aborted");
                 }
-                match winner {
+                let reason = match reason {
+                    Some(reason) => reason,
+                    None => {
+                        warn!(
+                            "Game ended with unknown reason, the server sent illegal code {}",
+                            event.reason
+                        );
+                        GameEndReason::Regular
+                    }
+                };
+                let winner = match winner {
                     Some(team) => {
                         if **player_team == team {
                             info!("Victory!");
@@ -906,10 +916,22 @@ fn process_game_events(
                         } else {
                             info!("Defeat!");
                         }
+                        team
                     }
-                    None => todo!(),
-                }
+                    None => {
+                        warn!(
+                            "Game ended with unknown winner, the server sent illegal code {}",
+                            event.winner
+                        );
+                        Teams::None
+                    }
+                };
                 info!("Returning to lobby");
+                commands.insert_resource(NextState(lobby::GameEndDetails {
+                    reason,
+                    winner,
+                    player_team: **player_team,
+                }));
                 commands.insert_resource(NextState(GameState::Lobby));
                 transition_happened = true;
             }

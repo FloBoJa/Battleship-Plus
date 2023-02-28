@@ -7,7 +7,7 @@ use iyes_loopless::prelude::*;
 
 use battleship_plus_common::{
     messages::{self, StatusCode},
-    types,
+    types::{self, GameEndReason},
 };
 
 use crate::game_state::{CachedEvents, GameState, PlayerId};
@@ -34,6 +34,13 @@ impl Plugin for LobbyPlugin {
 
 #[derive(Resource, Deref)]
 pub struct UserName(pub String);
+
+#[derive(Resource)]
+pub struct GameEndDetails {
+    pub reason: GameEndReason,
+    pub winner: types::Teams,
+    pub player_team: types::Teams,
+}
 
 #[derive(Resource, Deref, Default)]
 pub struct LobbyState(messages::LobbyChangeEvent);
@@ -158,6 +165,7 @@ fn draw_lobby_screen(
     lobby_state: Res<LobbyState>,
     player_id: Res<PlayerId>,
     mut client: ResMut<Client>,
+    game_end_details: Option<Res<GameEndDetails>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
@@ -220,6 +228,32 @@ fn draw_lobby_screen(
             );
         });
     });
+
+    if let Some(details) = game_end_details {
+        let shown = egui::Window::new("Game Results")
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(egui_context.ctx_mut(), |ui| {
+                ui.vertical_centered(|ui| {
+                    let (heading_color, heading_text) = if details.winner == details.player_team {
+                        (Color32::GREEN, "VICTORY")
+                    } else if details.winner == types::Teams::None {
+                        (Color32::YELLOW, "DRAW")
+                    } else {
+                        (Color32::RED, "DEFEAT")
+                    };
+                    ui.label(
+                        egui::RichText::new(heading_text)
+                            .color(heading_color)
+                            .heading(),
+                    );
+                });
+            });
+
+        if shown.map_or_else(|| true, |response| response.inner.is_none()) {
+            // Window was closed or collapsed.
+            commands.remove_resource::<GameEndDetails>();
+        }
+    }
 }
 
 fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages::EventMessage>) {
