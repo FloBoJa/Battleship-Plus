@@ -170,7 +170,7 @@ fn initialize_shot_effects(
         let length = shot_vector.length();
         let angle = Vec2::X.angle_between(shot_vector);
 
-        let height = 10.0;
+        let height = 9.0;
 
         commands
             .entity(entity)
@@ -239,7 +239,7 @@ fn initialize_scout_plane_effects(
             .scout_plane_radius as f32;
         let diameter = 1.0 + radius * 2.0;
 
-        let height = 20.0;
+        let height = 9.0;
 
         commands
             .entity(entity)
@@ -311,7 +311,7 @@ fn initialize_predator_missile_effects(
             .predator_missile_radius as f32;
         let diameter = 1.0 + radius * 2.0;
 
-        let height = 20.0;
+        let height = 9.0;
 
         commands
             .spawn(PbrBundle {
@@ -401,7 +401,7 @@ fn initialize_multi_missile_effects(
             .multi_missile_radius as f32;
         let diameter = 1.0 + radius * 2.0;
 
-        let height = 20.0;
+        let height = 9.0;
 
         commands
             .spawn(PbrBundle {
@@ -497,7 +497,7 @@ fn initialize_torpedo_effects(
         let torpedo_origin = effect.ship_position + offset * effect.direction;
         let angle = Vec2::X.angle_between(effect.direction);
 
-        let height = 10.0;
+        let height = 9.0;
 
         commands
             .entity(entity)
