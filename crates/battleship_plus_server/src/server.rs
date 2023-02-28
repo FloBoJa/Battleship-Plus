@@ -1061,6 +1061,9 @@ fn get_ships_by_team(game: &Game) -> (Vec<&Ship>, Vec<&Ship>) {
                 _ => unreachable!(),
             }
 
+            team_ships_a.sort_by_key(|s| s.id().1);
+            team_ships_b.sort_by_key(|s| s.id().1);
+
             (team_ships_a, team_ships_b)
         },
     )
