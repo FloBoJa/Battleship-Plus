@@ -249,6 +249,12 @@ async fn endpoint_task(
                         if game.remove_player(client_it) {
                             info!("Ending game due lost connection to player {client_it}...");
                             debug!("Disconnecting all clients...");
+
+                            server.endpoint().try_broadcast_message(GameOverEvent {
+                                reason: GameEndReason::Disconnect.into(),
+                                winner: Teams::None.into(),
+                            }.into());
+
                             if let Err(e) = server.endpoint_mut().disconnect_all_clients() {
                                 error!("Unable to disconnect all client: {e}");
                             }
