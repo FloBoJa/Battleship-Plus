@@ -175,7 +175,8 @@ fn spawn_components(
         base_color: Color::rgba_u8(77, 0, 105, 166),
         ..default()
     });
-    let click_plane_offset = quadrant.side_length() as f32 / 2.0;
+    // Shift click plane by (-0.5, -0.5) to have integer coordinates at the center of the tiles.
+    let click_plane_offset = quadrant.side_length() as f32 / 2.0 - 0.5;
 
     commands
         .spawn(PbrBundle {
@@ -467,7 +468,9 @@ fn board_position_from_intersection(
     let intersection = intersections.get_single().ok()?;
     intersection
         .position()
-        .map(|Vec3 { x, y, .. }| [*x as i32, *y as i32])
+        // Shift intersections by (0.5, 0.5) to have integer world coordinates at the center of the
+        // tiles.
+        .map(|&Vec3 { x, y, .. }| [(x + 0.5) as i32, (y + 0.5) as i32])
 }
 
 fn next_ship_id(
