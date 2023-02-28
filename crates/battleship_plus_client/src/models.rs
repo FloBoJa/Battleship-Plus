@@ -51,7 +51,7 @@ pub const CLICK_PLANE_OFFSET_Z: f32 = 4.9;
 
 pub fn get_ship_model_transform(ship: &GameShip) -> Transform {
     let position = ship.position();
-    let translation = Vec3::new(position.0 as f32 + 0.5, position.1 as f32 + 0.5, 0.0);
+    let translation = Vec3::new(position.0 as f32, position.1 as f32, 0.0);
     let rotation = Quat::from_rotation_z(match ship.orientation() {
         Orientation::North => FRAC_PI_2,
         Orientation::East => 0.0,
@@ -113,9 +113,11 @@ pub struct OceanBundle {
 impl OceanBundle {
     pub fn new(assets: &Res<GameAssets>, config: Arc<Config>) -> OceanBundle {
         let scale = config.board_size as f32 / OCEAN_SIZE;
+        // Shift the ocean by (-0.5, -0.5) to have the integer coordinates at the center of the
+        // tiles.
         let transform = Transform::from_translation(Vec3::new(
-            scale * OCEAN_SIZE / 2.0,
-            scale * OCEAN_SIZE / 2.0,
+            scale * OCEAN_SIZE / 2.0 - 0.5,
+            scale * OCEAN_SIZE / 2.0 - 0.5,
             0.0,
         ))
         .with_scale(Vec3::new(scale, scale, 1.0));
