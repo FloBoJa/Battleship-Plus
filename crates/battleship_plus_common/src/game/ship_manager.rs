@@ -386,7 +386,7 @@ impl ShipManager {
             |ship| {
                 // cooldown check
                 let remaining_rounds = ship.cool_downs().iter().find_map(|cd| match cd {
-                    Cooldown::Movement { remaining_rounds } => Some(*remaining_rounds),
+                    Cooldown::Rotate { remaining_rounds } => Some(*remaining_rounds),
                     _ => None,
                 });
                 if let Some(remaining_rounds) = remaining_rounds {
@@ -394,7 +394,7 @@ impl ShipManager {
                 }
 
                 // check action points of player
-                let costs = ship.common_balancing().movement_costs.unwrap();
+                let costs = ship.common_balancing().rotation_costs.unwrap();
                 if *action_points < costs.action_points {
                     return Err(ActionValidationError::InsufficientPoints {
                         required: costs.action_points,
@@ -409,7 +409,7 @@ impl ShipManager {
                         let new_position = new_position;
                         *action_points -= costs.action_points;
                         if costs.cooldown > 0 {
-                            ship.cool_downs_mut().push(Cooldown::Movement {
+                            ship.cool_downs_mut().push(Cooldown::Rotate {
                                 remaining_rounds: costs.cooldown,
                             });
                         }
