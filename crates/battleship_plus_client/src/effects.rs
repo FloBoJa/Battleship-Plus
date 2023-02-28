@@ -313,7 +313,7 @@ fn initialize_predator_missile_effects(
 
         let height = 9.0;
 
-        commands.entity(entity).insert(TransformBundle::default()).insert(Lifetime {
+        commands.entity(entity).insert(SpatialBundle::default()).insert(Lifetime {
             ends_at: time.elapsed() + Duration::from_secs(5),
         });
 
@@ -403,7 +403,7 @@ fn initialize_multi_missile_effects(
 
         let height = 9.0;
 
-        commands.entity(entity).insert(TransformBundle::default()).insert(Lifetime {
+        commands.entity(entity).insert(SpatialBundle::default()).insert(Lifetime {
             ends_at: time.elapsed() + Duration::from_secs(5),
         });
 
