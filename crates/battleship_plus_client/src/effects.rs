@@ -113,8 +113,14 @@ fn load_assets(
     });
 }
 
-#[derive(Component)]
+#[derive(Bundle)]
 pub struct ShotEffect {
+    data: ShotEffectData,
+    name: Name,
+}
+
+#[derive(Component)]
+pub struct ShotEffectData {
     ship_position: Vec2,
     target: Vec2,
     initialized: bool,
@@ -127,16 +133,19 @@ impl ShotEffect {
         let target = Vec2::new(target.x as f32, target.y as f32);
 
         Self {
-            ship_position,
-            target,
-            initialized: false,
+            data: ShotEffectData {
+                ship_position,
+                target,
+                initialized: false,
+            },
+            name: Name::new("Shot Effect"),
         }
     }
 }
 
 fn initialize_shot_effects(
     mut commands: Commands,
-    mut effects: Query<(Entity, &mut ShotEffect)>,
+    mut effects: Query<(Entity, &mut ShotEffectData)>,
     assets: Res<EffectAssets>,
 ) {
     for (entity, mut effect) in effects.iter_mut() {
@@ -163,8 +172,14 @@ fn initialize_shot_effects(
     }
 }
 
-#[derive(Component)]
+#[derive(Bundle)]
 pub struct ScoutPlaneEffect {
+    data: ScoutPlaneEffectData,
+    name: Name,
+}
+
+#[derive(Component)]
+pub struct ScoutPlaneEffectData {
     center: Vec2,
     initialized: bool,
 }
@@ -174,15 +189,18 @@ impl ScoutPlaneEffect {
         let center = Vec2::new(center.x as f32, center.y as f32);
 
         Self {
-            center,
-            initialized: false,
+            data: ScoutPlaneEffectData {
+                center,
+                initialized: false,
+            },
+            name: Name::new("Scout Plane Effect"),
         }
     }
 }
 
 fn initialize_scout_plane_effects(
     mut commands: Commands,
-    mut effects: Query<(Entity, &mut ScoutPlaneEffect)>,
+    mut effects: Query<(Entity, &mut ScoutPlaneEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
 ) {
@@ -212,8 +230,14 @@ fn initialize_scout_plane_effects(
     }
 }
 
-#[derive(Component)]
+#[derive(Bundle)]
 pub struct PredatorMissileEffect {
+    data: PredatorMissileEffectData,
+    name: Name,
+}
+
+#[derive(Component)]
+pub struct PredatorMissileEffectData {
     ship_position: Vec2,
     target: Vec2,
     initialized: bool,
@@ -226,16 +250,19 @@ impl PredatorMissileEffect {
         let target = Vec2::new(target.x as f32, target.y as f32);
 
         Self {
-            ship_position,
-            target,
-            initialized: false,
+            data: PredatorMissileEffectData {
+                ship_position,
+                target,
+                initialized: false,
+            },
+            name: Name::new("Predator Missile Effect"),
         }
     }
 }
 
 fn initialize_predator_missile_effects(
     mut commands: Commands,
-    mut effects: Query<(Entity, &mut PredatorMissileEffect)>,
+    mut effects: Query<(Entity, &mut PredatorMissileEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
 ) {
@@ -288,8 +315,14 @@ fn initialize_predator_missile_effects(
     }
 }
 
-#[derive(Component)]
+#[derive(Bundle)]
 pub struct MultiMissileEffect {
+    data: MultiMissileEffectData,
+    name: Name,
+}
+
+#[derive(Component)]
+pub struct MultiMissileEffectData {
     ship_position: Vec2,
     target: Vec2,
     initialized: bool,
@@ -302,16 +335,19 @@ impl MultiMissileEffect {
         let target = Vec2::new(target.x as f32, target.y as f32);
 
         Self {
-            ship_position,
-            target,
-            initialized: false,
+            data: MultiMissileEffectData {
+                ship_position,
+                target,
+                initialized: false,
+            },
+            name: Name::new("Multi-Missile Attack Effect"),
         }
     }
 }
 
 fn initialize_multi_missile_effects(
     mut commands: Commands,
-    mut effects: Query<(Entity, &mut MultiMissileEffect)>,
+    mut effects: Query<(Entity, &mut MultiMissileEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
 ) {
@@ -364,8 +400,14 @@ fn initialize_multi_missile_effects(
     }
 }
 
-#[derive(Component)]
+#[derive(Bundle)]
 pub struct TorpedoEffect {
+    data: TorpedoEffectData,
+    name: Name,
+}
+
+#[derive(Component)]
+pub struct TorpedoEffectData {
     ship_position: Vec2,
     ship_orientation: Vec2,
     direction: Vec2,
@@ -380,17 +422,20 @@ impl TorpedoEffect {
         let direction = direction_to_vector(direction);
 
         Self {
-            ship_position,
-            ship_orientation,
-            direction,
-            initialized: false,
+            data: TorpedoEffectData {
+                ship_position,
+                ship_orientation,
+                direction,
+                initialized: false,
+            },
+            name: Name::new("Torpedo Effect"),
         }
     }
 }
 
 fn initialize_torpedo_effects(
     mut commands: Commands,
-    mut effects: Query<(Entity, &mut TorpedoEffect)>,
+    mut effects: Query<(Entity, &mut TorpedoEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
 ) {
