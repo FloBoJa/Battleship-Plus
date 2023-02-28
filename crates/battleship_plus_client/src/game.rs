@@ -808,13 +808,17 @@ fn process_game_events(
                     debug!("Splashes at {:?}", splashes);
                 }
                 for position in &splash.coordinate {
-                    commands.spawn(effects::HitEffect::new(position));
+                    commands
+                        .spawn(effects::HitEffect::new(position))
+                        .insert(DespawnOnExit);
                 }
             }
             EventMessage::HitEvent(hit) => {
                 if let Some(position @ types::Coordinate { x, y }) = &hit.coordinate {
                     debug!("Hit at ({x}, {y}) for {} damage", hit.damage);
-                    commands.spawn(effects::HitEffect::new(position));
+                    commands
+                        .spawn(effects::HitEffect::new(position))
+                        .insert(DespawnOnExit);
                 }
             }
             EventMessage::DestructionEvent(destruction) => {
@@ -852,7 +856,9 @@ fn process_game_events(
                 }
                 for position @ types::Coordinate { x, y } in &vision.discovered_ship_fields {
                     debug!("Sighted ship at ({x}, {y})");
-                    commands.spawn(HostileShipBundle::new(&assets, position));
+                    commands
+                        .spawn(HostileShipBundle::new(&assets, position))
+                        .insert(DespawnOnExit);
                 }
             }
             EventMessage::ShipActionEvent(action) => {
