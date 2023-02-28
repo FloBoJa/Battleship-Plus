@@ -63,7 +63,7 @@ fn load_assets(
         ..default()
     });
 
-    let scout_plane_mesh = meshes.add(shape::Plane { size: 1.0 }.into());
+    let scout_plane_mesh = meshes.add(shape::Cube { size: 1.0 }.into());
     let scout_plane_material = materials.add(StandardMaterial {
         base_color: Color::rgba(0.0, 1.0, 0.0, 0.5),
         alpha_mode: AlphaMode::Blend,
@@ -313,9 +313,12 @@ fn initialize_predator_missile_effects(
 
         let height = 9.0;
 
-        commands.entity(entity).insert(SpatialBundle::default()).insert(Lifetime {
-            ends_at: time.elapsed() + Duration::from_secs(5),
-        });
+        commands
+            .entity(entity)
+            .insert(SpatialBundle::default())
+            .insert(Lifetime {
+                ends_at: time.elapsed() + Duration::from_secs(5),
+            });
 
         commands
             .spawn(PbrBundle {
@@ -403,9 +406,12 @@ fn initialize_multi_missile_effects(
 
         let height = 9.0;
 
-        commands.entity(entity).insert(SpatialBundle::default()).insert(Lifetime {
-            ends_at: time.elapsed() + Duration::from_secs(5),
-        });
+        commands
+            .entity(entity)
+            .insert(SpatialBundle::default())
+            .insert(Lifetime {
+                ends_at: time.elapsed() + Duration::from_secs(5),
+            });
 
         commands
             .spawn(PbrBundle {
