@@ -224,17 +224,19 @@ fn spawn_components(
 fn update_ships(
     mut commands: Commands,
     game_ships: Res<Ships>,
-    mut model_ships: Query<(&ModelShip, &mut Transform)>,
+    mut model_ships: Query<(Entity, &ModelShip, &mut Transform)>,
     ship_meshes: Res<ShipMeshes>,
 ) {
     for (ship_id, game_ship) in game_ships.iter_ships() {
-        let model_transform = model_ships.iter_mut().find_map(|(model_ship, transform)| {
-            if model_ship.id == *ship_id {
-                Some(transform)
-            } else {
-                None
-            }
-        });
+        let model_transform = model_ships
+            .iter_mut()
+            .find_map(|(_, model_ship, transform)| {
+                if model_ship.id == *ship_id {
+                    Some(transform)
+                } else {
+                    None
+                }
+            });
         match model_transform {
             Some(mut transform) => *transform = get_ship_model_transform(game_ship),
             None => {
@@ -246,6 +248,16 @@ fn update_ships(
             }
         }
     }
+
+    // Despawn destroyed ships.
+    model_ships
+        .iter()
+        .filter(|(_, model_ship, _)| {
+            !game_ships
+                .iter_ships()
+                .any(|(ship_id, _)| *ship_id == model_ship.id)
+        })
+        .for_each(|(entity, _, _)| commands.entity(entity).despawn_recursive());
 }
 
 fn draw_menu(
@@ -838,13 +850,21 @@ fn process_game_events(
             }
             EventMessage::DestructionEvent(destruction) => {
                 if let Some(types::Coordinate { x, y }) = destruction.coordinate {
-                    info!(
+                    debug!(
                         "Player {} lost ship {} at ({x}, {y}), facing {:?}",
                         destruction.owner,
                         destruction.ship_number,
                         destruction.direction()
                     );
+                } else {
+                    debug!(
+                        "Player {} lost ship {} at an unknown position, facing {:?}",
+                        destruction.owner,
+                        destruction.ship_number,
+                        destruction.direction()
+                    );
                 }
+                ships.destroy_ships(vec![&(destruction.owner, destruction.ship_number)]);
             }
             EventMessage::VisionEvent(vision) => {
                 for position @ types::Coordinate { x, y } in &vision.vanished_ship_fields {
