@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use iyes_loopless::prelude::*;
+use std::time::Duration;
 
 use battleship_plus_common::{
     game::ship::Ship,
@@ -17,7 +18,8 @@ impl Plugin for EffectsPlugin {
             .add_system(initialize_scout_plane_effects.run_in_state(GameState::Game))
             .add_system(initialize_predator_missile_effects.run_in_state(GameState::Game))
             .add_system(initialize_multi_missile_effects.run_in_state(GameState::Game))
-            .add_system(initialize_torpedo_effects.run_in_state(GameState::Game));
+            .add_system(initialize_torpedo_effects.run_in_state(GameState::Game))
+            .add_system(check_lifetimes);
     }
 }
 
@@ -147,6 +149,7 @@ fn initialize_shot_effects(
     mut commands: Commands,
     mut effects: Query<(Entity, &mut ShotEffectData)>,
     assets: Res<EffectAssets>,
+    time: Res<Time>,
 ) {
     for (entity, mut effect) in effects.iter_mut() {
         if effect.initialized {
@@ -159,14 +162,23 @@ fn initialize_shot_effects(
 
         let height = 10.0;
 
-        commands.entity(entity).insert(PbrBundle {
-            mesh: assets.shot_mesh.clone(),
-            transform: Transform::from_xyz(effect.ship_position.x, effect.ship_position.y, height)
+        commands
+            .entity(entity)
+            .insert(PbrBundle {
+                mesh: assets.shot_mesh.clone(),
+                transform: Transform::from_xyz(
+                    effect.ship_position.x,
+                    effect.ship_position.y,
+                    height,
+                )
                 .with_scale(Vec3::new(length, 1.0, 1.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
-            material: assets.shot_material.clone(),
-            ..default()
-        });
+                material: assets.shot_material.clone(),
+                ..default()
+            })
+            .insert(Lifetime {
+                ends_at: time.elapsed() + Duration::from_secs(5),
+            });
 
         effect.initialized = true;
     }
@@ -203,6 +215,7 @@ fn initialize_scout_plane_effects(
     mut effects: Query<(Entity, &mut ScoutPlaneEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
+    time: Res<Time>,
 ) {
     for (entity, mut effect) in effects.iter_mut() {
         if effect.initialized {
@@ -218,13 +231,18 @@ fn initialize_scout_plane_effects(
 
         let height = 20.0;
 
-        commands.entity(entity).insert(PbrBundle {
-            mesh: assets.scout_plane_mesh.clone(),
-            transform: Transform::from_xyz(effect.center.x, effect.center.y, height)
-                .with_scale(Vec3::new(diameter, diameter, 1.0)),
-            material: assets.scout_plane_material.clone(),
-            ..default()
-        });
+        commands
+            .entity(entity)
+            .insert(PbrBundle {
+                mesh: assets.scout_plane_mesh.clone(),
+                transform: Transform::from_xyz(effect.center.x, effect.center.y, height)
+                    .with_scale(Vec3::new(diameter, diameter, 1.0)),
+                material: assets.scout_plane_material.clone(),
+                ..default()
+            })
+            .insert(Lifetime {
+                ends_at: time.elapsed() + Duration::from_secs(5),
+            });
 
         effect.initialized = true;
     }
@@ -265,6 +283,7 @@ fn initialize_predator_missile_effects(
     mut effects: Query<(Entity, &mut PredatorMissileEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
+    time: Res<Time>,
 ) {
     for (entity, mut effect) in effects.iter_mut() {
         if effect.initialized {
@@ -311,6 +330,10 @@ fn initialize_predator_missile_effects(
             .insert(Name::new("Impact"))
             .set_parent(entity);
 
+        commands.entity(entity).insert(Lifetime {
+            ends_at: time.elapsed() + Duration::from_secs(5),
+        });
+
         effect.initialized = true;
     }
 }
@@ -350,6 +373,7 @@ fn initialize_multi_missile_effects(
     mut effects: Query<(Entity, &mut MultiMissileEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
+    time: Res<Time>,
 ) {
     for (entity, mut effect) in effects.iter_mut() {
         if effect.initialized {
@@ -396,6 +420,10 @@ fn initialize_multi_missile_effects(
             .insert(Name::new("Impact"))
             .set_parent(entity);
 
+        commands.entity(entity).insert(Lifetime {
+            ends_at: time.elapsed() + Duration::from_secs(5),
+        });
+
         effect.initialized = true;
     }
 }
@@ -438,6 +466,7 @@ fn initialize_torpedo_effects(
     mut effects: Query<(Entity, &mut TorpedoEffectData)>,
     assets: Res<EffectAssets>,
     config: Res<Config>,
+    time: Res<Time>,
 ) {
     for (entity, mut effect) in effects.iter_mut() {
         if effect.initialized {
@@ -460,14 +489,19 @@ fn initialize_torpedo_effects(
 
         let height = 10.0;
 
-        commands.entity(entity).insert(PbrBundle {
-            mesh: assets.torpedo_mesh.clone(),
-            transform: Transform::from_xyz(torpedo_origin.x, torpedo_origin.y, height)
-                .with_scale(Vec3::new(distance, 1.0, 1.0))
-                .with_rotation(Quat::from_rotation_z(angle)),
-            material: assets.torpedo_material.clone(),
-            ..default()
-        });
+        commands
+            .entity(entity)
+            .insert(PbrBundle {
+                mesh: assets.torpedo_mesh.clone(),
+                transform: Transform::from_xyz(torpedo_origin.x, torpedo_origin.y, height)
+                    .with_scale(Vec3::new(distance, 1.0, 1.0))
+                    .with_rotation(Quat::from_rotation_z(angle)),
+                material: assets.torpedo_material.clone(),
+                ..default()
+            })
+            .insert(Lifetime {
+                ends_at: time.elapsed() + Duration::from_secs(5),
+            });
 
         effect.initialized = true;
     }
@@ -479,5 +513,19 @@ fn direction_to_vector(direction: Direction) -> Vec2 {
         Direction::East => Vec2::X,
         Direction::South => Vec2::NEG_Y,
         Direction::West => Vec2::NEG_X,
+    }
+}
+
+#[derive(Component)]
+struct Lifetime {
+    ends_at: Duration,
+}
+
+fn check_lifetimes(mut commands: Commands, entities: Query<(Entity, &Lifetime)>, time: Res<Time>) {
+    for (entity, lifetime) in entities.iter() {
+        if time.elapsed() < lifetime.ends_at {
+            continue;
+        }
+        commands.entity(entity).despawn_recursive();
     }
 }
