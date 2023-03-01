@@ -18,9 +18,10 @@ use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
     ship_action_event, DestructionEvent, GameOverEvent, GameStart, HitEvent, JoinResponse,
-    LobbyChangeEvent, NextTurn, PlacementPhase, ProtocolMessage, ServerConfigResponse,
-    ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse, ShipActionEvent,
-    ShipActionResponse, SplashEvent, StatusCode, StatusMessage, TeamSwitchResponse, VisionEvent,
+    LobbyChangeEvent, NextTurn, PlacementPhase, PlacementResponse, ProtocolMessage,
+    ServerConfigResponse, ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse,
+    ShipActionEvent, ShipActionResponse, SplashEvent, StatusCode, StatusMessage,
+    TeamSwitchResponse, VisionEvent,
 };
 use battleship_plus_common::types::{
     Config, Coordinate, Direction, GameEndReason, MoveProperties, PlayerLobbyState, ServerState,
@@ -504,6 +505,12 @@ async fn handle_message(
                 .execute_action(action, &mut g)
                 .map_err(MessageHandlerError::Protocol)?;
 
+            ep.send_message(
+                client_id,
+                status_with_data(StatusCode::Ok, PlacementResponse {}.into()),
+            )
+            .map_err(MessageHandlerError::Network)?;
+
             if g.can_change_into_game_phase() {
                 info!("GamePhase: InGame");
                 g.state = GameState::InGame;
@@ -843,7 +850,7 @@ fn handle_action_result(
     // hit events
     for (c, &damage) in inflicted_damage_at.iter() {
         if let Err(e) = broadcast_tx.send((
-            g.players.keys().into_iter().cloned().collect(),
+            g.players.keys().cloned().collect(),
             HitEvent {
                 coordinate: c.clone().into(),
                 damage,
@@ -857,7 +864,7 @@ fn handle_action_result(
     // destruction events
     for ship in ships_destroyed.iter() {
         if let Err(e) = broadcast_tx.send((
-            g.players.keys().into_iter().cloned().collect(),
+            g.players.keys().cloned().collect(),
             DestructionEvent {
                 coordinate: Some(Coordinate {
                     x: ship.data().pos_x as u32,
@@ -876,7 +883,7 @@ fn handle_action_result(
     // splash events
     if !splash_tiles.is_empty() {
         if let Err(e) = broadcast_tx.send((
-            g.players.keys().into_iter().cloned().collect(),
+            g.players.keys().cloned().collect(),
             SplashEvent {
                 coordinate: splash_tiles.iter().cloned().collect(),
             }
