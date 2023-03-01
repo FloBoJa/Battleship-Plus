@@ -44,7 +44,6 @@ impl Plugin for GamePlugin {
                     }
                 }),
         )
-        .add_enter_system(GameState::Game, repeat_cached_events)
         .add_enter_system(GameState::Game, spawn_components)
         .add_exit_system(GameState::Game, despawn_components)
         // raycast system has been added in PlacementPhasePlugin already
@@ -759,20 +758,16 @@ fn process_game_events(
             }) => {
                 **current_player = Some(*next_player_id);
                 if **player_id == *next_player_id {
-                    // Only transition from the correct state.
-                    // This mitigates the potential consequences of duplicate events.
-                    if matches!(**turn_state, State::WaitingForTurn(_)) {
-                        info!("Turn started");
-                        **turn_state = State::ChoosingAction;
-                        **action_points += config.action_point_gain;
-                        ships.iter_ships_mut().for_each(|(_, ship)| {
-                            let cooldowns = ship.cool_downs_mut();
-                            *cooldowns = cooldowns
-                                .iter_mut()
-                                .filter_map(|cooldown| cooldown.decremented())
-                                .collect();
-                        });
-                    }
+                    info!("Turn started");
+                    **turn_state = State::ChoosingAction;
+                    **action_points += config.action_point_gain;
+                    ships.iter_ships_mut().for_each(|(_, ship)| {
+                        let cooldowns = ship.cool_downs_mut();
+                        *cooldowns = cooldowns
+                            .iter_mut()
+                            .filter_map(|cooldown| cooldown.decremented())
+                            .collect();
+                    });
                 } else {
                     match **turn_state {
                         State::WaitingForTurn(_)
@@ -1423,19 +1418,6 @@ fn despawn_components(
     for entity in entities_to_despawn.iter() {
         commands.entity(entity).despawn_recursive();
     }
-}
-
-fn repeat_cached_events(
-    mut commands: Commands,
-    cached_events: Option<Res<CachedEvents>>,
-    mut event_writer: EventWriter<messages::EventMessage>,
-) {
-    let cached_events = match cached_events {
-        Some(events) => events.clone(),
-        None => return,
-    };
-    event_writer.send_batch(cached_events.into_iter());
-    commands.remove_resource::<CachedEvents>();
 }
 
 fn board_position_from_intersection(
