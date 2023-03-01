@@ -814,6 +814,14 @@ fn process_game_events(
                     commands
                         .spawn(effects::HitEffect::new(position))
                         .insert(DespawnOnExit);
+                    let ship = match ships.get_by_position_mut(position.clone()) {
+                        Some(ship) => ship,
+                        None => {
+                            debug!("Not applying damage from HitEvent for unknown ship (presumably hostile");
+                            continue;
+                        }
+                    };
+                    ship.apply_damage(hit.damage);
                 }
             }
             EventMessage::DestructionEvent(destruction) => {
