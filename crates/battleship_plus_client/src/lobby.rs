@@ -28,7 +28,8 @@ impl Plugin for LobbyPlugin {
             )
             // Catch events that happen immediately after joining.
             .add_enter_system(GameState::Lobby, repeat_cached_events)
-            .add_enter_system(GameState::Lobby, reset_state);
+            .add_enter_system(GameState::Lobby, reset_state)
+            .add_exit_system(GameState::Lobby, clean_up);
     }
 }
 
@@ -170,7 +171,22 @@ fn draw_lobby_screen(
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
             ui.set_max_width(600.0);
-            ui.heading("Lobby");
+            if let Some(details) = game_end_details {
+                let (heading_color, heading_text) = if details.winner == details.player_team {
+                    (Color32::GREEN, "VICTORY")
+                } else if details.winner == types::Teams::None {
+                    (Color32::YELLOW, "DRAW")
+                } else {
+                    (Color32::RED, "DEFEAT")
+                };
+                ui.label(
+                    egui::RichText::new(heading_text)
+                        .color(heading_color)
+                        .heading(),
+                );
+            } else {
+                ui.heading("Lobby");
+            }
 
             ui.add_space(20.0);
 
@@ -228,32 +244,6 @@ fn draw_lobby_screen(
             );
         });
     });
-
-    if let Some(details) = game_end_details {
-        let shown = egui::Window::new("Game Results")
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(egui_context.ctx_mut(), |ui| {
-                ui.vertical_centered(|ui| {
-                    let (heading_color, heading_text) = if details.winner == details.player_team {
-                        (Color32::GREEN, "VICTORY")
-                    } else if details.winner == types::Teams::None {
-                        (Color32::YELLOW, "DRAW")
-                    } else {
-                        (Color32::RED, "DEFEAT")
-                    };
-                    ui.label(
-                        egui::RichText::new(heading_text)
-                            .color(heading_color)
-                            .heading(),
-                    );
-                });
-            });
-
-        if shown.map_or_else(|| true, |response| response.inner.is_none()) {
-            // Window was closed or collapsed.
-            commands.remove_resource::<GameEndDetails>();
-        }
-    }
 }
 
 fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages::EventMessage>) {
@@ -416,4 +406,8 @@ fn repeat_cached_events(
 fn reset_state(mut request_state: ResMut<RequestState>) {
     request_state.readiness_change_requested = false;
     request_state.team_switch_requested = false;
+}
+
+fn clean_up(mut commands: Commands) {
+    commands.remove_resource::<GameEndDetails>();
 }
