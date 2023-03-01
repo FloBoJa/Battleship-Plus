@@ -661,7 +661,6 @@ fn process_game_start_event(
     mut events: EventReader<EventMessage>,
     placement_state: Res<PlacementState>,
 ) {
-    let mut transition_happened = false;
     for event in events.iter() {
         match event {
             EventMessage::GameStart(GameStart {
@@ -681,7 +680,6 @@ fn process_game_start_event(
                 info!("Starting game...");
                 commands.insert_resource(game::InitialGameState(server_state.clone()));
                 commands.insert_resource(NextState(GameState::Game));
-                transition_happened = true;
                 break;
             }
             EventMessage::GameStart(GameStart { state: None }) => {
@@ -693,11 +691,6 @@ fn process_game_start_event(
                 // ignore
             }
         }
-    }
-    if transition_happened {
-        trace!("Repeating events that happened during state transition");
-        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
-        commands.insert_resource(CachedEvents(events));
     }
 }
 
