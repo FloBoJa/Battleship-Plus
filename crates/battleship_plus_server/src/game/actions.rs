@@ -307,6 +307,9 @@ impl Action {
                         ship_id,
                         |ship_manager, balancing| {
                             let encountered_err = AtomicBool::new(false);
+                            let direction = Direction::from(
+                                ship_manager.get_by_id(ship_id).unwrap().orientation(),
+                            );
 
                             let results = (0..balancing.engine_boost_distance)
                                 .map(|_| {
@@ -351,17 +354,20 @@ impl Action {
                                 return Err(e.clone());
                             }
 
-                            Ok(results)
+                            Ok((direction, results))
                         },
                     )
-                    .map(|v| {
-                        v.iter()
-                            .map(|r| r.clone().map_err(ActionExecutionError::Validation))
-                            .collect::<Vec<_>>()
+                    .map(|(direction, v)| {
+                        (
+                            direction,
+                            v.iter()
+                                .map(|r| r.clone().map_err(ActionExecutionError::Validation))
+                                .collect::<Vec<_>>(),
+                        )
                     })
                     .map_err(ActionExecutionError::Validation);
 
-                results.map(ActionResult::Multiple)
+                results.map(|(direction, results)| ActionResult::EngineBoost(direction, results))
             }
             Action::Torpedo {
                 ship_id,
@@ -645,7 +651,7 @@ pub enum ActionResult {
         lost_enemy_vision: HashSet<Coordinate>,
         splash_tiles: HashSet<Coordinate>,
     },
-    Multiple(Vec<Result<ActionResult, ActionExecutionError>>),
+    EngineBoost(Direction, Vec<Result<ActionResult, ActionExecutionError>>),
 }
 
 impl ActionResult {

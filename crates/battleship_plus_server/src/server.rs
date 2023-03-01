@@ -23,7 +23,8 @@ use battleship_plus_common::messages::{
     ShipActionResponse, SplashEvent, StatusCode, StatusMessage, TeamSwitchResponse, VisionEvent,
 };
 use battleship_plus_common::types::{
-    Config, Coordinate, Direction, GameEndReason, PlayerLobbyState, ServerState, ShipState, Teams,
+    Config, Coordinate, Direction, GameEndReason, MoveProperties, PlayerLobbyState, ServerState,
+    ShipState, Teams,
 };
 use battleship_plus_common::{protocol_name, protocol_name_with_version};
 use bevy_quinnet_server::certificate::CertificateRetrievalMode;
@@ -612,12 +613,12 @@ async fn handle_message(
 
             let action_result = g
                 .get_state()
-                .execute_action(action, &mut g)
+                .execute_action(action.clone(), &mut g)
                 .map_err(MessageHandlerError::Protocol)?;
 
             broadcast_tx
                 .send((
-                    team,
+                    team.clone(),
                     ShipActionEvent {
                         ship_number: request.ship_number,
                         action_properties: request.action_properties.clone().map(|p| match p {
@@ -687,7 +688,7 @@ async fn handle_message(
                         Err(e) => Err(e),
                     }
                 }
-                ActionResult::Multiple(results) => {
+                ActionResult::EngineBoost(direction, results) => {
                     for res in results {
                         match res {
                             Ok(ActionResult::Single {
@@ -700,28 +701,48 @@ async fn handle_message(
                                 lost_enemy_vision,
                                 splash_tiles,
                                 ..
-                            }) => match handle_action_result(
-                                &mut g,
-                                client_id,
-                                broadcast_tx,
-                                gain_vision_at,
-                                temp_vision_at,
-                                lost_vision_at,
-                                gain_enemy_vision,
-                                lost_enemy_vision,
-                                inflicted_damage_at,
-                                ships_destroyed,
-                                splash_tiles,
-                            ) {
-                                Ok(GameResult::Pending) => Ok(()),
-                                Ok(result) => broadcast_game_result(
-                                    result,
-                                    g.players.keys().cloned().collect(),
+                            }) => {
+                                if let Action::EngineBoost { .. } = action {
+                                    broadcast_tx
+                                        .send((
+                                            team.clone(),
+                                            ShipActionEvent {
+                                                ship_number: request.ship_number,
+                                                action_properties: Some(
+                                                    MoveProperties {
+                                                        direction: direction.into(),
+                                                    }
+                                                    .into(),
+                                                ),
+                                            }
+                                            .into(),
+                                        ))
+                                        .map_err(|e| MessageHandlerError::Broadcast(e.into()))?;
+                                }
+
+                                match handle_action_result(
+                                    &mut g,
+                                    client_id,
                                     broadcast_tx,
-                                    game_end_tx,
-                                ),
-                                Err(e) => Err(e),
-                            }?,
+                                    gain_vision_at,
+                                    temp_vision_at,
+                                    lost_vision_at,
+                                    gain_enemy_vision,
+                                    lost_enemy_vision,
+                                    inflicted_damage_at,
+                                    ships_destroyed,
+                                    splash_tiles,
+                                ) {
+                                    Ok(GameResult::Pending) => Ok(()),
+                                    Ok(result) => broadcast_game_result(
+                                        result,
+                                        g.players.keys().cloned().collect(),
+                                        broadcast_tx,
+                                        game_end_tx,
+                                    ),
+                                    Err(e) => Err(e),
+                                }?
+                            }
                             Err(_) => ep
                                 .send_message(
                                     client_id,
