@@ -111,7 +111,7 @@ impl ShipManager {
         &mut self,
         envelope: &AABB<[i32; 2]>,
     ) -> Option<Vec<Ship>> {
-        let colliding_ships: Vec<_> = self
+        let colliding_ships: HashSet<_> = self
             .ships_geo_lookup
             .locate_in_envelope_intersecting(envelope)
             .map(|node| node.ship_id)
