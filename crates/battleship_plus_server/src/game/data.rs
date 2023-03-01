@@ -7,7 +7,7 @@ use rand::prelude::IteratorRandom;
 use rand::thread_rng;
 use rstar::{Envelope, RTreeObject, AABB};
 
-use battleship_plus_common::game::ship::{Ship, ShipID};
+use battleship_plus_common::game::ship::{Cooldown, Ship, ShipID};
 use battleship_plus_common::game::ship_manager::{ShipManager, ShipPlacementError};
 use battleship_plus_common::game::PlayerID;
 use battleship_plus_common::messages::{ProtocolMessage, VisionEvent};
@@ -263,6 +263,19 @@ impl Game {
                 .unwrap(),
             self.config.action_point_gain,
         );
+
+        self.ships.iter_ships_mut().for_each(|(_, ship)| {
+            ship.cool_downs_mut().retain_mut(|cd| match cd {
+                Cooldown::Movement { remaining_rounds }
+                | Cooldown::Rotate { remaining_rounds }
+                | Cooldown::Cannon { remaining_rounds }
+                | Cooldown::Ability { remaining_rounds } => {
+                    *remaining_rounds = remaining_rounds.saturating_sub(1);
+
+                    *remaining_rounds > 0
+                }
+            })
+        });
 
         self.turn = Some(turn.clone());
         turn
