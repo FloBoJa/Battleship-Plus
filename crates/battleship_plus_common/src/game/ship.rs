@@ -145,6 +145,36 @@ impl Ship {
         }
     }
 
+    pub fn health(&self) -> u32 {
+        match self {
+            Ship::Carrier { data, .. }
+            | Ship::Battleship { data, .. }
+            | Ship::Cruiser { data, .. }
+            | Ship::Submarine { data, .. }
+            | Ship::Destroyer { data, .. } => data.health,
+        }
+    }
+
+    pub fn initial_health(&self) -> u32 {
+        match self {
+            Ship::Carrier { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().initial_health
+            }
+            Ship::Battleship { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().initial_health
+            }
+            Ship::Cruiser { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().initial_health
+            }
+            Ship::Submarine { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().initial_health
+            }
+            Ship::Destroyer { balancing, .. } => {
+                balancing.common_balancing.as_ref().unwrap().initial_health
+            }
+        }
+    }
+
     pub fn vision_range(&self) -> u32 {
         match self {
             Ship::Carrier { balancing, .. } => {

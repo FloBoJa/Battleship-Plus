@@ -21,9 +21,6 @@ mod server_selection;
 
 use game_state::GameState;
 
-//IP
-//bsplus.floboja.net:30305
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {

@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use battleship_plus_common::{
     game::ship::{GetShipID, Orientation, Ship as GameShip, ShipID},
-    types::{Config, ShipType},
+    types::{Config, Coordinate, ShipType},
 };
 
 #[derive(Resource, Deref)]
@@ -80,8 +80,9 @@ pub struct Ship {
 
 #[derive(Bundle)]
 pub struct ShipBundle {
-    pub model: PbrBundle,
-    pub ship_id: Ship,
+    model: PbrBundle,
+    ship_id: Ship,
+    name: Name,
 }
 
 impl ShipBundle {
@@ -89,6 +90,7 @@ impl ShipBundle {
         Self {
             model: new_ship_model(ship, meshes),
             ship_id: Ship { id: ship.id() },
+            name: Name::new(format!("{:?}", ship.ship_type())),
         }
     }
 }
@@ -96,11 +98,17 @@ impl ShipBundle {
 #[derive(Resource)]
 pub struct GameAssets {
     ocean_scene: Handle<Scene>,
+    enemy_ship_mesh: Handle<Mesh>,
 }
 
-pub fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
+pub fn load_assets(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
     commands.insert_resource(GameAssets {
         ocean_scene: assets.load("models/ocean.glb#Scene0"),
+        enemy_ship_mesh: meshes.add(shape::Cube { size: 1.0 }.into()),
     });
 }
 
@@ -128,6 +136,34 @@ impl OceanBundle {
                 ..default()
             },
             name: Name::new("Ocean"),
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct HostileShipTile {
+    pub position: Coordinate,
+}
+
+#[derive(Bundle)]
+pub struct HostileShipBundle {
+    model: PbrBundle,
+    tile: HostileShipTile,
+    name: Name,
+}
+
+impl HostileShipBundle {
+    pub fn new(assets: &Res<GameAssets>, position: &Coordinate) -> Self {
+        Self {
+            model: PbrBundle {
+                mesh: assets.enemy_ship_mesh.clone(),
+                transform: Transform::from_xyz(position.x as f32, position.y as f32, 0.0),
+                ..default()
+            },
+            tile: HostileShipTile {
+                position: position.clone(),
+            },
+            name: Name::new("Hostile Ship"),
         }
     }
 }
