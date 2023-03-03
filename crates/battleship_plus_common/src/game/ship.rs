@@ -459,6 +459,32 @@ impl Cooldown {
             | Cooldown::Ability { remaining_rounds } => *remaining_rounds,
         }
     }
+
+    pub fn decremented(&self) -> Option<Self> {
+        match self {
+            Cooldown::Movement { remaining_rounds }
+            | Cooldown::Rotate { remaining_rounds }
+            | Cooldown::Cannon { remaining_rounds }
+            | Cooldown::Ability { remaining_rounds }
+                if *remaining_rounds <= 1 =>
+            {
+                None
+            }
+
+            Cooldown::Movement { remaining_rounds } => Some(Cooldown::Movement {
+                remaining_rounds: *remaining_rounds - 1,
+            }),
+            Cooldown::Rotate { remaining_rounds } => Some(Cooldown::Rotate {
+                remaining_rounds: *remaining_rounds - 1,
+            }),
+            Cooldown::Cannon { remaining_rounds } => Some(Cooldown::Cannon {
+                remaining_rounds: *remaining_rounds - 1,
+            }),
+            Cooldown::Ability { remaining_rounds } => Some(Cooldown::Ability {
+                remaining_rounds: *remaining_rounds - 1,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
