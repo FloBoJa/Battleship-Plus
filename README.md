@@ -30,3 +30,4 @@ Using [QUIC](https://en.wikipedia.org/wiki/QUIC) and [Protocol Buffers](https://
 **Server:**
 * Some certificate problems with [msquick](https://github.com/microsoft/msquic) (TLS)
 * Send own and team Ships in VisionEvent (not exactly defined in RFC)
+* (Some) events are visible to hostiles out of range
