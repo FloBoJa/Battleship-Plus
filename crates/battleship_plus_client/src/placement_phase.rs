@@ -1,8 +1,5 @@
-use std::f32::consts::{FRAC_PI_2, PI};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::f32::consts::FRAC_PI_2;
+use std::{collections::HashSet, sync::Arc};
 
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
@@ -11,19 +8,22 @@ use iyes_loopless::prelude::*;
 use rstar::{Envelope, RTreeObject, AABB};
 
 use battleship_plus_common::{
-    game::{
-        ship::{GetShipID, Orientation, Ship, ShipID},
-        ship_manager::ShipManager,
-    },
+    game::ship::{Orientation, Ship, ShipID},
     messages::{self, EventMessage, GameStart, SetPlacementRequest, StatusCode, StatusMessage},
     types::{self, ShipAssignment, ShipType, Teams},
     util,
 };
 use bevy_quinnet_client::Client;
 
+use crate::game_state::CachedEvents;
 use crate::{
-    game_state::{GameState, PlayerId},
+    game,
+    game_state::{Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby::LobbyState,
+    models::{
+        load_assets, new_ship_model, GameAssets, OceanBundle, ShipBundle, ShipMeshes,
+        CLICK_PLANE_OFFSET_Z,
+    },
     networking::{self, CurrentServer, ServerInformation},
     RaycastSet,
 };
@@ -47,6 +47,7 @@ impl Plugin for PlacementPhasePlugin {
             )
             .add_enter_system(GameState::PlacementPhase, spawn_components)
             .add_enter_system(GameState::PlacementPhase, move_camera)
+            .add_enter_system(GameState::PlacementPhase, repeat_cached_events)
             .add_exit_system(GameState::PlacementPhase, despawn_components)
             .add_system_to_stage(
                 CoreStage::First,
@@ -57,7 +58,10 @@ impl Plugin for PlacementPhasePlugin {
             .add_system(place_ship.run_in_state(GameState::PlacementPhase))
             .add_system(send_placement.run_in_state(GameState::PlacementPhase))
             .add_system(process_responses.run_in_state(GameState::PlacementPhase))
-            .add_system(process_game_start_event.run_in_state(GameState::PlacementPhase));
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                process_game_start_event.run_in_state(GameState::PlacementPhase),
+            );
     }
 }
 
@@ -76,24 +80,10 @@ impl Quadrant {
 }
 
 #[derive(Resource)]
-struct GameAssets {
-    ocean_scene: Handle<Scene>,
-}
-
-#[derive(Resource)]
 struct SelectedShip {
     ship: ShipType,
     orientation: Orientation,
 }
-
-#[derive(Resource, Deref, DerefMut, Default)]
-struct Ships(ShipManager);
-
-#[derive(Resource, Deref)]
-struct PlayerTeam(Teams);
-
-#[derive(Resource, Deref)]
-struct Config(Arc<types::Config>);
 
 enum State {
     Placing,
@@ -113,63 +103,10 @@ impl Default for PlacementState {
 }
 
 #[derive(Component)]
-struct ShipInfo {
-    _ship_id: ShipID,
-}
-
-#[derive(Resource, Deref)]
-struct ShipMeshes(HashMap<ShipType, Handle<Mesh>>);
-
-const OCEAN_SIZE: f32 = 320.0;
-const OFFSET_Z: f32 = 4.9;
-
-fn new_ship_model(ship: &Ship, meshes: &Res<ShipMeshes>) -> PbrBundle {
-    let position = ship.position();
-    let translation = Vec3::new(position.0 as f32 + 0.5, position.1 as f32 + 0.5, 0.0);
-    let rotation = Quat::from_rotation_z(match ship.orientation() {
-        Orientation::North => FRAC_PI_2,
-        Orientation::East => 0.0,
-        Orientation::South => -FRAC_PI_2,
-        Orientation::West => PI,
-    });
-    PbrBundle {
-        mesh: meshes
-            .get(&ship.ship_type())
-            .expect("There are meshes for all configured ship types")
-            .clone(),
-        transform: Transform::from_translation(translation).with_rotation(rotation),
-        ..default()
-    }
-}
-
-#[derive(Bundle)]
-struct ShipBundle {
-    model: PbrBundle,
-    ship_info: ShipInfo,
-}
-
-#[derive(Component)]
 struct ShipPreview;
-
-impl ShipBundle {
-    fn new(ship: &Ship, meshes: &Res<ShipMeshes>) -> Self {
-        Self {
-            model: new_ship_model(ship, meshes),
-            ship_info: ShipInfo {
-                _ship_id: ship.id(),
-            },
-        }
-    }
-}
 
 #[derive(Component)]
 struct DespawnOnExit;
-
-fn load_assets(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(GameAssets {
-        ocean_scene: assets.load("models/ocean.glb#Scene0"),
-    });
-}
 
 fn create_resources(
     mut commands: Commands,
@@ -201,34 +138,7 @@ fn create_resources(
         .expect("Joined server always has a configuration");
     commands.insert_resource(Config(Arc::new(config)));
 
-    let ship_lengths: HashMap<ShipType, usize> = HashMap::from_iter(vec![
-        (ShipType::Destroyer, 2),
-        (ShipType::Submarine, 3),
-        (ShipType::Cruiser, 3),
-        (ShipType::Battleship, 4),
-        (ShipType::Carrier, 5),
-    ]);
-
-    let ship_meshes = ship_lengths
-        .iter()
-        .map(|(ship_type, length)| {
-            (
-                *ship_type,
-                meshes.add(
-                    shape::Box {
-                        min_x: -0.5,
-                        max_x: -0.5 + *length as f32,
-                        min_y: -0.5,
-                        max_y: 0.5,
-                        min_z: 0.0,
-                        max_z: 5.0,
-                    }
-                    .into(),
-                ),
-            )
-        })
-        .collect();
-    commands.insert_resource(ShipMeshes(ship_meshes));
+    commands.insert_resource(ShipMeshes::new(&mut meshes));
 }
 
 fn spawn_components(
@@ -239,21 +149,8 @@ fn spawn_components(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let scale = config.board_size as f32 / OCEAN_SIZE;
-    let transform = Transform::from_translation(Vec3::new(
-        scale * OCEAN_SIZE / 2.0,
-        scale * OCEAN_SIZE / 2.0,
-        0.0,
-    ))
-    .with_scale(Vec3::new(scale, scale, 1.0));
     commands
-        .spawn(SceneBundle {
-            scene: assets.ocean_scene.clone(),
-            transform,
-            ..default()
-        })
-        .insert(Name::new("Ocean"))
-        .insert(RaycastMesh::<RaycastSet>::default())
+        .spawn(OceanBundle::new(&assets, config.clone()))
         .insert(DespawnOnExit);
     commands
         .spawn(DirectionalLightBundle {
@@ -287,7 +184,7 @@ fn spawn_components(
             transform: Transform::from_xyz(
                 quadrant.lower()[0] as f32 + click_plane_offset,
                 quadrant.lower()[1] as f32 + click_plane_offset,
-                OFFSET_Z,
+                CLICK_PLANE_OFFSET_Z,
             )
             .with_rotation(Quat::from_rotation_x(FRAC_PI_2)),
             ..default()
@@ -761,10 +658,11 @@ fn process_game_start_event(
     mut events: EventReader<EventMessage>,
     placement_state: Res<PlacementState>,
 ) {
+    let mut transition_happened = false;
     for event in events.iter() {
         match event {
             EventMessage::GameStart(GameStart {
-                state: Some(_state),
+                state: Some(server_state),
             }) => {
                 match **placement_state {
                     State::WaitingForGameStart => {}
@@ -777,9 +675,11 @@ fn process_game_start_event(
                     }
                 }
 
-                // TODO: Game initialization.
-                warn!("Unimplemented: skipping game initialization");
+                info!("Starting game...");
+                commands.insert_resource(game::InitialGameState(server_state.clone()));
                 commands.insert_resource(NextState(GameState::Game));
+                transition_happened = true;
+                break;
             }
             EventMessage::GameStart(GameStart { state: None }) => {
                 // TODO: Robustness: request server state manually.
@@ -791,4 +691,22 @@ fn process_game_start_event(
             }
         }
     }
+    if transition_happened {
+        trace!("Repeating events that happened during state transition");
+        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
+        commands.insert_resource(CachedEvents(events));
+    }
+}
+
+fn repeat_cached_events(
+    mut commands: Commands,
+    cached_events: Option<Res<CachedEvents>>,
+    mut event_writer: EventWriter<messages::EventMessage>,
+) {
+    let cached_events = match cached_events {
+        Some(events) => events.clone(),
+        None => return,
+    };
+    event_writer.send_batch(cached_events.into_iter());
+    commands.remove_resource::<CachedEvents>();
 }

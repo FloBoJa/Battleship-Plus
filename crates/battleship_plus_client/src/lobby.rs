@@ -10,10 +10,9 @@ use battleship_plus_common::{
     types,
 };
 
-use crate::game_state::{GameState, PlayerId};
+use crate::game_state::{CachedEvents, GameState, PlayerId};
 use crate::networking;
 use crate::placement_phase;
-use crate::server_selection;
 
 pub struct LobbyPlugin;
 
@@ -22,8 +21,11 @@ impl Plugin for LobbyPlugin {
         app.init_resource::<LobbyState>()
             .init_resource::<RequestState>()
             .add_system(draw_lobby_screen.run_in_state(GameState::Lobby))
-            .add_system(process_lobby_events.run_in_state(GameState::Lobby))
             .add_system(process_responses.run_in_state(GameState::Lobby))
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                process_lobby_events.run_in_state(GameState::Lobby),
+            )
             // Catch events that happen immediately after joining.
             .add_enter_system(GameState::Lobby, repeat_cached_events)
             .add_enter_system(GameState::Lobby, reset_state);
@@ -221,6 +223,7 @@ fn draw_lobby_screen(
 }
 
 fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages::EventMessage>) {
+    let mut transition_happened = false;
     for event in events.iter() {
         match event {
             messages::EventMessage::LobbyChangeEvent(lobby_state) => {
@@ -233,6 +236,8 @@ fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages
                         message.quadrant_size,
                     ));
                     commands.insert_resource(NextState(GameState::PlacementPhase));
+                    transition_happened = true;
+                    break;
                 } else {
                     error!("Received PlacementPhase message without quadrant information, disconnecting");
                     commands.insert_resource(NextState(GameState::Unconnected));
@@ -242,6 +247,12 @@ fn process_lobby_events(mut commands: Commands, mut events: EventReader<messages
                 // ignore
             }
         }
+    }
+
+    if transition_happened {
+        trace!("Repeating events that happened during state transition");
+        let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
+        commands.insert_resource(CachedEvents(events));
     }
 }
 
@@ -357,7 +368,7 @@ fn process_response_data(
 
 fn repeat_cached_events(
     mut commands: Commands,
-    cached_events: Option<Res<server_selection::CachedEvents>>,
+    cached_events: Option<Res<CachedEvents>>,
     mut event_writer: EventWriter<messages::EventMessage>,
 ) {
     let cached_events = match cached_events {
@@ -365,7 +376,7 @@ fn repeat_cached_events(
         None => return,
     };
     event_writer.send_batch(cached_events.into_iter());
-    commands.remove_resource::<server_selection::CachedEvents>();
+    commands.remove_resource::<CachedEvents>();
 }
 
 fn reset_state(mut request_state: ResMut<RequestState>) {
