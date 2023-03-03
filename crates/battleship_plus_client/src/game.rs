@@ -5,10 +5,11 @@ use bevy::prelude::*;
 use bevy_egui::EguiContext;
 use bevy_mod_raycast::{Intersection, RaycastMesh};
 use iyes_loopless::prelude::*;
+use rstar::AABB;
 
 use battleship_plus_common::{
     game::{
-        ship::{Cooldown, GetShipID, Orientation, Ship},
+        ship::{Cooldown, GetShipID, Orientation, Ship, ShipID},
         ship_manager::ShipManager,
     },
     messages::{self, ship_action_request::ActionProperties, EventMessage, StatusCode},
@@ -17,9 +18,13 @@ use battleship_plus_common::{
 use bevy_quinnet_client::Client;
 
 use crate::{
+    effects,
     game_state::{CachedEvents, Config, GameState, PlayerId, PlayerTeam, Ships},
     lobby,
-    models::{GameAssets, OceanBundle, ShipBundle, ShipMeshes, CLICK_PLANE_OFFSET_Z},
+    models::{
+        get_ship_model_transform, GameAssets, OceanBundle, Ship as ModelShip, ShipBundle,
+        ShipMeshes, CLICK_PLANE_OFFSET_Z,
+    },
     networking, RaycastSet,
 };
 
@@ -50,6 +55,7 @@ impl Plugin for GamePlugin {
         )
         .add_system(select_ship.run_in_state(GameState::Game))
         .add_system(select_target.run_in_state(GameState::Game))
+        .add_system(update_ships.run_in_state(GameState::Game))
         .add_system(draw_menu.run_in_state(GameState::Game))
         .add_system(send_actions.run_in_state(GameState::Game));
     }
@@ -78,6 +84,9 @@ enum State {
 #[derive(Resource, Deref, DerefMut)]
 struct TurnState(State);
 
+#[derive(Resource, Deref, DerefMut)]
+struct CurrentPlayer(Option<battleship_plus_common::game::PlayerID>);
+
 #[derive(Component)]
 struct DespawnOnExit;
 
@@ -92,6 +101,7 @@ fn create_resources(
     player_team: Res<PlayerTeam>,
 ) {
     commands.insert_resource(TurnState(State::WaitingForTurn(None)));
+    commands.insert_resource(CurrentPlayer(None));
     commands.insert_resource(ActionPoints(0));
     commands.insert_resource(SelectedTargets(Vec::with_capacity(3)));
 
@@ -202,6 +212,33 @@ fn spawn_components(
         .insert(RaycastMesh::<RaycastSet>::default())
         .insert(Name::new("Grid"))
         .insert(DespawnOnExit);
+}
+
+fn update_ships(
+    mut commands: Commands,
+    game_ships: Res<Ships>,
+    mut model_ships: Query<(&ModelShip, &mut Transform)>,
+    ship_meshes: Res<ShipMeshes>,
+) {
+    for (ship_id, game_ship) in game_ships.iter_ships() {
+        let model_transform = model_ships.iter_mut().find_map(|(model_ship, transform)| {
+            if model_ship.id == *ship_id {
+                Some(transform)
+            } else {
+                None
+            }
+        });
+        match model_transform {
+            Some(mut transform) => *transform = get_ship_model_transform(game_ship),
+            None => {
+                warn!("Ship model for {ship_id:?} got lost, recreating it");
+                commands
+                    .spawn(ShipBundle::new(game_ship, &ship_meshes))
+                    .insert(DespawnOnExit);
+                continue;
+            }
+        }
+    }
 }
 
 fn draw_menu(
@@ -724,8 +761,9 @@ fn process_game_events(
     mut commands: Commands,
     mut events: EventReader<messages::EventMessage>,
     (player_id, player_team): (Res<PlayerId>, Res<PlayerTeam>),
-    mut turn_state: ResMut<TurnState>,
-    mut action_points: ResMut<ActionPoints>,
+    mut current_player: ResMut<CurrentPlayer>,
+    (mut turn_state, mut action_points): (ResMut<TurnState>, ResMut<ActionPoints>),
+    mut ships: ResMut<Ships>,
     config: Res<Config>,
 ) {
     let mut transition_happened = false;
@@ -735,6 +773,7 @@ fn process_game_events(
                 next_player_id,
                 position_in_queue,
             }) => {
+                **current_player = Some(*next_player_id);
                 if **player_id == *next_player_id {
                     // Only transition from the correct state.
                     // This mitigates the potential consequences of duplicate events.
@@ -742,6 +781,13 @@ fn process_game_events(
                         info!("Turn started");
                         **turn_state = State::ChoosingAction;
                         **action_points += config.action_point_gain;
+                        ships.iter_ships_mut().for_each(|(_, ship)| {
+                            let cooldowns = ship.cool_downs_mut();
+                            *cooldowns = cooldowns
+                                .iter_mut()
+                                .filter_map(|cooldown| cooldown.decremented())
+                                .collect();
+                        });
                     }
                 } else {
                     match **turn_state {
@@ -802,9 +848,33 @@ fn process_game_events(
                 }
             }
             EventMessage::ShipActionEvent(action) => {
-                info!(
+                trace!(
                     "Ship {} executed {:?}",
-                    action.ship_number, action.action_properties
+                    action.ship_number,
+                    action.action_properties
+                );
+                let current_player = match **current_player {
+                    Some(current_player) => current_player,
+                    None => {
+                        warn!("Received an action event while no turn started yet, ignoring it");
+                        continue;
+                    }
+                };
+                let action_properties = match action.action_properties {
+                    Some(ref action_properties) => action_properties.clone(),
+                    None => {
+                        warn!("Received an action event without action properties, ignoring it");
+                        continue;
+                    }
+                };
+                process_action_event(
+                    &mut commands,
+                    (current_player, action.ship_number),
+                    action_properties,
+                    &mut ships,
+                    &config,
+                    &mut action_points,
+                    &player_id,
                 );
             }
             EventMessage::GameOverEvent(messages::GameOverEvent { reason, winner }) => {
@@ -839,6 +909,216 @@ fn process_game_events(
         trace!("Repeating events that happened during state transition");
         let events = Vec::from_iter(events.iter().map(|event| (*event).clone()));
         commands.insert_resource(CachedEvents(events));
+    }
+}
+
+// Move and rotate ships, but do not check for collisions.
+// For the other events, do not deal any damage either, only initiate visualization.
+// Damage is handled by the server, the client only reacts to HitEvents and
+// DestructionEvents.
+fn process_action_event(
+    commands: &mut Commands,
+    ship_id: ShipID,
+    action_properties: messages::ship_action_event::ActionProperties,
+    ships: &mut ResMut<Ships>,
+    config: &Res<Config>,
+    action_points: &mut ResMut<ActionPoints>,
+    player_id: &Res<PlayerId>,
+) {
+    // Fake an action point account.
+    let mut enough_action_points = u32::MAX;
+    let is_player = ship_id.0 == ***player_id;
+    let action_points = if is_player {
+        &mut **action_points
+    } else {
+        &mut enough_action_points
+    };
+    let bounds = AABB::from_corners([0, 0], [config.board_size as i32, config.board_size as i32]);
+    use messages::ship_action_event::ActionProperties;
+
+    let ship = match ships.get_by_id_mut(&ship_id) {
+        Some(ship) => ship,
+        None => {
+            warn!("Received action event for unknown ship {ship_id:?}, ignoring it");
+            return;
+        }
+    };
+
+    let error = match action_properties {
+        ActionProperties::MoveProperties(ref properties) => ships
+            .move_ship(
+                action_points,
+                true,
+                &ship_id,
+                properties.direction(),
+                &bounds,
+            )
+            .err(),
+        ActionProperties::RotateProperties(ref properties) => ships
+            .rotate_ship(action_points, &ship_id, properties.direction(), &bounds)
+            .err(),
+        ActionProperties::ShootProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .shoot_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Cannon {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
+            let target = match properties.target {
+                Some(ref target) => target,
+                None => {
+                    warn!("Received shoot action without a target");
+                    return;
+                }
+            };
+
+            commands
+                .spawn(effects::ShotEffect::new(ship, target))
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::ScoutPlaneProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
+            let center = match properties.center {
+                Some(ref center) => center,
+                None => {
+                    warn!("Received scout plane action without a location");
+                    return;
+                }
+            };
+
+            commands
+                .spawn(effects::ScoutPlaneEffect::new(ship, center))
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::MultiMissileProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
+            for position in &[
+                &properties.position_a,
+                &properties.position_b,
+                &properties.position_c,
+            ] {
+                let position = match position {
+                    Some(position) => position,
+                    None => {
+                        warn!("Received multi missile attack with a missing target, ignoring that target");
+                        continue;
+                    }
+                };
+
+                commands
+                    .spawn(effects::MultiMissileEffect::new(ship, position))
+                    .insert(DespawnOnExit);
+            }
+
+            None
+        }
+        ActionProperties::PredatorMissileProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
+            let target = match properties.center {
+                Some(ref target) => target,
+                None => {
+                    warn!("Received predator missile action without a target");
+                    return;
+                }
+            };
+
+            commands
+                .spawn(effects::PredatorMissileEffect::new(ship, target))
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::TorpedoProperties(ref properties) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
+            commands
+                .spawn(effects::TorpedoEffect::new(ship, properties.direction()))
+                .insert(DespawnOnExit);
+
+            None
+        }
+        ActionProperties::EngineBoostProperties(_) => {
+            if is_player {
+                let costs = get_common_balancing(ship, config)
+                    .ability_costs
+                    .clone()
+                    .unwrap_or_default();
+                *action_points -= costs.action_points;
+                if costs.cooldown > 0 {
+                    ship.cool_downs_mut().push(Cooldown::Ability {
+                        remaining_rounds: costs.cooldown,
+                    });
+                }
+            }
+
+            // An engine boost triggers multiple move events as well, so the movement should not
+            // be handled here.
+
+            // TODO: Maybe implement engine boost visualization?
+
+            None
+        }
+    };
+    if let Some(error) = error {
+        error!("Could not process event for ship {ship_id:?}: {error:?}\nEvent contained: {action_properties:?}");
     }
 }
 
@@ -1128,8 +1408,10 @@ fn board_position_from_intersection(
     let intersection = intersections.get_single().ok()?;
     intersection
         .position()
+        // Shift intersections by (0.5, 0.5) to have integer world coordinates at the center of the
+        // tiles.
         .map(|&Vec3 { x, y, .. }| types::Coordinate {
-            x: x as u32,
-            y: y as u32,
+            x: (x + 0.5) as u32,
+            y: (y + 0.5) as u32,
         })
 }
