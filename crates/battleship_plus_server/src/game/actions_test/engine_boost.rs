@@ -66,7 +66,8 @@ async fn actions_engine_boost() {
     }
     .apply_on(&mut g);
     assert!(matches!(result, Ok(ActionResult::EngineBoost { .. })));
-    if let Ok(ActionResult::EngineBoost(results)) = result {
+    if let Ok(ActionResult::EngineBoost(direction, results)) = result {
+        assert_eq!(direction, ship.orientation().into());
         assert_eq!(results.len(), engine_boost_range as usize);
 
         if let Ok(ActionResult::Single {
@@ -204,7 +205,8 @@ async fn actions_engine_boost_collision() {
     }
     .apply_on(&mut g);
     assert!(matches!(result, Ok(ActionResult::EngineBoost { .. })));
-    if let Ok(ActionResult::EngineBoost(results)) = result {
+    if let Ok(ActionResult::EngineBoost(direction, results)) = result {
+        assert_eq!(direction, ship.orientation().into());
         assert_eq!(results.len(), 3);
 
         if let Ok(ActionResult::Single {
@@ -312,7 +314,8 @@ async fn actions_engine_boost_respect_world_border() {
     }
     .apply_on(&mut g);
     assert!(matches!(result, Ok(ActionResult::EngineBoost { .. })));
-    if let Ok(ActionResult::EngineBoost(results)) = result {
+    if let Ok(ActionResult::EngineBoost(direction, results)) = result {
+        assert_eq!(direction, ship.orientation().into());
         assert_eq!(results.len(), 3);
 
         if let Ok(ActionResult::Single {
