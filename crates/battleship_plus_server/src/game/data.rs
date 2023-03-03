@@ -1,19 +1,27 @@
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::Arc;
 
+use rand::prelude::IteratorRandom;
+use rand::thread_rng;
 use rstar::{Envelope, RTreeObject, AABB};
 
-use battleship_plus_common::game::ship::{Ship, ShipID};
+use battleship_plus_common::game::ship::{Cooldown, Ship, ShipID};
 use battleship_plus_common::game::ship_manager::{ShipManager, ShipPlacementError};
 use battleship_plus_common::game::PlayerID;
-use battleship_plus_common::types::{Config, Direction, ShipAssignment, ShipType};
+use battleship_plus_common::messages::{ProtocolMessage, VisionEvent};
+use battleship_plus_common::types::{
+    Config, Coordinate, Direction, ShipAssignment, ShipType, Teams,
+};
 use battleship_plus_common::util;
+use bevy_quinnet_server::ClientId;
 
 use crate::config_provider::default_config_provider;
 use crate::game::states::GameState;
+use crate::server::MessageHandlerError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Game {
     pub(crate) config: Arc<Config>,
 
@@ -140,7 +148,6 @@ impl Game {
                 GameState::Lobby => false,
                 GameState::Preparation => true,
                 GameState::InGame => true,
-                GameState::End => false,
             }
         } else {
             false
@@ -223,6 +230,68 @@ impl Game {
 
         Ok(ship_manager.into())
     }
+
+    pub(crate) fn clear_temp_vision_and_advance_turn(
+        &mut self,
+        team: &[PlayerID],
+        broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+    ) -> Result<Turn, MessageHandlerError> {
+        if let Some(Turn { temp_vision, .. }) = self.turn.as_ref() {
+            if !temp_vision.is_empty() {
+                broadcast_tx
+                    .send((
+                        team.to_vec(),
+                        VisionEvent {
+                            vanished_ship_fields: temp_vision.iter().cloned().collect(),
+                            discovered_ship_fields: vec![],
+                        }
+                        .into(),
+                    ))
+                    .map_err(|e| MessageHandlerError::Broadcast(e.into()))?;
+            }
+        }
+
+        Ok(self.advance_turn())
+    }
+
+    pub(crate) fn advance_turn(&mut self) -> Turn {
+        let turn = Turn::new(
+            *self
+                .players
+                .keys()
+                .choose_stable(&mut thread_rng())
+                .unwrap(),
+            self.config.action_point_gain,
+        );
+
+        self.ships.iter_ships_mut().for_each(|(_, ship)| {
+            ship.cool_downs_mut().retain_mut(|cd| match cd {
+                Cooldown::Movement { remaining_rounds }
+                | Cooldown::Rotate { remaining_rounds }
+                | Cooldown::Cannon { remaining_rounds }
+                | Cooldown::Ability { remaining_rounds } => {
+                    *remaining_rounds = remaining_rounds.saturating_sub(1);
+
+                    *remaining_rounds > 0
+                }
+            })
+        });
+
+        self.turn = Some(turn.clone());
+        turn
+    }
+
+    pub(crate) fn game_result(&self) -> GameResult {
+        match (
+            self.ships.get_for_players(&self.team_a).len(),
+            self.ships.get_for_players(&self.team_b).len(),
+        ) {
+            (0, 0) => GameResult::Draw,
+            (0, _) => GameResult::Win(Teams::TeamB),
+            (_, 0) => GameResult::Win(Teams::TeamA),
+            _ => GameResult::Pending,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -237,6 +306,7 @@ pub struct Player {
 pub struct Turn {
     pub(crate) player_id: PlayerID,
     pub(crate) action_points_left: u32,
+    pub(crate) temp_vision: HashSet<Coordinate>,
 }
 
 impl Turn {
@@ -244,6 +314,14 @@ impl Turn {
         Turn {
             player_id,
             action_points_left: initial_action_points,
+            temp_vision: Default::default(),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum GameResult {
+    Pending,
+    Draw,
+    Win(Teams),
 }

@@ -97,12 +97,13 @@ async fn actions_shoot() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 5 }));
         assert!(lost_vision_at.contains(&Coordinate { x: 5, y: 6 }));
         assert!(gain_vision_at.is_empty());
-        assert!(ships_destroyed.contains(&ship_target1.id()));
+        assert!(ships_destroyed.iter().any(|s| s.id() == ship_target1.id()));
         assert!(inflicted_damage_by_ship.contains_key(&ship_target1.id()));
         assert!(inflicted_damage_at.contains_key(&Coordinate {
             x: ship_target1.data().pos_x as u32,
@@ -140,6 +141,7 @@ async fn actions_shoot() {
         gain_vision_at,
         lost_vision_at,
         temp_vision_at,
+        ..
     }) = result
     {
         assert!(lost_vision_at.is_empty());

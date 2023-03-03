@@ -13,7 +13,6 @@ pub enum GameState {
     Lobby,
     Preparation,
     InGame,
-    End,
 }
 
 impl Display for GameState {
@@ -22,7 +21,6 @@ impl Display for GameState {
             GameState::Lobby => f.write_str("Lobby"),
             GameState::Preparation => f.write_str("Preparation"),
             GameState::InGame => f.write_str("InGame"),
-            GameState::End => f.write_str("End"),
         }
     }
 }
@@ -58,10 +56,6 @@ impl GameState {
                     | ProtocolMessage::ServerStateRequest(_)
                     | ProtocolMessage::ActionRequest(_)
             ),
-            GameState::End => matches!(
-                msg,
-                ProtocolMessage::ServerConfigRequest(_) | ProtocolMessage::ServerStateRequest(_)
-            ),
         } {
             Err(format!("{msg:?} is not allowed in {self}"))
         } else {
@@ -86,7 +80,6 @@ impl GameState {
                     | Action::Torpedo { .. }
                     | Action::MultiMissile { .. }
             ),
-            GameState::End => false,
         }
     }
 
