@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
@@ -8,18 +8,23 @@ use log::{debug, error, info, trace, warn};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tokio::macros::support::thread_rng_n;
+use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, RwLock, RwLockWriteGuard};
 
 use battleship_plus_common::game::ship::{Cooldown, GetShipID, Orientation, Ship};
 use battleship_plus_common::game::{ActionValidationError, PlayerID};
+use battleship_plus_common::messages::ship_action_request::ActionProperties;
 use battleship_plus_common::messages::status_message::Data;
 use battleship_plus_common::messages::{
-    GameStart, JoinResponse, LobbyChangeEvent, PlacementPhase, ProtocolMessage,
-    ServerConfigResponse, ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse,
-    StatusCode, StatusMessage, TeamSwitchResponse,
+    ship_action_event, DestructionEvent, GameOverEvent, GameStart, HitEvent, JoinResponse,
+    LobbyChangeEvent, NextTurn, PlacementPhase, ProtocolMessage, ServerConfigResponse,
+    ServerStateResponse, SetReadyStateRequest, SetReadyStateResponse, ShipActionEvent,
+    ShipActionResponse, SplashEvent, StatusCode, StatusMessage, TeamSwitchResponse, VisionEvent,
 };
 use battleship_plus_common::types::{
-    Config, Coordinate, Direction, PlayerLobbyState, ServerState, ShipState,
+    Config, Coordinate, Direction, GameEndReason, MoveProperties, PlayerLobbyState, ServerState,
+    ShipState, Teams,
 };
 use battleship_plus_common::{protocol_name, protocol_name_with_version};
 use bevy_quinnet_server::certificate::CertificateRetrievalMode;
@@ -28,8 +33,8 @@ use bevy_quinnet_server::{
 };
 
 use crate::config_provider::ConfigProvider;
-use crate::game::actions::{Action, ActionExecutionError};
-use crate::game::data::{Game, Player, Turn};
+use crate::game::actions::{Action, ActionExecutionError, ActionResult};
+use crate::game::data::{Game, GameResult, Player, Turn};
 use crate::game::states::GameState;
 use crate::tasks::{upgrade_oneshot, TaskControl};
 
@@ -40,8 +45,8 @@ pub fn spawn_server_task(cfg: Arc<dyn ConfigProvider + Send + Sync>) -> TaskCont
 }
 
 type BroadcastChannel = (
-    tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
-    tokio::sync::broadcast::Receiver<(Vec<ClientId>, ProtocolMessage)>,
+    Sender<(Vec<ClientId>, ProtocolMessage)>,
+    Receiver<(Vec<ClientId>, ProtocolMessage)>,
 );
 
 pub async fn server_task(
@@ -245,6 +250,12 @@ async fn endpoint_task(
                         if game.remove_player(client_it) {
                             info!("Ending game due lost connection to player {client_it}...");
                             debug!("Disconnecting all clients...");
+
+                            server.endpoint().try_broadcast_message(GameOverEvent {
+                                reason: GameEndReason::Disconnect.into(),
+                                winner: Teams::None.into(),
+                            }.into());
+
                             if let Err(e) = server.endpoint_mut().disconnect_all_clients() {
                                 error!("Unable to disconnect all client: {e}");
                             }
@@ -313,6 +324,16 @@ async fn endpoint_task(
                     "unable to handle message from client {}: {payload:?}: {e}",
                     payload.client_id
                 );
+
+                if let Err(e) = ep.send_message(
+                    payload.client_id,
+                    status_with_msg(StatusCode::BadRequest, e.to_string().as_str()),
+                ) {
+                    error!(
+                        "unable to send error message to {}: {}",
+                        payload.client_id, e
+                    )
+                }
             }
         };
     }
@@ -324,8 +345,8 @@ async fn handle_message(
     client_id: ClientId,
     msg: &ProtocolMessage,
     game: &Arc<RwLock<Game>>,
-    game_end_tx: &mpsc::UnboundedSender<()>,
-    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+    game_end_tx: &UnboundedSender<()>,
+    broadcast_tx: &Sender<(Vec<ClientId>, ProtocolMessage)>,
 ) -> Result<(), MessageHandlerError> {
     {
         let g = game.read().await;
@@ -486,6 +507,7 @@ async fn handle_message(
             if g.can_change_into_game_phase() {
                 info!("GamePhase: InGame");
                 g.state = GameState::InGame;
+                g.advance_turn();
                 broadcast_game_start(&g, broadcast_tx)?;
             }
 
@@ -548,18 +570,200 @@ async fn handle_message(
         }
         ProtocolMessage::ActionRequest(request) => {
             let action = Action::from((client_id, request));
-            if let Action::None = action {
-                return Ok(());
-            }
 
             let mut g = game.write().await;
-            let /*action_result*/ _ = g
-                .get_state()
-                .execute_action(action, &mut g)
-                .map_err(MessageHandlerError::Protocol);
+            let turn = match g.turn.as_ref() {
+                None => {
+                    return Err(MessageHandlerError::Protocol(
+                        ActionExecutionError::OutOfState(g.state),
+                    ))
+                }
+                Some(t) => t,
+            };
 
-            // TODO: respond according to the action and the action result
-            todo!()
+            if turn.player_id != client_id {
+                return Err(MessageHandlerError::Protocol(
+                    ActionExecutionError::Validation(ActionValidationError::NotPlayersTurn),
+                ));
+            }
+
+            let team = match (
+                g.team_a.contains(&turn.player_id),
+                g.team_b.contains(&turn.player_id),
+            ) {
+                (true, false) => &g.team_a,
+                (false, true) => &g.team_b,
+                _ => unreachable!(),
+            }
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+            if let Action::None = action {
+                let turn = g.clear_temp_vision_and_advance_turn(team.as_slice(), broadcast_tx)?;
+                return ep
+                    .broadcast_message(
+                        NextTurn {
+                            next_player_id: turn.player_id,
+                            position_in_queue: 0, //TODO
+                        }
+                        .into(),
+                    )
+                    .map_err(MessageHandlerError::Network);
+            }
+
+            let action_result = g
+                .get_state()
+                .execute_action(action.clone(), &mut g)
+                .map_err(MessageHandlerError::Protocol)?;
+
+            broadcast_tx
+                .send((
+                    team.clone(),
+                    ShipActionEvent {
+                        ship_number: request.ship_number,
+                        action_properties: request.action_properties.clone().map(|p| match p {
+                            ActionProperties::MoveProperties(p) => {
+                                ship_action_event::ActionProperties::MoveProperties(p)
+                            }
+                            ActionProperties::ShootProperties(p) => {
+                                ship_action_event::ActionProperties::ShootProperties(p)
+                            }
+                            ActionProperties::RotateProperties(p) => {
+                                ship_action_event::ActionProperties::RotateProperties(p)
+                            }
+                            ActionProperties::TorpedoProperties(p) => {
+                                ship_action_event::ActionProperties::TorpedoProperties(p)
+                            }
+                            ActionProperties::ScoutPlaneProperties(p) => {
+                                ship_action_event::ActionProperties::ScoutPlaneProperties(p)
+                            }
+                            ActionProperties::MultiMissileProperties(p) => {
+                                ship_action_event::ActionProperties::MultiMissileProperties(p)
+                            }
+                            ActionProperties::PredatorMissileProperties(p) => {
+                                ship_action_event::ActionProperties::PredatorMissileProperties(p)
+                            }
+                            ActionProperties::EngineBoostProperties(p) => {
+                                ship_action_event::ActionProperties::EngineBoostProperties(p)
+                            }
+                        }),
+                    }
+                    .into(),
+                ))
+                .map_err(|e| MessageHandlerError::Broadcast(e.into()))?;
+
+            match action_result {
+                ActionResult::None => Ok(()),
+                ActionResult::Single {
+                    lost_vision_at,
+                    temp_vision_at,
+                    gain_vision_at,
+                    ships_destroyed,
+                    inflicted_damage_at,
+                    gain_enemy_vision,
+                    lost_enemy_vision,
+                    splash_tiles,
+                    ..
+                } => {
+                    match handle_action_result(
+                        &mut g,
+                        client_id,
+                        broadcast_tx,
+                        gain_vision_at,
+                        temp_vision_at,
+                        lost_vision_at,
+                        gain_enemy_vision,
+                        lost_enemy_vision,
+                        inflicted_damage_at,
+                        ships_destroyed,
+                        splash_tiles,
+                    ) {
+                        Ok(GameResult::Pending) => Ok(()),
+                        Ok(result) => broadcast_game_result(
+                            result,
+                            g.players.keys().cloned().collect(),
+                            broadcast_tx,
+                            game_end_tx,
+                        ),
+                        Err(e) => Err(e),
+                    }
+                }
+                ActionResult::EngineBoost(direction, results) => {
+                    for res in results {
+                        match res {
+                            Ok(ActionResult::Single {
+                                lost_vision_at,
+                                temp_vision_at,
+                                gain_vision_at,
+                                ships_destroyed,
+                                inflicted_damage_at,
+                                gain_enemy_vision,
+                                lost_enemy_vision,
+                                splash_tiles,
+                                ..
+                            }) => {
+                                if let Action::EngineBoost { .. } = action {
+                                    broadcast_tx
+                                        .send((
+                                            team.clone(),
+                                            ShipActionEvent {
+                                                ship_number: request.ship_number,
+                                                action_properties: Some(
+                                                    MoveProperties {
+                                                        direction: direction.into(),
+                                                    }
+                                                    .into(),
+                                                ),
+                                            }
+                                            .into(),
+                                        ))
+                                        .map_err(|e| MessageHandlerError::Broadcast(e.into()))?;
+                                }
+
+                                match handle_action_result(
+                                    &mut g,
+                                    client_id,
+                                    broadcast_tx,
+                                    gain_vision_at,
+                                    temp_vision_at,
+                                    lost_vision_at,
+                                    gain_enemy_vision,
+                                    lost_enemy_vision,
+                                    inflicted_damage_at,
+                                    ships_destroyed,
+                                    splash_tiles,
+                                ) {
+                                    Ok(GameResult::Pending) => Ok(()),
+                                    Ok(result) => broadcast_game_result(
+                                        result,
+                                        g.players.keys().cloned().collect(),
+                                        broadcast_tx,
+                                        game_end_tx,
+                                    ),
+                                    Err(e) => Err(e),
+                                }?
+                            }
+                            Err(_) => ep
+                                .send_message(
+                                    client_id,
+                                    status_with_msg(StatusCode::OkWithWarning, "OK, with warning"),
+                                )
+                                .map_err(MessageHandlerError::Network)?,
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    Ok(())
+                }
+            }?;
+
+            ep.send_message(
+                client_id,
+                status_with_data(StatusCode::Ok, ShipActionResponse::default().into()),
+            )
+            .map_err(MessageHandlerError::Network)?;
+
+            Ok(())
         }
 
         // received a client-bound message
@@ -577,6 +781,112 @@ async fn handle_message(
                 .map_err(MessageHandlerError::Network)
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_action_result(
+    g: &mut Game,
+    client_id: ClientId,
+    broadcast_tx: &tokio::sync::broadcast::Sender<(Vec<ClientId>, ProtocolMessage)>,
+    gain_vision_at: HashSet<Coordinate>,
+    temp_vision_at: HashSet<Coordinate>,
+    lost_vision_at: HashSet<Coordinate>,
+    gain_enemy_vision: HashSet<Coordinate>,
+    lost_enemy_vision: HashSet<Coordinate>,
+    inflicted_damage_at: HashMap<Coordinate, u32>,
+    ships_destroyed: Vec<Ship>,
+    splash_tiles: HashSet<Coordinate>,
+) -> Result<GameResult, MessageHandlerError> {
+    // vision events
+    let ally_vision_gain = gain_vision_at
+        .iter()
+        .chain(
+            temp_vision_at
+                .iter()
+                .filter(|&c| g.turn.as_mut().unwrap().temp_vision.insert(c.clone())),
+        )
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let (allies, enemies) = match (g.team_a.contains(&client_id), g.team_b.contains(&client_id)) {
+        (true, false) => (&g.team_a, &g.team_b),
+        (false, true) => (&g.team_b, &g.team_a),
+        _ => unreachable!(),
+    };
+
+    if !ally_vision_gain.is_empty() || !lost_vision_at.is_empty() {
+        if let Err(e) = broadcast_tx.send((
+            allies.iter().cloned().collect(),
+            VisionEvent {
+                discovered_ship_fields: ally_vision_gain,
+                vanished_ship_fields: lost_vision_at.iter().cloned().collect(),
+            }
+            .into(),
+        )) {
+            return Err(MessageHandlerError::Broadcast(e.into()));
+        }
+    }
+
+    if !gain_enemy_vision.is_empty() || !lost_enemy_vision.is_empty() {
+        if let Err(e) = broadcast_tx.send((
+            enemies.iter().cloned().collect(),
+            VisionEvent {
+                discovered_ship_fields: gain_enemy_vision.iter().cloned().collect(),
+                vanished_ship_fields: lost_enemy_vision.iter().cloned().collect(),
+            }
+            .into(),
+        )) {
+            return Err(MessageHandlerError::Broadcast(e.into()));
+        }
+    }
+
+    // hit events
+    for (c, &damage) in inflicted_damage_at.iter() {
+        if let Err(e) = broadcast_tx.send((
+            g.players.keys().into_iter().cloned().collect(),
+            HitEvent {
+                coordinate: c.clone().into(),
+                damage,
+            }
+            .into(),
+        )) {
+            return Err(MessageHandlerError::Broadcast(e.into()));
+        }
+    }
+
+    // destruction events
+    for ship in ships_destroyed.iter() {
+        if let Err(e) = broadcast_tx.send((
+            g.players.keys().into_iter().cloned().collect(),
+            DestructionEvent {
+                coordinate: Some(Coordinate {
+                    x: ship.data().pos_x as u32,
+                    y: ship.data().pos_y as u32,
+                }),
+                direction: Direction::from(ship.data().orientation).into(),
+                ship_number: ship.data().id.1,
+                owner: ship.data().id.0,
+            }
+            .into(),
+        )) {
+            return Err(MessageHandlerError::Broadcast(e.into()));
+        }
+    }
+
+    // splash events
+    if !splash_tiles.is_empty() {
+        if let Err(e) = broadcast_tx.send((
+            g.players.keys().into_iter().cloned().collect(),
+            SplashEvent {
+                coordinate: splash_tiles.iter().cloned().collect(),
+            }
+            .into(),
+        )) {
+            return Err(MessageHandlerError::Broadcast(e.into()));
+        }
+    }
+
+    Ok(g.game_result())
 }
 
 /// Tries to fill the player into the team with capacity left and less players first.
@@ -693,7 +1003,7 @@ fn broadcast_game_start(
         broadcast_tx
             .send((
                 vec![id],
-                game_state_for_player(
+                game_start_for_player(
                     player,
                     game,
                     (team_ships_a.clone(), team_ships_b.clone()),
@@ -706,6 +1016,54 @@ fn broadcast_game_start(
             ))
             .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
     }
+
+    let turn = game.turn.as_ref().unwrap();
+    broadcast_tx
+        .send((
+            vec![turn.player_id],
+            ProtocolMessage::NextTurn(NextTurn {
+                next_player_id: turn.player_id,
+                position_in_queue: 0, // TODO
+            }),
+        ))
+        .map_err(|e| MessageHandlerError::Broadcast(Box::new(e)))?;
+
+    Ok(())
+}
+
+fn broadcast_game_result(
+    result: GameResult,
+    players: Vec<ClientId>,
+    broadcast_tx: &Sender<(Vec<ClientId>, ProtocolMessage)>,
+    game_end_tx: &UnboundedSender<()>,
+) -> Result<(), MessageHandlerError> {
+    match result {
+        GameResult::Pending => return Ok(()),
+        GameResult::Draw => broadcast_tx
+            .send((
+                players,
+                GameOverEvent {
+                    reason: GameEndReason::Regular.into(),
+                    winner: Teams::None.into(),
+                }
+                .into(),
+            ))
+            .map(|_| ())
+            .map_err(|e| MessageHandlerError::Broadcast(e.into()))?,
+        GameResult::Win(team) => broadcast_tx
+            .send((
+                players,
+                GameOverEvent {
+                    reason: GameEndReason::Regular.into(),
+                    winner: team.into(),
+                }
+                .into(),
+            ))
+            .map(|_| ())
+            .map_err(|e| MessageHandlerError::Broadcast(e.into()))?,
+    }
+
+    game_end_tx.send(()).expect("unable to end game");
 
     Ok(())
 }
@@ -724,6 +1082,9 @@ fn get_ships_by_team(game: &Game) -> (Vec<&Ship>, Vec<&Ship>) {
                 _ => unreachable!(),
             }
 
+            team_ships_a.sort_by_key(|s| s.id().1);
+            team_ships_b.sort_by_key(|s| s.id().1);
+
             (team_ships_a, team_ships_b)
         },
     )
@@ -739,6 +1100,7 @@ fn get_server_state_for_player(
         Some(Turn {
             player_id,
             action_points_left,
+            ..
         }) if player_id == player.id => action_points_left,
         _ => 0,
     };
@@ -761,7 +1123,7 @@ fn get_server_state_for_player(
     }
 }
 
-fn game_state_for_player(
+fn game_start_for_player(
     player: &Player,
     game: &Game,
     (team_ships_a, team_ships_b): (Vec<ShipState>, Vec<ShipState>),

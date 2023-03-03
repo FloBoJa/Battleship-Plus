@@ -65,8 +65,8 @@ async fn actions_engine_boost() {
         properties: EngineBoostProperties {},
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(ActionResult::Multiple { .. })));
-    if let Ok(ActionResult::Multiple(results)) = result {
+    assert!(matches!(result, Ok(ActionResult::EngineBoost { .. })));
+    if let Ok(ActionResult::EngineBoost(results)) = result {
         assert_eq!(results.len(), engine_boost_range as usize);
 
         if let Ok(ActionResult::Single {
@@ -76,6 +76,7 @@ async fn actions_engine_boost() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[0].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -98,6 +99,7 @@ async fn actions_engine_boost() {
                 gain_vision_at,
                 lost_vision_at,
                 temp_vision_at,
+                ..
             }) = results[i as usize].clone()
             {
                 assert!(ships_destroyed.is_empty());
@@ -116,6 +118,7 @@ async fn actions_engine_boost() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[(engine_boost_range - 1) as usize].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -200,8 +203,8 @@ async fn actions_engine_boost_collision() {
         properties: EngineBoostProperties {},
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(ActionResult::Multiple { .. })));
-    if let Ok(ActionResult::Multiple(results)) = result {
+    assert!(matches!(result, Ok(ActionResult::EngineBoost { .. })));
+    if let Ok(ActionResult::EngineBoost(results)) = result {
         assert_eq!(results.len(), 3);
 
         if let Ok(ActionResult::Single {
@@ -211,6 +214,7 @@ async fn actions_engine_boost_collision() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[0].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -230,10 +234,11 @@ async fn actions_engine_boost_collision() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[1].clone()
         {
-            assert!(ships_destroyed.contains(&ship.id()));
-            assert!(ships_destroyed.contains(&ship2.id()));
+            assert!(ships_destroyed.iter().any(|s| s.id() == ship.id()));
+            assert!(ships_destroyed.iter().any(|s| s.id() == ship2.id()));
             assert_eq!(ships_destroyed.len(), 2);
             assert!(inflicted_damage_by_ship.contains_key(&ship.id()));
             assert!(inflicted_damage_by_ship.contains_key(&ship2.id()));
@@ -306,8 +311,8 @@ async fn actions_engine_boost_respect_world_border() {
         properties: EngineBoostProperties {},
     }
     .apply_on(&mut g);
-    assert!(matches!(result, Ok(ActionResult::Multiple { .. })));
-    if let Ok(ActionResult::Multiple(results)) = result {
+    assert!(matches!(result, Ok(ActionResult::EngineBoost { .. })));
+    if let Ok(ActionResult::EngineBoost(results)) = result {
         assert_eq!(results.len(), 3);
 
         if let Ok(ActionResult::Single {
@@ -317,6 +322,7 @@ async fn actions_engine_boost_respect_world_border() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[0].clone()
         {
             assert!(ships_destroyed.is_empty());
@@ -334,6 +340,7 @@ async fn actions_engine_boost_respect_world_border() {
             gain_vision_at,
             lost_vision_at,
             temp_vision_at,
+            ..
         }) = results[1].clone()
         {
             assert!(ships_destroyed.is_empty());
