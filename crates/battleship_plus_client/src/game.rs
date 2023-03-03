@@ -49,6 +49,7 @@ impl Plugin for GamePlugin {
             process_game_events.run_in_state(GameState::Game),
         )
         .add_system(select_ship.run_in_state(GameState::Game))
+        .add_system(select_target.run_in_state(GameState::Game))
         .add_system(draw_menu.run_in_state(GameState::Game))
         .add_system(send_actions.run_in_state(GameState::Game));
     }
@@ -60,11 +61,16 @@ pub struct InitialGameState(pub types::ServerState);
 #[derive(Resource, Deref, DerefMut)]
 struct SelectedShip(u32);
 
+#[derive(Resource, Deref, DerefMut)]
+struct SelectedTargets(Vec<types::Coordinate>);
+
+type TargetCount = usize;
 type PositionInQueue = Option<u32>;
 
 enum State {
     WaitingForTurn(PositionInQueue),
     ChoosingAction,
+    ChoosingTargets(TargetCount, ActionProperties),
     ChoseAction(Option<ActionProperties>),
     WaitingForResponse,
 }
@@ -86,6 +92,8 @@ fn create_resources(
     player_team: Res<PlayerTeam>,
 ) {
     commands.insert_resource(TurnState(State::WaitingForTurn(None)));
+    commands.insert_resource(ActionPoints(0));
+    commands.insert_resource(SelectedTargets(Vec::with_capacity(3)));
 
     let team_state = match **player_team {
         Teams::TeamA => &lobby.team_state_a,
@@ -133,8 +141,6 @@ fn create_resources(
     }
 
     commands.insert_resource(Ships(ShipManager::new_with_ships(ships)));
-
-    commands.insert_resource(ActionPoints(0));
 }
 
 fn spawn_components(
@@ -201,7 +207,7 @@ fn spawn_components(
 fn draw_menu(
     mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
-    selected: Option<ResMut<SelectedShip>>,
+    (selected, mut selected_targets): (Option<ResMut<SelectedShip>>, ResMut<SelectedTargets>),
     ships: ResMut<Ships>,
     player_id: Res<PlayerId>,
     (action_points, mut turn_state): (Res<ActionPoints>, ResMut<TurnState>),
@@ -217,69 +223,188 @@ fn draw_menu(
         egui_context.ctx_mut(),
         |ui| {
             ui.horizontal(|ui| {
-                ui.horizontal_centered(|ui| {
-                    ui.set_height(50.0);
+                ui.set_height(50.0);
 
-                    let may_shoot =
-                        may_execute_action && may_shoot(&selected, &action_points, &config);
-                    let shoot_button = ui.add_enabled(may_shoot, egui::Button::new("Shoot"));
-                    if shoot_button.clicked() {
-                        debug!("Initiating shot...");
-                        debug!("Selecting target...");
-                        debug!("Selected self");
-                        let selected =
-                            selected.expect("Button can only be clicked when a ship is selected");
-                        let position = selected.position();
-                        let target = Some(types::Coordinate {
-                            x: position.0 as u32,
-                            y: position.1 as u32,
-                        });
-                        let shoot_properties = types::ShootProperties { target };
-                        **turn_state = State::ChoseAction(Some(shoot_properties.into()));
-                    }
-
-                    let may_use_special =
-                        may_execute_action && may_use_special(&selected, &action_points, &config);
-                    let special_button =
-                        ui.add_enabled(may_use_special, egui::Button::new("Special"));
-                    if special_button.clicked() {
-                        debug!("Initiating special ability...");
-                        let selected =
-                            selected.expect("Button can only be clicked when a ship is selected");
-                        let position = selected.position();
-                        let target = Some(types::Coordinate {
-                            x: position.0 as u32,
-                            y: position.1 as u32,
-                        });
-                        let action_properties = match selected.ship_type() {
-                            types::ShipType::Carrier => {
-                                types::ScoutPlaneProperties { center: target }.into()
-                            }
-                            types::ShipType::Submarine => types::TorpedoProperties {
-                                direction: types::Direction::from(selected.orientation()).into(),
-                            }
-                            .into(),
-                            types::ShipType::Cruiser => types::EngineBoostProperties {}.into(),
-                            types::ShipType::Battleship => {
-                                types::PredatorMissileProperties { center: target }.into()
-                            }
-                            types::ShipType::Destroyer => types::MultiMissileProperties {
-                                position_a: target.clone(),
-                                position_b: target.clone(),
-                                position_c: target,
-                            }
-                            .into(),
-                        };
-                        **turn_state = State::ChoseAction(Some(action_properties));
+                ui.horizontal(|ui| {
+                    ui.set_width(150.0);
+                    match **turn_state {
+                        State::WaitingForTurn(Some(1)) => ui.label("1 turn before you".to_string()),
+                        State::WaitingForTurn(Some(remaining_turns)) => {
+                            ui.label(format!("{remaining_turns} turns before you"))
+                        }
+                        State::WaitingForTurn(None) => ui.label("Waiting for turn..."),
+                        _ => ui.label(format!(
+                            "Action Points: {} (+{}/turn)",
+                            **action_points, config.action_point_gain
+                        )),
                     }
                 });
 
                 ui.separator();
 
-                ui.label("Move:");
+                let may_shoot = may_execute_action && may_shoot(&selected, &action_points, &config);
+                let cooldown = get_shoot_cooldown(&selected);
+                let button_text = match cooldown {
+                    Some(cooldown) => format!("Shoot ({cooldown})"),
+                    None => "Shoot".to_string(),
+                };
+                let shoot_button = ui.add_enabled(
+                    may_shoot,
+                    egui::Button::new(button_text).min_size(egui::Vec2::new(100.0, 0.0)),
+                );
+
+                let (required_action_points, cooldown, damage, range) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.shoot_costs.clone().unwrap_or_default();
+                        let damage = balancing.shoot_damage;
+                        let range = balancing.shoot_range;
+                        (action_points, cooldown, damage, range)
+                    }
+                    None => default(),
+                };
+
+                let hover_text = format!(
+                    "AP: {required_action_points}\nCD: {cooldown}\nDMG: {damage}\nRANGE: {range}"
+                );
+                let shoot_button = shoot_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
+
+                if shoot_button.clicked() {
+                    trace!("Initiating shot, waiting for target selection...");
+                    **turn_state =
+                        State::ChoosingTargets(1, types::ShootProperties::default().into());
+
+                    // let selected =
+                    //     selected.expect("Button can only be clicked when a ship is selected");
+                    // let position = selected.position();
+                    // let target = Some(types::Coordinate {
+                    //     x: position.0 as u32,
+                    //     y: position.1 as u32,
+                    // });
+                    // let shoot_properties = types::ShootProperties { target };
+                    // **turn_state = State::ChoseAction(Some(shoot_properties.into()));
+                }
+
+                let may_use_special =
+                    may_execute_action && may_use_special(&selected, &action_points, &config);
+                let cooldown = get_special_cooldown(&selected);
+                // TODO: Display the actual ability name here.
+                let button_text = match cooldown {
+                    Some(cooldown) => format!("Special ({cooldown})"),
+                    None => "Special".to_string(),
+                };
+                let special_button = ui.add_enabled(
+                    may_use_special,
+                    egui::Button::new(button_text).min_size(egui::Vec2::new(100.0, 0.0)),
+                );
+
+                let (required_action_points, cooldown, special_description) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.ability_costs.clone().unwrap_or_default();
+                        let special_description =
+                            format!("\n{}", get_special_description(ship, &config));
+                        (action_points, cooldown, special_description)
+                    }
+                    None => default(),
+                };
+                let hover_text =
+                    format!("AP: {required_action_points}\nCD: {cooldown}{special_description}");
+                let special_button = special_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
+
+                if special_button.clicked() {
+                    trace!("Initiating special ability...");
+                    let ship =
+                        selected.expect("Button can only be clicked when a ship is selected");
+                    let action_properties = match ship.ship_type() {
+                        types::ShipType::Carrier => {
+                            trace!("Waiting for target selection...");
+                            selected_targets.clear();
+                            **turn_state = State::ChoosingTargets(
+                                1,
+                                types::ScoutPlaneProperties::default().into(),
+                            );
+                            None
+                        }
+                        types::ShipType::Submarine => {
+                            trace!("Waiting for target direction selection...");
+                            **turn_state = State::ChoosingTargets(
+                                1,
+                                types::TorpedoProperties::default().into(),
+                            );
+                            None
+                        }
+                        types::ShipType::Cruiser => Some(types::EngineBoostProperties {}.into()),
+                        types::ShipType::Battleship => {
+                            trace!("Waiting for target selection...");
+                            selected_targets.clear();
+                            **turn_state = State::ChoosingTargets(
+                                1,
+                                types::PredatorMissileProperties::default().into(),
+                            );
+                            None
+                        }
+                        types::ShipType::Destroyer => {
+                            trace!("Waiting for three target selections...");
+                            selected_targets.clear();
+                            **turn_state = State::ChoosingTargets(
+                                3,
+                                types::MultiMissileProperties::default().into(),
+                            );
+                            None
+                        }
+                    };
+                    if let Some(action_properties) = action_properties {
+                        **turn_state = State::ChoseAction(Some(action_properties));
+                    }
+                }
+
+                ui.separator();
+
+                let cooldown = get_move_cooldown(&selected);
+                let label_text = match cooldown {
+                    Some(cooldown) => format!("Move ({cooldown}):"),
+                    None => "Move:".to_string(),
+                };
+                ui.horizontal(|ui| {
+                    ui.set_min_size(egui::Vec2::new(60.0, 0.0));
+                    ui.label(label_text);
+                });
+
                 let may_move = may_execute_action && may_move(&selected, &action_points, &config);
                 let forward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b06}"));
                 let backward_button = ui.add_enabled(may_move, egui::Button::new("\u{2b07}"));
+
+                let (required_action_points, cooldown) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.movement_costs.clone().unwrap_or_default();
+                        (action_points, cooldown)
+                    }
+                    None => default(),
+                };
+
+                let hover_text = format!("AP: {required_action_points}\nCD: {cooldown}");
+                let forward_button = forward_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text.clone());
+                let backward_button = backward_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
+
                 let mut direction = None;
                 if forward_button.clicked() {
                     trace!("Moving forward");
@@ -298,12 +423,42 @@ fn draw_menu(
 
                 ui.separator();
 
-                ui.label("Rotate:");
+                let cooldown = get_rotate_cooldown(&selected);
+                let label_text = match cooldown {
+                    Some(cooldown) => format!("Rotate ({cooldown}):"),
+                    None => "Rotate:".to_string(),
+                };
+                ui.horizontal(|ui| {
+                    ui.set_min_size(egui::Vec2::new(60.0, 0.0));
+                    ui.label(label_text);
+                });
+
                 let may_rotate =
                     may_execute_action && may_rotate(&selected, &action_points, &config);
                 let clockwise_button = ui.add_enabled(may_rotate, egui::Button::new("\u{21A9}"));
                 let counter_clockwise_button =
                     ui.add_enabled(may_rotate, egui::Button::new("\u{21AA}"));
+
+                let (required_action_points, cooldown) = match selected {
+                    Some(ship) => {
+                        let balancing = get_common_balancing(ship, &config);
+                        let types::Costs {
+                            action_points,
+                            cooldown,
+                        } = balancing.rotation_costs.clone().unwrap_or_default();
+                        (action_points, cooldown)
+                    }
+                    None => default(),
+                };
+
+                let hover_text = format!("AP: {required_action_points}\nCD: {cooldown}");
+                let clockwise_button = clockwise_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text.clone());
+                let counter_clockwise_button = counter_clockwise_button
+                    .on_hover_text(hover_text.clone())
+                    .on_disabled_hover_text(hover_text);
+
                 let mut direction = None;
                 if clockwise_button.clicked() {
                     trace!("Rotating clockwise");
@@ -347,6 +502,16 @@ fn draw_menu(
     );
 }
 
+fn get_shoot_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Cannon { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_shoot(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -356,13 +521,7 @@ fn may_shoot(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Cannon { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_shoot_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).shoot_costs {
@@ -375,6 +534,16 @@ fn may_shoot(
     cooldown.is_none() && enough_action_points
 }
 
+fn get_move_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Movement { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_move(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -384,13 +553,7 @@ fn may_move(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Movement { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_move_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).movement_costs {
@@ -403,6 +566,16 @@ fn may_move(
     cooldown.is_none() && enough_action_points
 }
 
+fn get_rotate_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Rotate { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_rotate(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -412,13 +585,7 @@ fn may_rotate(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Rotate { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_rotate_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).rotation_costs {
@@ -431,6 +598,16 @@ fn may_rotate(
     cooldown.is_none() && enough_action_points
 }
 
+fn get_special_cooldown(selected: &Option<&Ship>) -> Option<u32> {
+    (*selected)?.cool_downs().iter().find_map(|x| {
+        if let &Cooldown::Ability { remaining_rounds } = x {
+            Some(remaining_rounds)
+        } else {
+            None
+        }
+    })
+}
+
 fn may_use_special(
     selected: &Option<&Ship>,
     action_points: &Res<ActionPoints>,
@@ -440,13 +617,7 @@ fn may_use_special(
         Some(selected) => *selected,
         None => return false,
     };
-    let cooldown = ship.cool_downs().iter().find_map(|x| {
-        if let &Cooldown::Ability { remaining_rounds } = x {
-            Some(remaining_rounds)
-        } else {
-            None
-        }
-    });
+    let cooldown = get_special_cooldown(selected);
     let available_action_points = ***action_points;
     let required_action_points =
         if let Some(costs) = &get_common_balancing(ship, config).ability_costs {
@@ -457,6 +628,60 @@ fn may_use_special(
     let enough_action_points = available_action_points >= required_action_points;
 
     cooldown.is_none() && enough_action_points
+}
+
+fn get_special_description(ship: &Ship, config: &Res<Config>) -> String {
+    match ship.ship_type() {
+        types::ShipType::Carrier => {
+            let balancing = config
+                .carrier_balancing
+                .as_ref()
+                .expect("Carrier must have a balancing");
+            format!(
+                "RADIUS: {}\nRANGE: {}",
+                balancing.scout_plane_radius, balancing.scout_plane_range
+            )
+        }
+        types::ShipType::Battleship => {
+            let balancing = config
+                .battleship_balancing
+                .as_ref()
+                .expect("Battleship must have a balancing");
+            format!(
+                "DMG: {}\nRADIUS: {}\nRANGE: {}",
+                balancing.predator_missile_damage,
+                balancing.predator_missile_radius,
+                balancing.predator_missile_range
+            )
+        }
+        types::ShipType::Cruiser => {
+            let balancing = config
+                .cruiser_balancing
+                .as_ref()
+                .expect("Cruiser must have a balancing");
+            format!("DIST: {}", balancing.engine_boost_distance)
+        }
+        types::ShipType::Submarine => {
+            let balancing = config
+                .submarine_balancing
+                .as_ref()
+                .expect("Submarine must have a balancing");
+            format!(
+                "DMG: {}\nRANGE: {}",
+                balancing.torpedo_damage, balancing.torpedo_range
+            )
+        }
+        types::ShipType::Destroyer => {
+            let balancing = config
+                .destroyer_balancing
+                .as_ref()
+                .expect("Destroyer must have a balancing");
+            format!(
+                "DMG: 3x{}\nRADIUS: {}",
+                balancing.multi_missile_damage, balancing.multi_missile_radius
+            )
+        }
+    }
 }
 
 fn get_common_balancing<'a>(ship: &Ship, config: &'a Res<Config>) -> &'a CommonBalancing {
@@ -511,12 +736,18 @@ fn process_game_events(
                 position_in_queue,
             }) => {
                 if **player_id == *next_player_id {
-                    info!("Turn started");
-                    **turn_state = State::ChoosingAction;
-                    **action_points += config.action_point_gain;
+                    // Only transition from the correct state.
+                    // This mitigates the potential consequences of duplicate events.
+                    if matches!(**turn_state, State::WaitingForTurn(_)) {
+                        info!("Turn started");
+                        **turn_state = State::ChoosingAction;
+                        **action_points += config.action_point_gain;
+                    }
                 } else {
                     match **turn_state {
-                        State::WaitingForTurn(_) | State::ChoosingAction => {}
+                        State::WaitingForTurn(_)
+                        | State::ChoosingAction
+                        | State::ChoosingTargets(_, _) => {}
                         State::ChoseAction(_) => {
                             debug!("Action is aborted, the turn ended");
                         }
@@ -528,6 +759,11 @@ fn process_game_events(
                     **turn_state = if *position_in_queue == 0 {
                         info!("It is {next_player_id}'s turn now");
                         State::WaitingForTurn(None)
+                    } else if *position_in_queue == 1 {
+                        info!(
+                            "It is {next_player_id}'s turn now. {position_in_queue} turn remaining"
+                        );
+                        State::WaitingForTurn(Some(*position_in_queue))
                     } else {
                         info!("It is {next_player_id}'s turn now. {position_in_queue} turns remaining");
                         State::WaitingForTurn(Some(*position_in_queue))
@@ -717,6 +953,7 @@ fn select_ship(
     mut commands: Commands,
     intersections: Query<&Intersection<RaycastSet>>,
     selected: Option<ResMut<SelectedShip>>,
+    turn_state: Res<TurnState>,
     ships: Res<Ships>,
     player_id: Res<PlayerId>,
     mouse_input: Res<Input<MouseButton>>,
@@ -724,11 +961,17 @@ fn select_ship(
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
+    // Only allow to change the selection while waiting for the player's turn or while choosing an action.
+    // This excludes changing the selection during the target selection of the selected ship's
+    // action, among other things.
+    if !matches!(
+        **turn_state,
+        State::WaitingForTurn(_) | State::ChoosingAction
+    ) {
+        return;
+    }
     let position = match board_position_from_intersection(intersections) {
-        Some(position) => types::Coordinate {
-            x: position[0] as u32,
-            y: position[1] as u32,
-        },
+        Some(position) => position,
         None => return,
     };
     let (selected_player_id, ship_id) = match ships.get_by_position(position) {
@@ -746,19 +989,104 @@ fn select_ship(
     }
 }
 
+fn select_target(
+    intersections: Query<&Intersection<RaycastSet>>,
+    mut turn_state: ResMut<TurnState>,
+    selected: Option<ResMut<SelectedShip>>,
+    player_id: Res<PlayerId>,
+    ships: Res<Ships>,
+    mut selected_targets: ResMut<SelectedTargets>,
+    mouse_input: Res<Input<MouseButton>>,
+) {
+    // TODO: Allow aborting selection mode.
+
+    if !mouse_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let (&target_count, action_properties) = match &**turn_state {
+        State::ChoosingTargets(target_count, action_properties) => {
+            (target_count, action_properties)
+        }
+        _ => return,
+    };
+    if selected_targets.len() >= target_count {
+        return;
+    }
+
+    let target = match board_position_from_intersection(intersections) {
+        Some(position) => position,
+        None => return,
+    };
+
+    trace!("Selected target: ({}, {})", target.x, target.y);
+    selected_targets.push(target.clone());
+
+    if selected_targets.len() >= target_count {
+        // This position was the last one.
+        let mut action_properties = action_properties.clone();
+        match &mut action_properties {
+            ActionProperties::ShootProperties(properties) => {
+                properties.target = selected_targets.pop();
+            }
+            ActionProperties::ScoutPlaneProperties(properties) => {
+                properties.center = selected_targets.pop();
+            }
+            ActionProperties::PredatorMissileProperties(properties) => {
+                properties.center = selected_targets.pop();
+            }
+            ActionProperties::MultiMissileProperties(properties) => {
+                properties.position_a = selected_targets.pop();
+                properties.position_b = selected_targets.pop();
+                properties.position_c = selected_targets.pop();
+            }
+            ActionProperties::TorpedoProperties(properties) => {
+                let ship = selected
+                    .expect("Target selection mode cannot be enabled without a selected ship");
+                let ship = ships.get_by_id(&(**ship, **player_id)).expect(
+                    "Target selection mode cannot be enabled without a legal selected ship",
+                );
+                let ship_position = ship.position();
+                let (d_x, d_y) = (
+                    target.x as i32 - ship_position.0,
+                    target.y as i32 - ship_position.1,
+                );
+                let direction = if d_x.abs() > d_y.abs() {
+                    if d_x > 0 {
+                        types::Direction::East
+                    } else {
+                        types::Direction::West
+                    }
+                } else if d_y > 0 {
+                    types::Direction::North
+                } else {
+                    types::Direction::South
+                };
+                properties.set_direction(direction);
+            }
+            _ => unreachable!("Only actions with targets are allowed here"),
+        }
+        **turn_state = State::ChoseAction(Some(action_properties));
+    }
+}
+
 fn send_actions(
     mut commands: Commands,
     mut turn_state: ResMut<TurnState>,
     selected: Option<ResMut<SelectedShip>>,
     client: Res<Client>,
 ) {
-    let ship_number = match selected {
-        Some(selected) => **selected,
-        None => return,
-    };
     let action_properties = match &**turn_state {
         State::ChoseAction(action) => action.clone(),
         _ => return,
+    };
+    let ship_number = if action_properties.is_some() {
+        match selected {
+            Some(selected) => **selected,
+            None => return,
+        }
+    } else {
+        // Specify an arbitrary ship number for the end turn message.
+        default()
     };
     let message = messages::ShipActionRequest {
         ship_number,
@@ -796,9 +1124,12 @@ fn repeat_cached_events(
 
 fn board_position_from_intersection(
     intersections: Query<&Intersection<RaycastSet>>,
-) -> Option<[i32; 2]> {
+) -> Option<types::Coordinate> {
     let intersection = intersections.get_single().ok()?;
     intersection
         .position()
-        .map(|Vec3 { x, y, .. }| [*x as i32, *y as i32])
+        .map(|&Vec3 { x, y, .. }| types::Coordinate {
+            x: x as u32,
+            y: y as u32,
+        })
 }
