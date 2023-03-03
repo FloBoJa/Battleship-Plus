@@ -18,7 +18,7 @@ async fn actions_rotate() {
     let ship = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 0,
                 }),
@@ -107,7 +107,7 @@ async fn actions_rotate_action_points() {
     let ship = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 3,
                 }),
@@ -180,7 +180,7 @@ async fn actions_rotate_cooldown() {
     let ship = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 2,
                     action_points: 0,
                 }),
@@ -236,7 +236,7 @@ async fn actions_rotate_cooldown() {
                 .cool_downs()
                 .first()
                 .unwrap(),
-            Cooldown::Movement { .. }
+            Cooldown::Rotate { .. }
         ));
     }
 
@@ -271,7 +271,7 @@ async fn actions_rotate_cooldown() {
                 .first()
                 .unwrap()
                 .clone(),
-            Cooldown::Movement {
+            Cooldown::Rotate {
                 remaining_rounds: 2
             }
         );
@@ -308,7 +308,7 @@ async fn actions_rotate_deny_out_of_bounds() {
     let ship = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 0,
                 }),
@@ -351,7 +351,7 @@ async fn actions_rotate_destroy_on_collision() {
     let rotating_ship = Ship::Carrier {
         balancing: Arc::from(CarrierBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 0,
                 }),
@@ -371,7 +371,7 @@ async fn actions_rotate_destroy_on_collision() {
     let ship_to_be_destroyed = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 0,
                 }),
@@ -391,7 +391,7 @@ async fn actions_rotate_destroy_on_collision() {
     let ship_to_stay_intact = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 0,
                 }),
@@ -468,7 +468,7 @@ async fn actions_rotate_not_players_turn() {
     let ship = Ship::Destroyer {
         balancing: Arc::from(DestroyerBalancing {
             common_balancing: Some(CommonBalancing {
-                movement_costs: Some(Costs {
+                rotation_costs: Some(Costs {
                     cooldown: 0,
                     action_points: 0,
                 }),
