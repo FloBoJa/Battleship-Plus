@@ -88,6 +88,16 @@ impl ShipManager {
         }
     }
 
+    pub fn get_by_position_mut(&mut self, position: Coordinate) -> Option<&mut Ship> {
+        let position = [position.x as i32, position.y as i32];
+        let ship = self.ships_geo_lookup.locate_at_point(&position);
+        if let Some(ShipTreeNode { ship_id, .. }) = ship {
+            self.get_by_id_mut(&ship_id.clone())
+        } else {
+            None
+        }
+    }
+
     pub fn destroy_colliding_ships_in_envelope(
         &mut self,
         envelope: &AABB<[i32; 2]>,
@@ -116,10 +126,11 @@ impl ShipManager {
         }
     }
 
-    pub fn destroy_ships(&mut self, ships: Vec<&Ship>) {
-        ships.iter().for_each(|ship| {
-            self.ships.remove(&ship.id());
-            self.ships_geo_lookup.remove(&ShipTreeNode::from(ship));
+    pub fn destroy_ships(&mut self, ship_ids: Vec<&ShipID>) {
+        ship_ids.iter().for_each(|ship_id| {
+            if let Some(ship) = self.ships.remove(ship_id) {
+                self.ships_geo_lookup.remove(&ShipTreeNode::from(&ship));
+            }
         });
     }
 

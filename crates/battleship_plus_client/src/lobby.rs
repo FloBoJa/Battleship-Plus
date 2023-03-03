@@ -7,7 +7,7 @@ use iyes_loopless::prelude::*;
 
 use battleship_plus_common::{
     messages::{self, StatusCode},
-    types,
+    types::{self, GameEndReason},
 };
 
 use crate::game_state::{CachedEvents, GameState, PlayerId};
@@ -28,12 +28,20 @@ impl Plugin for LobbyPlugin {
             )
             // Catch events that happen immediately after joining.
             .add_enter_system(GameState::Lobby, repeat_cached_events)
-            .add_enter_system(GameState::Lobby, reset_state);
+            .add_enter_system(GameState::Lobby, reset_state)
+            .add_exit_system(GameState::Lobby, clean_up);
     }
 }
 
 #[derive(Resource, Deref)]
 pub struct UserName(pub String);
+
+#[derive(Resource)]
+pub struct GameEndDetails {
+    pub reason: GameEndReason,
+    pub winner: types::Teams,
+    pub player_team: types::Teams,
+}
 
 #[derive(Resource, Deref, Default)]
 pub struct LobbyState(messages::LobbyChangeEvent);
@@ -158,11 +166,27 @@ fn draw_lobby_screen(
     lobby_state: Res<LobbyState>,
     player_id: Res<PlayerId>,
     mut client: ResMut<Client>,
+    game_end_details: Option<Res<GameEndDetails>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.vertical_centered(|ui| {
             ui.set_max_width(600.0);
-            ui.heading("Lobby");
+            if let Some(details) = game_end_details {
+                let (heading_color, heading_text) = if details.winner == details.player_team {
+                    (Color32::GREEN, "VICTORY")
+                } else if details.winner == types::Teams::None {
+                    (Color32::YELLOW, "DRAW")
+                } else {
+                    (Color32::RED, "DEFEAT")
+                };
+                ui.label(
+                    egui::RichText::new(heading_text)
+                        .color(heading_color)
+                        .heading(),
+                );
+            } else {
+                ui.heading("Lobby");
+            }
 
             ui.add_space(20.0);
 
@@ -382,4 +406,8 @@ fn repeat_cached_events(
 fn reset_state(mut request_state: ResMut<RequestState>) {
     request_state.readiness_change_requested = false;
     request_state.team_switch_requested = false;
+}
+
+fn clean_up(mut commands: Commands) {
+    commands.remove_resource::<GameEndDetails>();
 }
