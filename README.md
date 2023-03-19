@@ -1,4 +1,4 @@
-# Battleship+ (Implementation Group A)
+# Battleship+
 
 Battleship+ written in Rust🦀
 
@@ -7,6 +7,11 @@ Multiplayer [Battleship](https://en.wikipedia.org/wiki/Battleship_(game)) game w
 Based on this [RFC](https://github.com/FloBoJa/Battleship-Plus/files/10885949/rfc.pdf). \
 Using [QUIC](https://en.wikipedia.org/wiki/QUIC) and [Protocol Buffers](https://en.wikipedia.org/wiki/Protocol_Buffers) for the networking.
 
+## Context
+Developed as a student project at the Karlsruhe Institute of Technology (KIT).
+The RFC was created as a group effort of more than a dozen students.
+After creating the RFC, we split up into groups that all implemented servers and clients adhering to the specification.
+This is the implementation of one of those groups.
 
 
 ## Usage
